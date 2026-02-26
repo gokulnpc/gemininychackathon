@@ -16,7 +16,7 @@ from models.schemas import (
     ScriptGenerationResponse,
     SeriesConfig,
 )
-from services import captions, ffmpeg, veo_video, s3
+from services import captions, ffmpeg, gcs, veo_video
 from services.gemini_agent import generate_script_with_agent
 
 logger = logging.getLogger(__name__)
@@ -247,7 +247,7 @@ async def _run_stages(
             output_path=os.path.join(work_dir, f"final_{platform.value}.mp4"),
         )
         s3_key = f"projects/{project_id}/{platform.value}/final.mp4"
-        url = await s3.upload_file(
+        url = await gcs.upload_file(
             local_path=platform_path,
             s3_key=s3_key,
             content_type="video/mp4",
@@ -255,10 +255,10 @@ async def _run_stages(
         video_urls[platform.value] = url
 
     master_key = f"projects/{project_id}/master/composed.mp4"
-    master_url = await s3.upload_file(composed_path, master_key)
+    master_url = await gcs.upload_file(composed_path, master_key)
     video_urls["master"] = master_url
 
     stages[-1].status = "completed"
-    stages[-1].detail = f"Uploaded {len(video_urls)} versions to S3"
+    stages[-1].detail = f"Uploaded {len(video_urls)} versions to GCS"
 
     return stages, video_urls, script

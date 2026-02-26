@@ -1,4 +1,6 @@
-"""Google Cloud Storage 
+"""Google Cloud Storage — drop-in replacement for the AWS S3 service.
+
+Same public interface as the old s3.py so all callers work without changes.
 
 Reuses Application Default Credentials (ADC) already configured for Veo 3 —
 no extra auth needed beyond GOOGLE_CLOUD_PROJECT and GCS_BUCKET in .env.

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
-from routers import auth, generation, pipeline, preset_process, projects, publish, series, smart_process
+from routers import auth, catalog, projects, publish, script, video
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,8 +15,8 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.app_name,
-    description="Voice-to-Video pipeline — turn a voice memo into a marketing video",
-    version="0.1.0",
+    description="Content Factory — turn a voice memo into a marketing video",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -29,12 +29,10 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(projects.router)
-app.include_router(generation.router)
-app.include_router(pipeline.router)
+app.include_router(catalog.router)
+app.include_router(script.router)
+app.include_router(video.router)
 app.include_router(publish.router)
-app.include_router(series.router)
-app.include_router(smart_process.router)
-app.include_router(preset_process.router)
 
 
 @app.get("/health")

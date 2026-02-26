@@ -28,7 +28,6 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 VEO_MODEL = "veo-3.0-generate-preview"
-LOCATION = "us-central1"
 
 _STYLE_SUFFIX = (
     "vertical 9:16 portrait composition, "
@@ -55,6 +54,7 @@ def _get_access_token() -> str | None:
 def _veo_generate_sync(
     prompt: str,
     project_id: str,
+    location: str,
     duration_seconds: int = 6,
     image_b64: str | None = None,
     image_mime: str = "image/png",
@@ -68,8 +68,8 @@ def _veo_generate_sync(
         return None
 
     url = (
-        f"https://{LOCATION}-aiplatform.googleapis.com/v1/"
-        f"projects/{project_id}/locations/{LOCATION}/"
+        f"https://{location}-aiplatform.googleapis.com/v1/"
+        f"projects/{project_id}/locations/{location}/"
         f"publishers/google/models/{VEO_MODEL}:predictLongRunning"
     )
 
@@ -109,7 +109,7 @@ def _veo_generate_sync(
     logger.info("Veo operation started: %s", operation_name)
 
     # Poll until done (max 5 minutes)
-    poll_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/{operation_name}"
+    poll_url = f"https://{location}-aiplatform.googleapis.com/v1/{operation_name}"
     deadline = time.time() + 300
     while time.time() < deadline:
         time.sleep(10)
@@ -166,6 +166,7 @@ async def generate_video_clip(
     """
     settings = get_settings()
     project_id = settings.google_cloud_project
+    location = settings.vertex_ai_location
 
     # ── Try Veo 3 ─────────────────────────────────────────────────────────────
     if project_id:
@@ -183,7 +184,7 @@ async def generate_video_clip(
 
         video_bytes = await asyncio.to_thread(
             _veo_generate_sync,
-            prompt, project_id, max(5, min(8, duration_seconds)), image_b64, image_mime,
+            prompt, project_id, location, max(5, min(8, duration_seconds)), image_b64, image_mime,
         )
 
         if video_bytes:

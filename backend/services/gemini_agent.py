@@ -13,6 +13,7 @@ ReAct loop using Gemini native function calling:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from uuid import uuid4
@@ -402,6 +403,7 @@ async def generate_script_with_agent(
     niche: str | None = None,
     art_style: str = "realism",
     video_format: str = "storytelling",
+    reddit_context: dict | None = None,
 ) -> dict:
     """Run a Gemini agent loop to generate a high-quality video script.
 
@@ -443,6 +445,14 @@ async def generate_script_with_agent(
         f"• Never call finalize_script with quality score < 70"
     )
 
+    if reddit_context and reddit_context.get("top_topics"):
+        topics = "\n".join(f"  • {t}" for t in reddit_context["top_topics"][:6])
+        subreddits = ", ".join(f"r/{s}" for s in reddit_context.get("subreddits_searched", []))
+        system += (
+            f"\n\nTRENDING ON REDDIT RIGHT NOW ({subreddits}):\n{topics}\n"
+            "Use these live trends to sharpen your hook angle and script perspective."
+        )
+
     tool = types.Tool(function_declarations=_TOOL_DECLARATIONS)
     config = types.GenerateContentConfig(
         system_instruction=system,
@@ -470,7 +480,6 @@ async def generate_script_with_agent(
     )
 
     while turns < MAX_TURNS and finalized is None:
-        import asyncio
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=MODEL,

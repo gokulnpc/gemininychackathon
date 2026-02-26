@@ -9,7 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-# --- Enums ---
+# ── Enums ─────────────────────────────────────────────────────────────────────
 
 
 class Platform(str, Enum):
@@ -66,32 +66,71 @@ class VideoDurationRange(str, Enum):
     long = "60+"
 
 
-# --- Transcription ---
+class CaptionStyleEnum(str, Enum):
+    bold_stroke = "bold_stroke"      # 1-2 words, ALL CAPS, white bold black outline
+    red_highlight = "red_highlight"  # 1-2 words, white on red background
+    sleek = "sleek"                  # 6-7 words, thin outline, bottom
+    karaoke = "karaoke"             # word-by-word gold highlight
+    majestic = "majestic"           # 4-5 words, large centered, gold shadow
+    beast = "beast"                  # 1 word at a time, maximum impact
+    elegant = "elegant"              # 5-6 words, italic, thin outline
+    clarity = "clarity"              # 6-7 words, lowercase, soft gray, minimal
 
 
-class TranscribeRequest(BaseModel):
-    audio_base64: str = Field(..., description="Base64-encoded audio data")
-    audio_format: str = Field(default="wav", description="Audio format: wav, mp3, m4a, webm, ogg, flac")
-    language: str = Field(default="en-US")
+# ── Script source (drives the generate-script flow) ───────────────────────────
 
 
-class TranscribeResponse(BaseModel):
-    transcript: str
-    detected_tone: Optional[str] = None
-    language: str
-    confidence: float
+class ScriptSource(str, Enum):
+    voice  = "voice"   # Flow 1: audio → Gemini transcription → agent
+    text   = "text"    # Flow 2: plain text → agent
+    preset = "preset"  # Flow 3: preset niche + topic → reddit context → agent
 
 
-# --- Script Generation ---
+# ── Preset keys ───────────────────────────────────────────────────────────────
 
 
-class ScriptGenerationRequest(BaseModel):
-    transcript: str = Field(..., description="Transcribed text or user-provided text")
-    target_platforms: list[Platform] = Field(default=[Platform.instagram_reels])
-    style: VideoStyle = Field(default=VideoStyle.modern_energetic)
-    video_duration: int = Field(default=30, description="Target duration in seconds: 15, 30, or 60")
-    brand_voice: Optional[str] = Field(default=None, description="Brand voice guidelines")
-    cta_preference: Optional[str] = Field(default=None, description="Preferred call-to-action")
+class PresetKey(str, Enum):
+    scary_stories      = "scary_stories"
+    history            = "history"
+    true_crime         = "true_crime"
+    stoic_motivation   = "stoic_motivation"
+    marketing_business = "marketing_business"
+    tech_innovation    = "tech_innovation"
+
+
+# ── Script generation ─────────────────────────────────────────────────────────
+
+
+class GenerateScriptRequest(BaseModel):
+    """Unified generate-script request for all three flows."""
+
+    source: ScriptSource = Field(..., description="Input mode: voice | text | preset")
+
+    # Flow 1 — voice
+    audio_base64:  Optional[str] = Field(default=None, description="Base64 audio (required when source=voice)")
+    audio_format:  str           = Field(default="webm", description="Audio format: webm, wav, mp3, m4a")
+
+    # Flow 2 — text
+    transcript: Optional[str] = Field(default=None, description="Raw text (required when source=text)")
+
+    # Flow 3 — preset
+    preset:     Optional[PresetKey] = Field(default=None, description="Preset key (required when source=preset)")
+    topic_hint: Optional[str]       = Field(default=None, description="Specific angle within the preset")
+
+    # Common video config (user fills these manually in all 3 flows)
+    target_platforms: list[Platform]   = Field(default=[Platform.instagram_reels])
+    style:            VideoStyle       = Field(default=VideoStyle.modern_energetic)
+    video_duration:   int              = Field(default=30, description="Target seconds: 15, 30, or 60")
+    caption_style:    CaptionStyleEnum = Field(default=CaptionStyleEnum.bold_stroke)
+    art_style:        ArtStyle         = Field(default=ArtStyle.realism)
+    background_music: MusicPreset      = Field(default=MusicPreset.none)
+    voice_id:         str              = Field(default="21m00Tcm4TlvDq8ikWAM")
+    video_format:     VideoFormat      = Field(default=VideoFormat.storytelling)
+    brand_voice:      Optional[str]    = Field(default=None)
+    cta_preference:   Optional[str]    = Field(default=None)
+
+    # Optional — load an existing saved series config (overrides the manual fields above)
+    series_id: Optional[str] = Field(default=None, description="Saved series config ID from /api/v1/series")
 
 
 class TextOverlay(BaseModel):
@@ -139,60 +178,33 @@ class ScriptGenerationResponse(BaseModel):
     voiceover_full_script: str
 
 
-# --- Voiceover ---
+# ── Video generation ──────────────────────────────────────────────────────────
 
 
-class VoiceoverRequest(BaseModel):
-    text: str
-    voice_id: Optional[str] = None
-    language: str = "en-US"
+class GenerateVideoRequest(BaseModel):
+    """Phase 2: generate video from a user-confirmed script.
 
-
-class VoiceoverResponse(BaseModel):
-    audio_base64: str
-    duration_seconds: float
-    word_timestamps: Optional[list[WordTimestamp]] = None
-
-
-# --- Captions ---
-
-
-class CaptionStyleEnum(str, Enum):
-    bold_stroke = "bold_stroke"      # 1-2 words, ALL CAPS, white bold black outline
-    red_highlight = "red_highlight"  # 1-2 words, white on red background
-    sleek = "sleek"                  # 6-7 words, thin outline, bottom
-    karaoke = "karaoke"             # word-by-word gold highlight
-    majestic = "majestic"           # 4-5 words, large centered, gold shadow
-    beast = "beast"                  # 1 word at a time, maximum impact
-    elegant = "elegant"              # 5-6 words, italic, thin outline
-    clarity = "clarity"              # 6-7 words, lowercase, soft gray, minimal
-
-
-class WordTimestamp(BaseModel):
-    word: str
-    start: float
-    end: float
-
-
-# --- Full Pipeline ---
-
-
-class PipelineRequest(BaseModel):
-    audio_base64: Optional[str] = Field(default=None, description="Base64-encoded audio (provide this OR transcript)")
-    audio_format: str = Field(default="wav")
-    transcript: Optional[str] = Field(default=None, description="Text input (provide this OR audio)")
+    Pass the ScriptGenerationResponse from /generate-script back here.
+    Runs: Veo 3 video clips → captions → FFmpeg compose → S3 upload.
+    """
+    script: ScriptGenerationResponse = Field(..., description="The confirmed script from /generate-script")
     target_platforms: list[Platform] = Field(default=[Platform.instagram_reels])
-    style: VideoStyle = Field(default=VideoStyle.modern_energetic)
-    video_duration: int = Field(default=30)
-    caption_style: CaptionStyleEnum = Field(default=CaptionStyleEnum.bold_stroke)
-    brand_voice: Optional[str] = None
-    cta_preference: Optional[str] = None
-    series_id: Optional[str] = Field(default=None, description="Series config ID — loads wizard settings from S3")
+    caption_style: CaptionStyleEnum  = Field(default=CaptionStyleEnum.bold_stroke)
+    video_duration: int              = Field(default=30)
+
+    # Series config (voice, music, art style) — load from saved series or supply directly
+    series_id:             Optional[str] = Field(default=None)
+    voice_id:              Optional[str] = Field(default=None)
+    art_style_override:    Optional[str] = Field(default=None, description="ArtStyle enum value")
+    music_preset_override: Optional[str] = Field(default=None, description="MusicPreset enum value")
+
+
+# ── Pipeline plumbing ─────────────────────────────────────────────────────────
 
 
 class PipelineStageStatus(BaseModel):
     stage: str
-    status: str  # "pending", "running", "completed", "failed"
+    status: str  # "pending" | "running" | "completed" | "failed"
     detail: Optional[str] = None
 
 
@@ -208,7 +220,7 @@ class PipelineResponse(BaseModel):
     error: Optional[str] = None
 
 
-# --- Publishing (Nova Act) ---
+# ── Publishing ────────────────────────────────────────────────────────────────
 
 
 class PublishPlatform(str, Enum):
@@ -218,9 +230,7 @@ class PublishPlatform(str, Enum):
 
 
 class PublishRequest(BaseModel):
-    platforms: list[PublishPlatform] = Field(
-        ..., min_length=1, description="Platforms to publish to"
-    )
+    platforms: list[PublishPlatform] = Field(..., min_length=1)
     schedule: Optional[datetime] = Field(
         default=None,
         description="ISO datetime to schedule the post. None = publish immediately.",
@@ -233,7 +243,7 @@ class PublishRequest(BaseModel):
 
 class PlatformPostResult(BaseModel):
     platform: PublishPlatform
-    status: str  # "published", "scheduled", "failed"
+    status: str  # "published" | "scheduled" | "failed"
     post_url: Optional[str] = None
     screenshot_url: Optional[str] = None
     error: Optional[str] = None
@@ -241,19 +251,18 @@ class PlatformPostResult(BaseModel):
 
 class PublishResponse(BaseModel):
     project_id: UUID
-    status: str  # "completed", "partial", "failed"
+    status: str  # "completed" | "partial" | "failed"
     posts: list[PlatformPostResult] = []
     completed_at: Optional[datetime] = None
 
 
-# --- Series / Wizard Config ---
+# ── Series / wizard config ────────────────────────────────────────────────────
 
 
-class VoiceOption(BaseModel):
-    id: str
+class ToneOption(BaseModel):
+    id: str          # matches gemini_audio detected_tone values
     name: str
-    gender: str
-    description: str
+    description: str  # explains the script style this tone produces
 
 
 class SeriesConfig(BaseModel):
@@ -261,7 +270,7 @@ class SeriesConfig(BaseModel):
     video_format: VideoFormat = VideoFormat.storytelling
     niche: Optional[str] = None
     language: str = "en-US"
-    voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs Rachel (default)
+    voice_id: str = "21m00Tcm4TlvDq8ikWAM"
     background_music: MusicPreset = MusicPreset.none
     music_volume: float = Field(default=0.15, ge=0.0, le=1.0)
     art_style: ArtStyle = ArtStyle.realism
@@ -275,19 +284,24 @@ class SeriesCreateResponse(BaseModel):
     config_url: Optional[str] = None
 
 
-class VoicePreviewResponse(BaseModel):
+class SeriesListItem(BaseModel):
+    series_id: str
+    series_name: str
+    video_format: str
+    niche: Optional[str] = None
+    art_style: str
+    caption_style: str
+    background_music: str
     voice_id: str
-    audio_base64: str
-    duration_seconds: float
+    video_duration: str
 
 
-class VoiceCloneResponse(BaseModel):
-    voice_id: str
-    name: str
-    message: str = "Voice clone created. Pass this voice_id when creating a series."
+class SeriesListResponse(BaseModel):
+    series: list[SeriesListItem]
+    total: int
 
 
-# --- Dashboard / Project List ---
+# ── Dashboard / project list ──────────────────────────────────────────────────
 
 
 class ProjectMetadata(BaseModel):
@@ -306,168 +320,4 @@ class ProjectMetadata(BaseModel):
 
 class ProjectListResponse(BaseModel):
     projects: list[ProjectMetadata]
-    total: int
-
-
-# --- Smart Process (Option B — voice idea → Nemotron auto-config → pipeline) ---
-
-
-class SmartProcessRequest(BaseModel):
-    audio_base64: Optional[str] = Field(default=None, description="Base64-encoded audio of the creator's idea")
-    audio_format: str = Field(default="wav")
-    transcript: Optional[str] = Field(default=None, description="Raw idea text (if audio not provided)")
-    target_platforms: list[Platform] = Field(
-        default=[Platform.instagram_reels],
-        description="Hint for Nemotron — it may adjust based on content analysis",
-    )
-    niche: Optional[str] = Field(
-        default=None,
-        description="Content niche for Reddit research (horror, finance, fitness, etc.). "
-                    "Auto-detected from transcript if not provided.",
-    )
-
-
-class NemotronSeriesConfig(BaseModel):
-    """The auto-generated series config returned by Nemotron's multi-agent reasoning."""
-    series_name: str
-    niche: str
-    art_style: str
-    caption_style: str
-    background_music: str
-    music_volume: float
-    voice_id: str
-    voice_name: str
-    video_duration: str
-    video_format: str
-    target_platforms: list[str]
-    reasoning: str
-    configured_by: str = "nemotron"
-    series_id: Optional[str] = None   # set after auto-creating in S3
-
-
-class SmartProcessResponse(BaseModel):
-    project_id: UUID = Field(default_factory=uuid4)
-    status: str = "completed"
-    stages: list[PipelineStageStatus] = []
-    video_urls: dict[str, str] = Field(default_factory=dict)
-    script: Optional[ScriptGenerationResponse] = None
-    nemotron_config: Optional[NemotronSeriesConfig] = None
-    error: Optional[str] = None
-
-
-# --- Preset Process (Option C — pick a preset → Nemotron auto-config → pipeline) ---
-
-
-class PresetKey(str, Enum):
-    scary_stories = "scary_stories"
-    history = "history"
-    true_crime = "true_crime"
-    stoic_motivation = "stoic_motivation"
-    marketing_business = "marketing_business"
-    tech_innovation = "tech_innovation"
-
-
-class PresetProcessRequest(BaseModel):
-    preset: PresetKey = Field(..., description="Built-in content preset to generate a video for")
-    target_platforms: list[Platform] = Field(
-        default=[Platform.instagram_reels],
-        description="Hint for Nemotron — it may adjust based on content analysis",
-    )
-    topic_hint: Optional[str] = Field(
-        default=None,
-        description="Optional specific angle or topic within the preset (e.g. 'Fall of the Roman Empire')",
-    )
-    # Phase-2 override: supply series_id + transcript returned by the /configure endpoint
-    # to skip re-running Nemotron and jump straight to the pipeline.
-    series_id: Optional[str] = Field(
-        default=None,
-        description="Pre-built series ID from /presets/{preset}/configure — skips Nemotron",
-    )
-    transcript: Optional[str] = Field(
-        default=None,
-        description="Pre-built topic transcript from /presets/{preset}/configure",
-    )
-
-
-class PresetConfigureResponse(BaseModel):
-    """Returned by POST /api/v1/presets/{preset}/configure.
-
-    Contains the Nemotron-auto-generated series config so the frontend can
-    pre-fill wizard steps (voice, music, art style, caption style) before
-    the user confirms and the pipeline is launched.
-    """
-    series_id: str
-    series_name: str
-    transcript: str
-    # Wizard fields
-    voice_id: str
-    voice_name: str
-    art_style: str
-    caption_style: str
-    background_music: str
-    music_volume: float
-    video_duration: str
-    video_format: str
-    target_platforms: list[str]
-    # Nemotron reasoning (nice to show in UI)
-    nemotron_reasoning: str
-    configured_by: str
-    # Stage progress (so UI can show what ran)
-    stages: list[PipelineStageStatus] = []
-
-
-# --- Script-only + Video-from-script (Speech/Text two-phase flow) ---
-
-
-class GenerateScriptRequest(BaseModel):
-    """Phase 1 of the speech/text flow: transcribe + generate script only.
-
-    The returned ScriptGenerationResponse is shown to the user for review.
-    They can regenerate as many times as they like before confirming.
-    """
-    audio_base64: Optional[str] = Field(default=None, description="Base64 audio (speech tab)")
-    audio_format: str = Field(default="webm", description="Audio format: webm, wav, mp3, m4a")
-    transcript: Optional[str] = Field(default=None, description="Raw text (text tab)")
-    target_platforms: list[Platform] = Field(default=[Platform.instagram_reels])
-    style: VideoStyle = Field(default=VideoStyle.modern_energetic)
-    video_duration: int = Field(default=30, description="Target seconds: 15, 30, or 60")
-    brand_voice: Optional[str] = None
-    cta_preference: Optional[str] = None
-    series_id: Optional[str] = Field(default=None, description="Optional series config to pull niche/format hints")
-
-
-class GenerateVideoRequest(BaseModel):
-    """Phase 2: generate video from a user-confirmed script.
-
-    Pass the ScriptGenerationResponse from Phase 1 back here.
-    Runs stages 3-7: voiceover → images → captions → compose → upload.
-    """
-    script: ScriptGenerationResponse = Field(..., description="The confirmed script from /generate-script")
-    target_platforms: list[Platform] = Field(default=[Platform.instagram_reels])
-    caption_style: CaptionStyleEnum = Field(default=CaptionStyleEnum.bold_stroke)
-    video_duration: int = Field(default=30)
-    series_id: Optional[str] = Field(default=None, description="Series config (voice, music, art style)")
-    # Per-field overrides when no series_id
-    voice_id: Optional[str] = Field(default=None, description="ElevenLabs voice ID override")
-    art_style_override: Optional[str] = Field(default=None, description="ArtStyle enum value override")
-    music_preset_override: Optional[str] = Field(default=None, description="MusicPreset enum value override")
-
-
-# --- Series List ---
-
-
-class SeriesListItem(BaseModel):
-    series_id: str
-    series_name: str
-    video_format: str
-    niche: Optional[str] = None
-    art_style: str
-    caption_style: str
-    background_music: str
-    voice_id: str
-    video_duration: str
-
-
-class SeriesListResponse(BaseModel):
-    series: list[SeriesListItem]
     total: int

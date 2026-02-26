@@ -18,7 +18,7 @@ from pathlib import Path
 import httpx
 
 from config import get_settings
-from services import s3 as s3_service
+from services import gcs as gcs_service
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ async def _publish_youtube(
     for prefix in ["youtube_shorts", "instagram_reels"]:
         candidate = f"projects/{project_id}/{prefix}/final.mp4"
         try:
-            await s3_service.download_file(candidate, local_path)
+            await gcs_service.download_file(candidate, local_path)
             s3_key = candidate
             break
         except Exception:
@@ -145,7 +145,7 @@ async def _publish_instagram(
 
     try:
         # Presigned URL so the Graph API can fetch the video from S3
-        video_url = await s3_service.generate_presigned_url(s3_key, expires_in=3600)
+        video_url = await gcs_service.generate_presigned_url(s3_key, expires_in=3600)
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             # Step 1: Create media container
@@ -222,7 +222,7 @@ async def _publish_tiktok(
     local_path = f"/tmp/voicevid_{project_id}_tiktok.mp4"
 
     try:
-        await s3_service.download_file(s3_key, local_path)
+        await gcs_service.download_file(s3_key, local_path)
     except Exception as exc:
         return {"platform": "tiktok", "status": "failed", "error": f"S3 download failed: {exc}"}
 
