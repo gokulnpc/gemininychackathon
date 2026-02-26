@@ -23,7 +23,7 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.0-flash-preview-image-generation"
+MODEL = "gemini-2.5-flash-image"
 PORTRAIT_WIDTH = 576
 PORTRAIT_HEIGHT = 1024
 

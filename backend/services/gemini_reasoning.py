@@ -15,6 +15,7 @@ import logging
 import re
 
 from config import get_settings
+from services.retry import call_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ Respond ONLY with a JSON object:
 }}"""
 
     try:
-        response = await asyncio.to_thread(
+        response = await call_with_retry(
             client.models.generate_content,
             model=MODEL,
             contents=prompt,
@@ -159,7 +160,7 @@ Respond ONLY with JSON:
 }}"""
 
     try:
-        response = await asyncio.to_thread(
+        response = await call_with_retry(
             client.models.generate_content,
             model=MODEL,
             contents=prompt,
@@ -277,7 +278,7 @@ Respond ONLY with JSON:
 }}"""
 
     try:
-        response = await asyncio.to_thread(
+        response = await call_with_retry(
             client.models.generate_content,
             model=MODEL,
             contents=prompt,

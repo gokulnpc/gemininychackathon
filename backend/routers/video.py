@@ -84,7 +84,7 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
             if series else request.video_duration
         )
 
-        # ── Run pipeline stages 4–7: Veo clips → captions → compose → upload ──
+        # ── Run pipeline stages 4–7:
         pipeline_stages, video_urls, script = await run_pipeline_stages(
             project_id=project_id,
             transcript=request.script.voiceover_full_script,

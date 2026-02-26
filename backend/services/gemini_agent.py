@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from config import get_settings
 from services import gemini_reasoning
+from services.retry import call_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -504,7 +505,7 @@ async def generate_script_with_agent(
     )
 
     while turns < MAX_TURNS and finalized is None:
-        response = await asyncio.to_thread(
+        response = await call_with_retry(
             client.models.generate_content,
             model=MODEL,
             contents=contents,

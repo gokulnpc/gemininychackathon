@@ -1,7 +1,9 @@
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
 from routers import auth, catalog, projects, publish, script, video
@@ -33,6 +35,11 @@ app.include_router(catalog.router)
 app.include_router(script.router)
 app.include_router(video.router)
 app.include_router(publish.router)
+
+# Serve locally generated videos when GCS is not configured
+_outputs_dir = os.path.join(os.path.dirname(__file__), "outputs")
+os.makedirs(_outputs_dir, exist_ok=True)
+app.mount("/outputs", StaticFiles(directory=_outputs_dir), name="outputs")
 
 
 @app.get("/health")
