@@ -1,0 +1,31 @@
+services:
+  voicevid-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: voicevid-api:latest
+    container_name: voicevid-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env          # all secrets live here — never committed
+    volumes:
+      # Persist MLflow local tracking DB across restarts
+      - ./backend/mlflow.db:/app/mlflow.db
+      # Optional: mount assets folder so music files are available
+      - ./backend/assets:/app/assets:ro
+    tmpfs:
+      - /tmp/voicevid_work      # pipeline scratch space — cleared on restart
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

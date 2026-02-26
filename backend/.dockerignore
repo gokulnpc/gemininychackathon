@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Secrets — never bake into image
+.env
+
+# Test scripts
+test_*.py
+
+# Local pipeline outputs (large files)
+output/
+input/
+
+# MLflow local tracking (use Databricks in prod)
+mlflow.db
+mlruns/
+
+# Dev tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Credentials
+client_secrets.json
+*.json.token
+
+# IDE
+.idea/
+.vscode/
+*.swp

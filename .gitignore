@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+/backend/.env
+/backend/output/
+/backend/input/
+/backend/.venv/
+/backend/client_secrets.json
+/backend/mlruns/
+/backend/mlflow.db

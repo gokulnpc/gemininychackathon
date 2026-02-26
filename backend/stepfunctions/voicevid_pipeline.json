@@ -1,0 +1,218 @@
+{
+  "Comment": "VoiceVid Pipeline — Voice Memo to Marketing Video",
+  "StartAt": "TranscribeAudio",
+  "States": {
+    "TranscribeAudio": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-transcribe",
+      "Parameters": {
+        "project_id.$": "$.project_id",
+        "audio_s3_key.$": "$.audio_s3_key",
+        "audio_format.$": "$.audio_format",
+        "language.$": "$.language"
+      },
+      "ResultPath": "$.transcription",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "Lambda.ServiceException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckInputType"
+    },
+
+    "CheckInputType": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.transcription.transcript",
+          "IsPresent": true,
+          "Next": "GenerateScript"
+        }
+      ],
+      "Default": "PipelineFailed"
+    },
+
+    "GenerateScript": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-generate-script",
+      "Parameters": {
+        "project_id.$": "$.project_id",
+        "transcript.$": "$.transcription.transcript",
+        "target_platforms.$": "$.target_platforms",
+        "style.$": "$.style",
+        "video_duration.$": "$.video_duration",
+        "brand_voice.$": "$.brand_voice",
+        "cta_preference.$": "$.cta_preference"
+      },
+      "ResultPath": "$.script",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ParallelMediaGeneration"
+    },
+
+    "ParallelMediaGeneration": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "GenerateSceneVideos",
+          "States": {
+            "GenerateSceneVideos": {
+              "Type": "Map",
+              "ItemsPath": "$.script.scenes",
+              "Parameters": {
+                "project_id.$": "$.project_id",
+                "scene.$": "$$.Map.Item.Value"
+              },
+              "Iterator": {
+                "StartAt": "GenerateSceneVideo",
+                "States": {
+                  "GenerateSceneVideo": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-generate-video",
+                    "Comment": "Nova Canvas image + FFmpeg zoompan — synchronous, no polling needed",
+                    "Parameters": {
+                      "project_id.$": "$.project_id",
+                      "scene_id.$": "$.scene.scene_id",
+                      "visual_prompt.$": "$.scene.visual_prompt",
+                      "duration_seconds.$": "$.scene.duration_seconds"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.scene_videos",
+              "MaxConcurrency": 3,
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "GenerateVoiceover",
+          "States": {
+            "GenerateVoiceover": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-generate-voiceover",
+              "Parameters": {
+                "project_id.$": "$.project_id",
+                "text.$": "$.script.voiceover_full_script"
+              },
+              "ResultPath": "$.voiceover",
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.media_results",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "GenerateCaptions"
+    },
+
+    "GenerateCaptions": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-generate-captions",
+      "Parameters": {
+        "project_id.$": "$.project_id",
+        "voiceover_text.$": "$.script.voiceover_full_script",
+        "voiceover_duration.$": "$.media_results[1].voiceover.duration_seconds",
+        "caption_style.$": "$.caption_style"
+      },
+      "ResultPath": "$.captions",
+      "Next": "ComposeVideo"
+    },
+
+    "ComposeVideo": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-compose-video",
+      "Parameters": {
+        "project_id.$": "$.project_id",
+        "scene_videos.$": "$.media_results[0].scene_videos",
+        "voiceover_s3_key.$": "$.media_results[1].voiceover.s3_key",
+        "captions_s3_key.$": "$.captions.s3_key",
+        "caption_style.$": "$.caption_style"
+      },
+      "ResultPath": "$.composed",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 15,
+          "MaxAttempts": 1
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ExportForPlatforms"
+    },
+
+    "ExportForPlatforms": {
+      "Type": "Map",
+      "ItemsPath": "$.target_platforms",
+      "Parameters": {
+        "project_id.$": "$.project_id",
+        "composed_s3_key.$": "$.composed.s3_key",
+        "platform.$": "$$.Map.Item.Value"
+      },
+      "Iterator": {
+        "StartAt": "ExportSinglePlatform",
+        "States": {
+          "ExportSinglePlatform": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:voicevid-export-platform",
+            "Parameters": {
+              "project_id.$": "$.project_id",
+              "composed_s3_key.$": "$.composed_s3_key",
+              "platform.$": "$.platform"
+            },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.platform_exports",
+      "MaxConcurrency": 3,
+      "Next": "PipelineSucceeded"
+    },
+
+    "PipelineSucceeded": {
+      "Type": "Succeed"
+    },
+
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Error": "PipelineError",
+      "Cause": "One or more pipeline stages failed"
+    }
+  }
+}
