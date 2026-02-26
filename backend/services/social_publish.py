@@ -2,7 +2,7 @@
 
 Platforms:
   YouTube   — YouTube Data API v3  (OAuth2, google-api-python-client)
-  Instagram — Meta Graph API v22   (long-lived access token + presigned S3 URL)
+  Instagram — Meta Graph API v22   (long-lived access token + presigned GCS URL)
   TikTok    — Content Posting API v2 (Direct Post, access token)
 
 Setup:
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 GRAPH_API_VERSION = "v22.0"
 TIKTOK_API_BASE = "https://open.tiktokapis.com/v2"
 
-# PublishPlatform values → Pipeline platform values (S3 key prefix)
-PLATFORM_TO_S3_PREFIX: dict[str, str] = {
+# PublishPlatform values → Pipeline platform values (GCS key prefix)
+PLATFORM_TO_GCS_PREFIX: dict[str, str] = {
     "instagram": "instagram_reels",
     "youtube": "youtube_shorts",
     "tiktok": "tiktok",
@@ -42,25 +42,25 @@ async def _publish_youtube(
     description: str,
     tags: list[str],
 ) -> dict:
-    """Download from S3 then upload to YouTube via Data API v3."""
+    """Download from GCS then upload to YouTube via Data API v3."""
     local_path = f"/tmp/voicevid_{project_id}_youtube.mp4"
 
     # Try youtube_shorts first, fall back to instagram_reels (same 9:16 vertical format)
-    s3_key = None
+    gcs_key = None
     for prefix in ["youtube_shorts", "instagram_reels"]:
         candidate = f"projects/{project_id}/{prefix}/final.mp4"
         try:
             await gcs_service.download_file(candidate, local_path)
-            s3_key = candidate
+            gcs_key = candidate
             break
         except Exception:
             continue
 
-    if s3_key is None:
+    if gcs_key is None:
         return {
             "platform": "youtube",
             "status": "failed",
-            "error": "S3 download failed: no video found (tried youtube_shorts and instagram_reels)",
+            "error": "GCS download failed: no video found (tried youtube_shorts and instagram_reels)",
         }
 
     def _blocking_upload() -> dict:
@@ -128,7 +128,7 @@ async def _publish_instagram(
     project_id: str,
     caption: str,
 ) -> dict:
-    """Publish to Instagram via Meta Graph API using a presigned S3 URL."""
+    """Publish to Instagram via Meta Graph API using a presigned GCS URL."""
     settings = get_settings()
     token = settings.instagram_access_token
     user_id = settings.instagram_user_id
@@ -140,12 +140,12 @@ async def _publish_instagram(
             "error": "INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID must be set in .env",
         }
 
-    s3_key = f"projects/{project_id}/instagram_reels/final.mp4"
+    gcs_key = f"projects/{project_id}/instagram_reels/final.mp4"
     base = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
     try:
-        # Presigned URL so the Graph API can fetch the video from S3
-        video_url = await gcs_service.generate_presigned_url(s3_key, expires_in=3600)
+        # Presigned URL so the Graph API can fetch the video from GCS
+        video_url = await gcs_service.generate_presigned_url(gcs_key, expires_in=3600)
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             # Step 1: Create media container
@@ -218,13 +218,13 @@ async def _publish_tiktok(
             "error": "TIKTOK_ACCESS_TOKEN must be set in .env",
         }
 
-    s3_key = f"projects/{project_id}/tiktok/final.mp4"
+    gcs_key = f"projects/{project_id}/tiktok/final.mp4"
     local_path = f"/tmp/voicevid_{project_id}_tiktok.mp4"
 
     try:
-        await gcs_service.download_file(s3_key, local_path)
+        await gcs_service.download_file(gcs_key, local_path)
     except Exception as exc:
-        return {"platform": "tiktok", "status": "failed", "error": f"S3 download failed: {exc}"}
+        return {"platform": "tiktok", "status": "failed", "error": f"GCS download failed: {exc}"}
 
     try:
         video_bytes = Path(local_path).read_bytes()

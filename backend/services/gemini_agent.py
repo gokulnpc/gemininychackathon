@@ -79,13 +79,26 @@ _PLATFORM_GUIDELINES: dict[str, dict] = {
 }
 
 _STYLE_RULES: dict[str, str] = {
-    "realism": "Cinematic, grounded. Prefer concrete specifics over abstractions.",
-    "ghibli": "Whimsical, wonder-filled. Emphasise nature, emotion, and quiet magical moments.",
-    "comic": "Bold, punchy sentences. Short words. High energy. Exclamations and action verbs.",
+    "realism":      "Cinematic, grounded. Prefer concrete specifics over abstractions.",
+    "ghibli":       "Whimsical, wonder-filled. Emphasise nature, emotion, and quiet magical moments.",
+    "comic":        "Bold, punchy sentences. Short words. High energy. Exclamations and action verbs.",
     "creepy_comic": "Dark humour tone. Unexpected twists. Slightly unsettling but still entertaining.",
-    "painting": "Rich, descriptive language. Painterly adjectives. Slow reveal of the scene.",
-    "polaroid": "Nostalgic, personal, first-person storytelling. Warm and relatable.",
-    "disney": "Uplifting, magical, hopeful. Family-friendly energy.",
+    "painting":     "Rich, descriptive language. Painterly adjectives. Slow reveal of the scene.",
+    "polaroid":     "Nostalgic, personal, first-person storytelling. Warm and relatable.",
+    "disney":       "Uplifting, magical, hopeful. Family-friendly energy.",
+    # Gallery styles
+    "monochrome":   "Stark, high-contrast. Strip away colour — focus on shadow and light.",
+    "colour_block": "Bold, graphic, decisive. Short punchy statements like a poster headline.",
+    "runway":       "Elegant, sharp. Aspirational language. Cool and authoritative.",
+    "risograph":    "Lo-fi indie energy. Offbeat, slightly irreverent, authentically imperfect.",
+    "technicolour": "Lavish, glamorous, full-throttle. Think Hollywood golden era.",
+    "gothic_clay":  "Eerie, textured, handcrafted dread. Slow burn with dark whimsy.",
+    "dynamite":     "Explosive energy. Short punchy fragments. Maximum impact every line.",
+    "salon":        "Refined, thoughtful, intimate. Quality over quantity.",
+    "sketch":       "Raw, personal, unfinished-feeling. Honest and direct.",
+    "cinematic":    "Epic, immersive, widescreen storytelling. Every line earns its place.",
+    "steampunk":    "Victorian flair. Elaborate and mechanical. Wonder at the industrial age.",
+    "sunrise":      "Expansive, hopeful, emotional. Journey language. Open horizons.",
 }
 
 
@@ -255,6 +268,10 @@ _TOOL_DECLARATIONS = [
                 "social_copy": {"type": "object"},
                 "quality_score": {"type": "number"},
                 "agent_reasoning": {"type": "string"},
+                "character_description": {
+                    "type": "string",
+                    "description": "Consistent physical description of the main character/subject used across all scene images.",
+                },
             },
             "required": ["hook", "scenes", "cta"],
         },
@@ -334,9 +351,8 @@ def _infer_niche(transcript: str) -> str:
 
 
 def _recommended_scene_count(duration: int) -> int:
-    if duration <= 20: return 2
-    if duration <= 35: return 3
-    return 4
+    # One new image every 5 seconds — drives the scene count for the pipeline
+    return max(2, duration // 5)
 
 
 def _build_response(finalized: dict, platform: str, video_duration: int) -> dict:
@@ -379,6 +395,7 @@ def _build_response(finalized: dict, platform: str, video_duration: int) -> dict
             "video_duration": video_duration,
             "agent_quality_score": finalized.get("quality_score"),
             "agent_reasoning": finalized.get("agent_reasoning", ""),
+            "character_description": finalized.get("character_description", ""),
             "generated_by": "gemini-agent + gemini-reasoning",
             "model": MODEL,
             "intelligence_model": MODEL,
@@ -437,8 +454,15 @@ async def generate_script_with_agent(
         f"6. Call finalize_script ONLY when score ≥ 70\n\n"
         f"HARD CONSTRAINTS:\n"
         f"• Total voiceover ≈ {target_words} words across {scene_count} scenes\n"
-        f"• Each visual_prompt: 40+ words describing subject, lighting, camera angle, mood, art_style=\"{art_style}\" "
-        f"(these prompts drive Veo 3 video generation — be vivid and cinematic)\n"
+        f"• Each scene = exactly 5 seconds of screen time\n"
+        f"• Each visual_prompt must be 60+ words using this cinematic template:\n"
+        f"  'A [shot type] of [subject + detailed appearance], [action/expression], "
+        f"set in [specific environment]. Illuminated by [lighting description], creating "
+        f"a [mood/atmosphere]. [Camera/lens details]. [Key textures and details]. "
+        f"{art_style} art style.'\n"
+        f"• character_description: write ONE consistent physical description of the "
+        f"main character/subject (appearance, clothing, features) — used to keep all "
+        f"images visually consistent.\n"
         f"• Hook must land within the platform's hook window — punchy and specific\n"
         f"• CTA: {cta_preference or 'choose the highest-converting CTA for ' + platform}\n"
         f"• Format: {video_format}\n"

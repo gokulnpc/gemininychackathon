@@ -42,6 +42,7 @@ class VideoFormat(str, Enum):
 
 
 class ArtStyle(str, Enum):
+    # Original styles
     comic = "comic"
     creepy_comic = "creepy_comic"
     painting = "painting"
@@ -49,6 +50,19 @@ class ArtStyle(str, Enum):
     polaroid = "polaroid"
     disney = "disney"
     realism = "realism"
+    # Gallery styles (from style picker UI)
+    monochrome = "monochrome"
+    colour_block = "colour_block"
+    runway = "runway"
+    risograph = "risograph"
+    technicolour = "technicolour"
+    gothic_clay = "gothic_clay"
+    dynamite = "dynamite"
+    salon = "salon"
+    sketch = "sketch"
+    cinematic = "cinematic"
+    steampunk = "steampunk"
+    sunrise = "sunrise"
 
 
 class MusicPreset(str, Enum):
@@ -124,7 +138,7 @@ class GenerateScriptRequest(BaseModel):
     caption_style:    CaptionStyleEnum = Field(default=CaptionStyleEnum.bold_stroke)
     art_style:        ArtStyle         = Field(default=ArtStyle.realism)
     background_music: MusicPreset      = Field(default=MusicPreset.none)
-    voice_id:         str              = Field(default="21m00Tcm4TlvDq8ikWAM")
+    voice_id:         str              = Field(default="Aoede")
     video_format:     VideoFormat      = Field(default=VideoFormat.storytelling)
     brand_voice:      Optional[str]    = Field(default=None)
     cta_preference:   Optional[str]    = Field(default=None)
@@ -270,7 +284,7 @@ class SeriesConfig(BaseModel):
     video_format: VideoFormat = VideoFormat.storytelling
     niche: Optional[str] = None
     language: str = "en-US"
-    voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    voice_id: str = "Aoede"
     background_music: MusicPreset = MusicPreset.none
     music_volume: float = Field(default=0.15, ge=0.0, le=1.0)
     art_style: ArtStyle = ArtStyle.realism

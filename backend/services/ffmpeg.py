@@ -449,15 +449,34 @@ def mix_background_music(
 
     vol = max(0.0, min(1.0, music_volume))
 
+    # Probe whether the video has an audio stream
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path],
+        capture_output=True, text=True,
+    )
+    has_audio = bool(probe.stdout.strip())
+
+    if has_audio:
+        # Mix music behind existing voiceover
+        filter_complex = (
+            f"[1:a]volume={vol}[bg];"
+            f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        )
+        audio_map = "[aout]"
+    else:
+        # No voiceover — use music as the only audio track, trimmed to video length
+        filter_complex = f"[1:a]volume={vol},atrim=duration={_get_duration(video_path)}[aout]"
+        audio_map = "[aout]"
+
     _run_ffmpeg(
         [
             "ffmpeg", "-y",
             "-i", video_path,
             "-stream_loop", "-1", "-i", music_path,
-            "-filter_complex",
-            f"[1:a]volume={vol}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "-filter_complex", filter_complex,
             "-map", "0:v:0",
-            "-map", "[aout]",
+            "-map", audio_map,
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k",
             output_path,

@@ -114,6 +114,20 @@ async def list_tones():
     return TONE_CATALOGUE
 
 
+@router.get("/voices")
+async def list_voices():
+    """List available Gemini TTS voices for voiceover generation.
+
+    Returns a list of voice options with name and description.
+    Pass the voice name as voice_id in /generate-video or series config.
+    """
+    from services.gemini_tts import VOICE_CATALOGUE, DEFAULT_VOICE
+    return [
+        {"id": name, "description": desc, "default": name == DEFAULT_VOICE}
+        for name, desc in VOICE_CATALOGUE.items()
+    ]
+
+
 @router.post("/series", response_model=SeriesCreateResponse)
 async def create_series(config: SeriesConfig):
     """Save a series configuration to S3.
@@ -123,10 +137,10 @@ async def create_series(config: SeriesConfig):
     /generate-script and /generate-video to load these settings automatically.
     """
     series_id = str(uuid4())
-    s3_key = f"series/{series_id}/config.json"
+    gcs_key = f"series/{series_id}/config.json"
 
     try:
-        config_url = await gcs.store_json(config.model_dump(), s3_key)
+        config_url = await gcs.store_json(config.model_dump(), gcs_key)
     except Exception as e:
         logger.exception("Failed to store series config for %s", series_id)
         raise HTTPException(status_code=500, detail=f"Failed to save series config: {e}")

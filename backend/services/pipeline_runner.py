@@ -16,7 +16,7 @@ from models.schemas import (
     ScriptGenerationResponse,
     SeriesConfig,
 )
-from services import captions, ffmpeg, gcs, veo_video
+from services import captions, ffmpeg, gcs
 from services.gemini_agent import generate_script_with_agent
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ async def run_pipeline_stages(
     stages: list[PipelineStageStatus] = []
 
     # ── Resolve effective settings from series (series overrides request defaults) ──
-    voice_id = series.voice_id if series else "21m00Tcm4TlvDq8ikWAM"
+    voice_id = series.voice_id if series else "Aoede"
     language = series.language if series else "en-US"
     art_style = series.art_style.value if series else "realism"
     video_format = series.video_format.value if series else "storytelling"
@@ -150,49 +150,109 @@ async def _run_stages(
         stages[-1].status = "completed"
         stages[-1].detail = f"{len(script.scenes)} scenes planned, quality={quality_score}/100"
 
-    voiceover_path = None
+    # ── Stage 3: TTS Voiceover ───────────────────────────────────────────────
+    stages.append(PipelineStageStatus(stage="voiceover", status="running", detail=f"Gemini TTS: voice={voice_id}"))
+    voiceover_path: str | None = None
+    try:
+        from services import gemini_tts
+        voiceover_path = await gemini_tts.generate_voiceover(
+            text=script.voiceover_full_script,
+            voice_name=voice_id,
+        )
+        stages[-1].status = "completed"
+        stages[-1].detail = f"Gemini TTS: voice={voice_id}"
+    except Exception as _tts_exc:
+        logger.warning("TTS generation failed (video will have no voiceover): %s", _tts_exc)
+        stages[-1].status = "failed"
+        stages[-1].detail = str(_tts_exc)
+
     word_timestamps = captions.generate_word_timestamps_from_script(
         voiceover_text=script.voiceover_full_script,
         total_duration=resolved_duration,
     )
 
-    # ── Stage 4: Video Generation — one Veo 3 clip per scene ─────────────────
+    # ── Stage 4: Image Generation — one Gemini image per scene (5s each) ──────
     stages.append(PipelineStageStatus(
         stage="video_generation",
         status="running",
-        detail="Method: Veo 3 on Vertex AI (one video clip per scene)",
+        detail=f"Method: Gemini image generation ({art_style} style, 1 image per 5s)",
     ))
 
-    SHOT_VARIATIONS = [
-        "wide establishing shot",
-        "close-up detail shot",
-        "medium shot from a different angle",
-        "low angle dramatic perspective",
-        "overhead bird's eye view",
-        "shallow depth of field foreground focus",
+    # Camera move sequence — cinematic variety across scenes
+    EFFECT_VARIATIONS = [
+        "dolly_in",
+        "crane_down",
+        "zoom_in_right",
+        "dolly_out",
+        "zoom_in_left",
+        "crane_up",
     ]
 
     chunk_clips: list[str] = []
+    character_ref_path: str | None = None   # first-scene PNG — reused for character consistency
+    prev_image_path: str | None = None       # previous-scene PNG — chained for smooth evolution
+
+    from services import gemini_image as gemini_image_svc
+
+    char_desc = script.metadata.get("character_description", "")
 
     for scene_idx, scene in enumerate(script.scenes):
-        shot = SHOT_VARIATIONS[scene_idx % len(SHOT_VARIATIONS)]
-        prompt = f"{scene.visual_prompt or ''}, {shot}"
+        effect = EFFECT_VARIATIONS[scene_idx % len(EFFECT_VARIATIONS)]
         clip_duration = max(5, min(8, scene.duration_seconds))
 
-        clip_path = os.path.join(work_dir, f"scene_{scene_idx + 1}.mp4")
-        tmp = await veo_video.generate_video_clip(
+        # Enrich prompt with character description for scenes after the first
+        prompt = scene.visual_prompt or ""
+        if char_desc and scene_idx > 0:
+            prompt = f"{prompt}. Maintain consistent character: {char_desc}"
+
+        # ── Generate image (Gemini image model) ───────────────────────────────
+        img_path = await gemini_image_svc.generate_image(
             prompt=prompt,
-            duration_seconds=clip_duration,
+            art_style=art_style,
+            previous_image_path=prev_image_path,
+            character_reference_path=character_ref_path,
         )
-        import shutil
-        shutil.move(tmp, clip_path)
+
+        # First scene image becomes the character reference for all subsequent scenes
+        if scene_idx == 0:
+            character_ref_path = img_path
+
+        # ── Animate image → video clip ─────────────────────────────────────────
+        clip_path = os.path.join(work_dir, f"scene_{scene_idx + 1}.mp4")
+        ffmpeg.animate_image(
+            image_path=img_path,
+            effect=effect,
+            duration=clip_duration,
+            output_path=clip_path,
+        )
+
+        # Keep image around for next scene chaining, clean up after that
+        if prev_image_path and prev_image_path != character_ref_path:
+            try:
+                os.unlink(prev_image_path)
+            except OSError:
+                pass
+        prev_image_path = img_path
+
         chunk_clips.append(clip_path)
-        logger.info("Scene %d/%d clip → %s", scene_idx + 1, len(script.scenes), clip_path)
+        logger.info("Scene %d/%d: image → %s, clip → %s", scene_idx + 1, len(script.scenes), img_path, clip_path)
+
+    # Clean up final scene image
+    if prev_image_path and prev_image_path != character_ref_path:
+        try:
+            os.unlink(prev_image_path)
+        except OSError:
+            pass
+    if character_ref_path:
+        try:
+            os.unlink(character_ref_path)
+        except OSError:
+            pass
 
     stages[-1].status = "completed"
     stages[-1].detail = (
-        f"{len(chunk_clips)} Veo 3 clips generated "
-        f"({len(script.scenes)} scenes) via Vertex AI"
+        f"{len(chunk_clips)} images generated and animated "
+        f"({len(script.scenes)} scenes, {art_style} style)"
     )
 
     # ── Stage 5: Caption Generation ──────────────────────────────────────────
@@ -246,10 +306,10 @@ async def _run_stages(
             platform=platform.value,
             output_path=os.path.join(work_dir, f"final_{platform.value}.mp4"),
         )
-        s3_key = f"projects/{project_id}/{platform.value}/final.mp4"
+        gcs_key = f"projects/{project_id}/{platform.value}/final.mp4"
         url = await gcs.upload_file(
             local_path=platform_path,
-            s3_key=s3_key,
+            gcs_key=gcs_key,
             content_type="video/mp4",
         )
         video_urls[platform.value] = url
