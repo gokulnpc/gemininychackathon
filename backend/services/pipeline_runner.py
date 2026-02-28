@@ -42,6 +42,8 @@ async def run_pipeline_stages(
     cta_preference: str | None,
     work_dir: str,
     pre_generated_script: ScriptGenerationResponse | None = None,
+    user_reference_path: str | None = None,
+    user_character_role: str | None = None,
 ) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None]:
     """Run pipeline stages 2–7: script → video → voiceover → captions → compose → upload.
 
@@ -87,6 +89,8 @@ async def run_pipeline_stages(
         music_volume=music_volume,
         resolved_duration=resolved_duration,
         pre_generated_script=pre_generated_script,
+        user_reference_path=user_reference_path,
+        user_character_role=user_character_role,
     )
 
 
@@ -113,6 +117,8 @@ async def _run_stages(
     music_volume: float,
     resolved_duration: int,
     pre_generated_script: ScriptGenerationResponse | None = None,
+    user_reference_path: str | None = None,
+    user_character_role: str | None = None,
 ) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None]:
     """Inner function containing the actual pipeline stage logic."""
 
@@ -175,7 +181,7 @@ async def _run_stages(
     stages.append(PipelineStageStatus(
         stage="video_generation",
         status="running",
-        detail=f"Method: Gemini image generation ({art_style} style, 1 image per 5s)",
+        detail=f"Method: Gemini image generation ({art_style} style, 1 image per 2s)",
     ))
 
     # Camera move sequence — cinematic variety across scenes
@@ -198,7 +204,7 @@ async def _run_stages(
 
     for scene_idx, scene in enumerate(script.scenes):
         effect = EFFECT_VARIATIONS[scene_idx % len(EFFECT_VARIATIONS)]
-        clip_duration = max(5, min(8, scene.duration_seconds))
+        clip_duration = 2  # fixed 2-second clips (1 image every 2 seconds)
 
         # Enrich prompt with character description for scenes after the first
         prompt = scene.visual_prompt or ""
@@ -211,11 +217,17 @@ async def _run_stages(
             art_style=art_style,
             previous_image_path=prev_image_path,
             character_reference_path=character_ref_path,
+            user_reference_path=user_reference_path,
+            user_character_role=user_character_role,
         )
 
-        # First scene image becomes the character reference for all subsequent scenes
+        # For main_character: user photo IS the character reference — set it immediately.
+        # For others: use the first generated scene as the character anchor as before.
         if scene_idx == 0:
-            character_ref_path = img_path
+            if user_reference_path and user_character_role == "main_character":
+                character_ref_path = user_reference_path
+            else:
+                character_ref_path = img_path
 
         # ── Animate image → video clip ─────────────────────────────────────────
         clip_path = os.path.join(work_dir, f"scene_{scene_idx + 1}.mp4")

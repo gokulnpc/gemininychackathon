@@ -2,17 +2,18 @@
 
 One image per scene (every 5 seconds). The selected art style drives:
   1. A curated cinematic style suffix appended to every prompt.
-  2. Character consistency: first scene image is passed as a reference
+  2. A reference style image from assets/styles/<art_style>.png passed to Gemini
+     for true visual style transfer (not just text guidance).
+  3. Character consistency: first scene image is passed as a reference
      to all subsequent scene generations so characters stay visually
      cohesive across the entire video.
 
-Output: 576×1024 PNG (9:16 portrait for short-form video)
+Output: native 9:16 portrait from Gemini image_config (target ~576×1024).
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import os
 import tempfile
@@ -23,41 +24,71 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash-image"
-PORTRAIT_WIDTH = 576
-PORTRAIT_HEIGHT = 1024
+MODEL = "gemini-3.1-flash-image-preview"
+
+# Art style reference images live here — one PNG per style
+_STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "styles")
 
 # ── Art style → cinematic prompt suffix ───────────────────────────────────────
-# Each suffix steers the model's visual output without needing a reference image.
+# Used alongside the style reference image for double-strength style guidance.
 
 _STYLE_SUFFIXES: dict[str, str] = {
-    "monochrome":    (
-        "high-contrast black and white photography, dramatic chiaroscuro shadows, "
-        "deep blacks and bright whites, silver gelatin darkroom aesthetic, no colour whatsoever"
+    # ── Active styles (reference images in assets/styles/) ─────────────────────
+    "cinematic":     (
+        "anamorphic widescreen cinema, shallow depth of field bokeh, "
+        "film grain, moody teal-and-orange colour grade, epic production value"
     ),
-    "colour_block":  (
+    "color_block":   (
         "bold geometric colour-blocking, flat saturated primary palette, "
         "contemporary minimal graphic design, clean crisp edges"
     ),
-    "runway":        (
-        "high-fashion editorial photography, sleek studio three-point lighting, "
-        "Vogue magazine cover aesthetic, polished and modern"
+    "cyborg":        (
+        "cyberpunk cyborg aesthetic, mechanical body enhancements and bioluminescent circuits, "
+        "neon-lit urban dystopia, chrome and carbon-fibre textures, sci-fi augmented reality"
     ),
-    "risograph":     (
-        "risograph print art, limited two-colour halftone grain, "
-        "indie zine texture, slightly misaligned ink layers, lo-fi printed aesthetic"
+    "depth_of_field": (
+        "professional shallow depth of field, subject in sharp focus against a softly blurred background, "
+        "creamy bokeh, DSLR 85mm portrait lens, natural diffused lighting"
     ),
-    "technicolour":  (
-        "vivid Technicolor film aesthetic, oversaturated warm cinema tones, "
-        "1950s Hollywood glamour, lush jewel-toned palette"
+    "dynamite":      (
+        "explosive action-movie cinematography, dramatic fire and debris, "
+        "high-contrast lens flare, intense kinetic energy, smoke-filled atmosphere"
+    ),
+    "enamel_pin":    (
+        "enamel pin badge illustration, bold flat colours with thick black outlines, "
+        "simplified graphic shapes, collectible badge aesthetic, vibrant limited palette"
     ),
     "gothic_clay":   (
         "dark gothic claymation, textured clay characters and environments, "
         "warm amber candle-lit gothic architecture, stop-motion quality, eerie handcrafted look"
     ),
-    "dynamite":      (
-        "explosive action-movie cinematography, dramatic fire and debris, "
-        "high-contrast lens flare, intense kinetic energy, smoke-filled atmosphere"
+    "monochrome":    (
+        "high-contrast black and white photography, dramatic chiaroscuro shadows, "
+        "deep blacks and bright whites, silver gelatin darkroom aesthetic, no colour whatsoever"
+    ),
+    "moody":         (
+        "dark atmospheric moody photography, deep brooding shadows, desaturated muted palette, "
+        "low-key dramatic lighting, emotional tension, melancholic and introspective atmosphere"
+    ),
+    "mythic_fighter": (
+        "epic fantasy warrior art, dramatic battle pose, mythological weaponry and armour, "
+        "ancient gods aesthetic, heroic grandeur, divine light breaking through storm clouds"
+    ),
+    "oil_painting":  (
+        "classical oil painting, visible impasto brushstrokes, rich chiaroscuro lighting, "
+        "museum gallery quality, Old Masters technique"
+    ),
+    "old_cartoon":   (
+        "vintage 1930s rubber-hose cartoon, Fleischer Studios aesthetic, "
+        "exaggerated organic shapes, limited colour palette, film grain and vignette"
+    ),
+    "risograph":     (
+        "risograph print art, limited two-colour halftone grain, "
+        "indie zine texture, slightly misaligned ink layers, lo-fi printed aesthetic"
+    ),
+    "runway":        (
+        "high-fashion editorial photography, sleek studio three-point lighting, "
+        "Vogue magazine cover aesthetic, polished and modern"
     ),
     "salon":         (
         "soft Rembrandt portrait lighting, elegant neutral studio backdrop, "
@@ -67,10 +98,6 @@ _STYLE_SUFFIXES: dict[str, str] = {
         "detailed graphite pencil sketch on cream textured paper, "
         "expressive cross-hatching, gestural marks, monochromatic graphite tones"
     ),
-    "cinematic":     (
-        "anamorphic widescreen cinema, shallow depth of field bokeh, "
-        "film grain, moody teal-and-orange colour grade, epic production value"
-    ),
     "steampunk":     (
         "Victorian steampunk aesthetic, ornate brass gears and copper pipes, "
         "sepia-toned gaslight industrial atmosphere, intricate mechanical detail"
@@ -79,34 +106,13 @@ _STYLE_SUFFIXES: dict[str, str] = {
         "golden-hour warm backlight, soft sun flare, sweeping open landscape, "
         "amber and rose tones, hopeful and expansive atmosphere"
     ),
-    # Legacy styles
-    "comic":         (
-        "bold comic-book illustration, strong black outlines, "
-        "flat vivid CMYK colours, halftone dot texture, dynamic panel energy"
+    "surreal":       (
+        "surrealist dreamscape art, impossible juxtapositions, melting reality, "
+        "Dalí-inspired bizarre imagery, dreamlike hyper-detailed atmosphere"
     ),
-    "creepy_comic":  (
-        "dark horror comic art, heavy black ink shadows, visceral unsettling detail, "
-        "off-kilter dutch-angle compositions, dread and unease"
-    ),
-    "painting":      (
-        "classical oil painting, visible impasto brushstrokes, rich chiaroscuro lighting, "
-        "museum gallery quality, Old Masters technique"
-    ),
-    "ghibli":        (
-        "Studio Ghibli anime, soft hand-painted watercolour backgrounds, "
-        "expressive wide-eyed characters, magical warm light, lush nature detail"
-    ),
-    "polaroid":      (
-        "vintage Polaroid photograph, warm faded chemical tones, "
-        "light-leak vignette, nostalgic bokeh, intimate personal feel"
-    ),
-    "disney":        (
-        "Disney 3D animation, bright joyful colour palette, "
-        "appealing expressive characters, clean fluid rendering, family warmth"
-    ),
-    "realism":       (
-        "photorealistic ultra-detailed 8K, hyperreal textures, "
-        "professional DSLR photography, perfect natural lighting"
+    "technicolor":   (
+        "vivid Technicolor film aesthetic, oversaturated warm cinema tones, "
+        "1950s Hollywood glamour, lush jewel-toned palette"
     ),
 }
 
@@ -119,11 +125,44 @@ def _style_suffix(art_style: str) -> str:
     return _STYLE_SUFFIXES.get(art_style.lower(), _FALLBACK_SUFFIX)
 
 
-def _extract_image(response) -> Image.Image | None:
-    """Pull the first image from a Gemini response and resize to 9:16 portrait."""
-    import base64 as _b64
+# Alternate filenames for styles whose enum key differs from the stored filename.
+# All current assets/styles/ filenames match their enum keys directly — no aliases needed.
+_STYLE_FILENAME_ALIASES: dict[str, list[str]] = {}
 
+
+def _style_reference_image(art_style: str) -> Image.Image | None:
+    """Load the backend reference image for this art style, if it exists.
+
+    Tries the canonical name first, then any known aliases, then .jpg extension.
+    """
+    key = art_style.lower()
+    candidates = _STYLE_FILENAME_ALIASES.get(key, [key])
+
+    for name in candidates:
+        for ext in (".png", ".jpg", ".jpeg", ".webp"):
+            path = os.path.join(_STYLES_DIR, f"{name}{ext}")
+            if os.path.exists(path):
+                try:
+                    return Image.open(path).convert("RGB")
+                except Exception as e:
+                    logger.warning("Could not load style reference image %s: %s", path, e)
+    return None
+
+
+def _extract_image(response) -> Image.Image | None:
+    """Pull the first image from a Gemini response."""
     for part in response.parts:
+        # New SDK: part.as_image()
+        try:
+            img = part.as_image()
+            if img is not None:
+                return img.convert("RGB")
+        except Exception:
+            pass
+
+        # Fallback: inline_data bytes
+        import base64 as _b64
+        import io
         blob = getattr(part, "inline_data", None)
         if blob is None:
             continue
@@ -133,10 +172,7 @@ def _extract_image(response) -> Image.Image | None:
         try:
             if isinstance(raw, str):
                 raw = _b64.b64decode(raw)
-            img = Image.open(io.BytesIO(raw))
-            return img.convert("RGB").resize(
-                (PORTRAIT_WIDTH, PORTRAIT_HEIGHT), Image.LANCZOS
-            )
+            return Image.open(io.BytesIO(raw)).convert("RGB")
         except Exception as exc:
             logger.debug("inline_data decode failed: %s", exc)
 
@@ -154,6 +190,10 @@ def _invoke(contents: list, api_key: str) -> object:
         contents=contents,
         config=types.GenerateContentConfig(
             response_modalities=["TEXT", "IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio="9:16",
+                image_size="1K",
+            ),
         ),
     )
 
@@ -163,22 +203,59 @@ async def generate_image(
     art_style: str = "realism",
     previous_image_path: str | None = None,
     character_reference_path: str | None = None,
+    user_reference_path: str | None = None,
+    user_character_role: str | None = None,
 ) -> str:
-    """Generate a scene image with art-style consistency and character reference.
+    """Generate a scene image with art-style reference, character consistency, and optional user photo.
 
     Args:
         prompt:                  Cinematic visual description from the script agent.
-        art_style:               Gallery style name — maps to a cinematic style suffix.
+        art_style:               Gallery style name — maps to a style reference image + text suffix.
         previous_image_path:     If provided, Gemini edits this image (scene evolution).
         character_reference_path: First-scene image reused to maintain character
                                   consistency across all subsequent scenes.
+        user_reference_path:     Optional user photo for appearance-based personalisation.
+        user_character_role:     "main_character" | "side_character" | "audience".
 
     Returns:
-        Absolute path to a 576×1024 PNG temp file.
+        Absolute path to a 9:16 portrait PNG temp file.
     """
     settings = get_settings()
     api_key = settings.gemini_api_key
     suffix = _style_suffix(art_style)
+
+    # ── Load art style reference image (real visual style transfer) ───────────
+    style_ref_img = _style_reference_image(art_style)
+    style_transfer_instruction = (
+        f"Apply the exact visual style shown in the style reference image: "
+        f"match its colour palette, textures, rendering technique, and overall aesthetic. "
+        f"Style description: {suffix}."
+        if style_ref_img is not None
+        else f"Style: {suffix}."
+    )
+
+    # ── Role-specific instruction for user photo ───────────────────────────────
+    user_img: Image.Image | None = None
+    user_role_instruction = ""
+    if user_reference_path and os.path.exists(user_reference_path) and user_character_role:
+        user_img = Image.open(user_reference_path).convert("RGB")
+        if user_character_role == "main_character":
+            user_role_instruction = (
+                "CRITICAL: The main protagonist in this scene must look exactly like the person "
+                "in the user reference photo — match their face, hair colour, facial features, "
+                "and build precisely. They are the central subject of this image."
+            )
+        elif user_character_role == "side_character":
+            user_role_instruction = (
+                "Include a supporting character in the scene who closely resembles the person "
+                "in the user reference photo — match their face and general appearance. "
+                "They should be visible but not the primary focus."
+            )
+        elif user_character_role == "audience":
+            user_role_instruction = (
+                "Somewhere in the scene, include a person in the background or crowd who "
+                "resembles the user reference photo as a natural bystander or audience member."
+            )
 
     img: Image.Image | None = None
 
@@ -191,44 +268,68 @@ async def generate_image(
             and os.path.exists(character_reference_path)
             and character_reference_path != previous_image_path
         ):
-            # Scenes 3+: reference both the first-scene character AND the previous scene
+            # Scenes 3+: character reference + previous scene + style
             char_img = Image.open(character_reference_path).convert("RGB")
             edit_prompt = (
-                f"Create a new scene image continuing this visual story. "
+                f"Create a new 2-second scene image continuing this visual story. "
                 f"New scene: {prompt}. "
-                f"CRITICAL: preserve the exact same characters, faces, costume, and visual identity "
-                f"from the first reference image. Change the composition, camera angle, and action "
-                f"to match the new scene. "
-                f"Visual style: {suffix}. Vertical 9:16 portrait format. Top-quality render."
+                f"CRITICAL CONSISTENCY RULES — violating these will break the video:\n"
+                f"1. CHARACTER: The main character must look IDENTICAL to the character reference image — "
+                f"same face, hair colour, skin tone, facial features, body type, and costume. Zero deviation.\n"
+                f"2. ART STYLE: Match the exact visual style of the reference image — same colour palette, "
+                f"rendering technique, textures, and aesthetic. {style_transfer_instruction}\n"
+                f"3. COMPOSITION: Change only the camera angle, action, and scene environment to match the new scene.\n"
+                f"{user_role_instruction} "
+                f"Vertical 9:16 portrait format. Ultra-consistent, top-quality render."
             )
-            contents: list = [edit_prompt, char_img, prev_img]
+            # Order: prompt → style ref → character ref → previous scene → user photo
+            contents: list = [edit_prompt]
+            if style_ref_img is not None:
+                contents.append(style_ref_img)
+            contents.extend([char_img, prev_img])
+            if user_img and user_character_role != "main_character":
+                contents.append(user_img)
             mode = "consistent-scene"
+
         else:
-            # Scene 2: evolve the previous scene, maintaining style and characters
+            # Scene 2: evolve the previous scene
             edit_prompt = (
-                f"Transform this image into a new scene: {prompt}. "
-                f"Keep the same characters and faces. "
-                f"Change the composition, action, and camera angle to match the new scene. "
-                f"Maintain {suffix}. Vertical 9:16 portrait format. Top-quality render."
+                f"Transform this image into a new 2-second scene: {prompt}. "
+                f"CRITICAL CONSISTENCY RULES:\n"
+                f"1. CHARACTER: Keep the same characters and faces — identical features, hair, skin tone, and costume.\n"
+                f"2. ART STYLE: Maintain the exact same visual style — colour palette, rendering, and aesthetic. "
+                f"{style_transfer_instruction}\n"
+                f"3. Change only the composition, action, and camera angle to match the new scene.\n"
+                f"{user_role_instruction} "
+                f"Vertical 9:16 portrait format. Ultra-consistent, top-quality render."
             )
-            contents = [edit_prompt, prev_img]
+            contents = [edit_prompt]
+            if style_ref_img is not None:
+                contents.append(style_ref_img)
+            contents.append(prev_img)
+            if user_img:
+                contents.append(user_img)
             mode = "scene-evolution"
 
     else:
-        # Scene 1: generate the opening image from scratch with full style guidance
+        # Scene 1: generate from scratch
         full_prompt = (
             f"{prompt}. "
-            f"Style: {suffix}. "
+            f"{user_role_instruction} "
+            f"{style_transfer_instruction} "
             f"Vertical 9:16 portrait composition optimised for short-form video. "
-            f"Ultra-detailed, cinematic lighting, top-quality render. "
-            f"No text or watermarks."
+            f"Ultra-detailed, cinematic lighting, top-quality render. No text or watermarks."
         )
         contents = [full_prompt]
+        if style_ref_img is not None:
+            contents.append(style_ref_img)
+        if user_img:
+            contents.append(user_img)
         mode = "generation"
 
     logger.info(
-        "Gemini image [%s | %s] %dx%d → %s",
-        mode, art_style, PORTRAIT_WIDTH, PORTRAIT_HEIGHT, prompt[:80],
+        "Gemini image [%s | %s | style_ref=%s] → %s",
+        mode, art_style, "yes" if style_ref_img else "no", prompt[:80],
     )
 
     # ── First attempt ─────────────────────────────────────────────────────────
@@ -238,14 +339,15 @@ async def generate_image(
     except Exception as exc:
         logger.warning("Gemini image %s failed: %s — retrying with simple prompt", mode, exc)
 
-    # ── Fallback: simple text-only prompt ─────────────────────────────────────
+    # ── Fallback: text-only prompt (no reference images) ──────────────────────
     if img is None:
         try:
-            response = await asyncio.to_thread(
-                _invoke,
-                [f"Cinematic portrait scene. {suffix}. Vertical 9:16 format."],
-                api_key,
-            )
+            fallback_contents: list = [
+                f"Cinematic portrait scene: {prompt}. {suffix}. Vertical 9:16 format."
+            ]
+            if style_ref_img is not None:
+                fallback_contents.append(style_ref_img)
+            response = await asyncio.to_thread(_invoke, fallback_contents, api_key)
             img = _extract_image(response)
         except Exception as exc2:
             logger.warning("Gemini fallback also failed: %s", exc2)

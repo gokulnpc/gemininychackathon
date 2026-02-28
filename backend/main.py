@@ -41,6 +41,11 @@ _outputs_dir = os.path.join(os.path.dirname(__file__), "outputs")
 os.makedirs(_outputs_dir, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=_outputs_dir), name="outputs")
 
+# Serve art style reference images and other static assets
+_assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+os.makedirs(_assets_dir, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
 
 @app.get("/health")
 async def health():

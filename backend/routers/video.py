@@ -12,7 +12,9 @@ Returns PipelineResponse with per-stage status and S3 video URLs.
 
 from __future__ import annotations
 
+import base64
 import logging
+import os
 import tempfile
 from datetime import datetime, timezone
 from uuid import UUID
@@ -84,6 +86,22 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
             if series else request.video_duration
         )
 
+        # ── Decode user reference photo (optional) ────────────────────────────
+        user_ref_path: str | None = None
+        if request.user_reference_image_b64 and request.user_character_role:
+            try:
+                img_bytes = base64.b64decode(request.user_reference_image_b64)
+                ref_fd, user_ref_path = tempfile.mkstemp(suffix=".png", prefix="voicevid_userref_")
+                with os.fdopen(ref_fd, "wb") as f:
+                    f.write(img_bytes)
+                logger.info(
+                    "User reference photo decoded → %s (role=%s)",
+                    user_ref_path, request.user_character_role.value,
+                )
+            except Exception as e:
+                logger.warning("Failed to decode user_reference_image_b64: %s — ignoring", e)
+                user_ref_path = None
+
         # ── Run pipeline stages 4–7:
         pipeline_stages, video_urls, script = await run_pipeline_stages(
             project_id=project_id,
@@ -98,6 +116,8 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
             cta_preference=None,
             work_dir=work_dir,
             pre_generated_script=request.script,
+            user_reference_path=user_ref_path,
+            user_character_role=request.user_character_role.value if request.user_character_role else None,
         )
         stages.extend(pipeline_stages)
 

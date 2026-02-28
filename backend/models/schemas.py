@@ -91,6 +91,15 @@ class CaptionStyleEnum(str, Enum):
     clarity = "clarity"              # 6-7 words, lowercase, soft gray, minimal
 
 
+# ── User character role (optional — preset flow image personalisation) ────────
+
+
+class UserCharacterRole(str, Enum):
+    main_character = "main_character"   # User IS the protagonist — appears in every scene
+    side_character = "side_character"   # User appears as a supporting character
+    audience       = "audience"         # User visible as bystander / crowd member
+
+
 # ── Script source (drives the generate-script flow) ───────────────────────────
 
 
@@ -211,6 +220,16 @@ class GenerateVideoRequest(BaseModel):
     voice_id:              Optional[str] = Field(default=None)
     art_style_override:    Optional[str] = Field(default=None, description="ArtStyle enum value")
     music_preset_override: Optional[str] = Field(default=None, description="MusicPreset enum value")
+
+    # Optional user photo personalisation (preset flow)
+    user_reference_image_b64: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded JPEG/PNG of the user's photo. Used as a visual reference when generating scene images.",
+    )
+    user_character_role: Optional[UserCharacterRole] = Field(
+        default=None,
+        description="Role of the user in the video: main_character (protagonist in every scene), side_character (supporting), or audience (bystander/crowd).",
+    )
 
 
 # ── Pipeline plumbing ─────────────────────────────────────────────────────────

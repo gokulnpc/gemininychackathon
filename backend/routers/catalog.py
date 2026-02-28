@@ -3,11 +3,14 @@
 Provides:
   GET  /api/v1/presets         — list available content presets (for preset flow)
   GET  /api/v1/tones           — list selectable tone/style options
+  GET  /api/v1/art-styles      — list art styles with reference image URLs
+  GET  /api/v1/voices          — list available TTS voices
   POST /api/v1/series          — save a series config to S3
   GET  /api/v1/series          — list saved series configs
 """
 import asyncio
 import logging
+import os
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -112,6 +115,58 @@ async def list_tones():
     the selected tone drives the Gemini script agent's writing style.
     """
     return TONE_CATALOGUE
+
+
+_STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "styles")
+
+# Human-readable display names — keys match assets/styles/ filenames (without extension)
+_STYLE_DISPLAY_NAMES: dict[str, str] = {
+    "cinematic":      "Cinematic",
+    "color_block":    "Color Block",
+    "cyborg":         "Cyborg",
+    "depth_of_field": "Depth of Field",
+    "dynamite":       "Dynamite",
+    "enamel_pin":     "Enamel Pin",
+    "gothic_clay":    "Gothic Clay",
+    "monochrome":     "Monochrome",
+    "moody":          "Moody",
+    "mythic_fighter": "Mythic Fighter",
+    "oil_painting":   "Oil Painting",
+    "old_cartoon":    "Old Cartoon",
+    "risograph":      "Risograph",
+    "runway":         "Runway",
+    "salon":          "Salon",
+    "sketch":         "Sketch",
+    "steampunk":      "Steampunk",
+    "sunrise":        "Sunrise",
+    "surreal":        "Surreal",
+    "technicolor":    "Technicolor",
+}
+
+
+@router.get("/art-styles")
+async def list_art_styles(base_url: str = "http://localhost:8000"):
+    """List all art styles that have a reference image in assets/styles/.
+
+    Each entry includes the style key, display name, and image URL.
+    The frontend can use this to show a style picker gallery.
+
+    Pass ?base_url=https://your-domain.com in production.
+    """
+    styles = []
+
+    if os.path.isdir(_STYLES_DIR):
+        for filename in sorted(os.listdir(_STYLES_DIR)):
+            if not filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                continue
+            key = os.path.splitext(filename)[0].lower()
+            styles.append({
+                "key":       key,
+                "name":      _STYLE_DISPLAY_NAMES.get(key, key.replace("_", " ").title()),
+                "image_url": f"{base_url.rstrip('/')}/assets/styles/{filename}",
+            })
+
+    return {"art_styles": styles, "total": len(styles)}
 
 
 @router.get("/voices")

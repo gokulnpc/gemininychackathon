@@ -248,6 +248,11 @@ async def compose_video(
 
     # Step 2: Mix in voiceover audio
     if voiceover_path and os.path.exists(voiceover_path):
+        # Extend video to match the full voiceover duration (loops scene clips if needed)
+        vo_duration = _get_duration(voiceover_path)
+        extended = os.path.join(work_dir, "extended.mp4")
+        current_video = extend_video_to_duration(current_video, vo_duration, extended)
+
         audio_mixed = os.path.join(work_dir, "with_audio.mp4")
         _run_ffmpeg(
             [
@@ -257,7 +262,6 @@ async def compose_video(
                 "-c:v", "copy",
                 "-c:a", "aac", "-b:a", "192k",
                 "-map", "0:v:0", "-map", "1:a:0",
-                "-shortest",
                 audio_mixed,
             ],
             "mix voiceover",
