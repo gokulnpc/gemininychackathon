@@ -379,10 +379,39 @@ async def _run_stages(
     )
 
     if music_preset != "none":
-        music_file = os.path.join(
-            os.path.dirname(__file__), "..", "assets", "music", f"{music_preset}.mp3"
-        )
-        if os.path.exists(music_file):
+        from config import get_settings
+        _cfg = get_settings()
+        music_file: str | None = None
+        lyria_tmp: str | None = None
+
+        if music_preset == "lyria":
+            # User explicitly requested AI-generated music
+            if _cfg.google_cloud_project:
+                try:
+                    from services import lyria as lyria_svc
+                    lyria_tmp = await lyria_svc.generate_music(
+                        music_preset="lyria",
+                        project_id=_cfg.google_cloud_project,
+                        location=_cfg.vertex_ai_location,
+                        style=style,
+                        niche=niche,
+                    )
+                    music_file = lyria_tmp
+                except Exception as _lyr_exc:
+                    logger.warning("Lyria failed — skipping music: %s", _lyr_exc)
+            else:
+                logger.warning("Lyria selected but GOOGLE_CLOUD_PROJECT not set — skipping music")
+        else:
+            # Named static preset
+            static_path = os.path.join(
+                os.path.dirname(__file__), "..", "assets", "music", f"{music_preset}.mp3"
+            )
+            if os.path.exists(static_path):
+                music_file = static_path
+            else:
+                logger.warning("Static music preset not found: %s — skipping music", static_path)
+
+        if music_file:
             music_out = os.path.join(work_dir, "composed_music.mp4")
             composed_path = ffmpeg.mix_background_music(
                 video_path=composed_path,
@@ -390,9 +419,12 @@ async def _run_stages(
                 music_volume=music_volume,
                 output_path=music_out,
             )
-            stages[-1].detail = f"Composition + background music ({music_preset})"
-        else:
-            logger.warning("Music preset file not found: %s — skipping music", music_file)
+            stages[-1].detail = f"Composition + background music ({'lyria' if lyria_tmp else music_preset})"
+            if lyria_tmp:
+                try:
+                    os.unlink(lyria_tmp)
+                except OSError:
+                    pass
 
     stages[-1].status = "completed"
 

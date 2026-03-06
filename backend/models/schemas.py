@@ -71,6 +71,7 @@ class MusicPreset(str, Enum):
     peaceful_vibes = "peaceful_vibes"
     brilliant_symphony = "brilliant_symphony"
     breathing_shadows = "breathing_shadows"
+    lyria = "lyria"   # AI-generated music via Vertex AI Lyria
     none = "none"
 
 

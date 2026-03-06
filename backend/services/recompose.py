@@ -133,8 +133,33 @@ async def recompose_video(
             detail=f"Mixing music: {background_music} (vol={music_volume})",
         ))
 
-        music_file = os.path.join(_MUSIC_DIR, f"{background_music}.mp3")
-        if os.path.exists(music_file):
+        music_file: str | None = None
+        lyria_tmp: str | None = None
+
+        if background_music == "lyria":
+            from config import get_settings
+            _cfg = get_settings()
+            if _cfg.google_cloud_project:
+                try:
+                    from services import lyria as lyria_svc
+                    lyria_tmp = await lyria_svc.generate_music(
+                        music_preset="lyria",
+                        project_id=_cfg.google_cloud_project,
+                        location=_cfg.vertex_ai_location,
+                    )
+                    music_file = lyria_tmp
+                except Exception as _lyr_exc:
+                    logger.warning("Lyria failed in recompose — skipping music: %s", _lyr_exc)
+            else:
+                logger.warning("Lyria selected but GOOGLE_CLOUD_PROJECT not set — skipping music")
+        else:
+            static_path = os.path.join(_MUSIC_DIR, f"{background_music}.mp3")
+            if os.path.exists(static_path):
+                music_file = static_path
+            else:
+                logger.warning("Music preset file not found: %s — skipping", static_path)
+
+        if music_file:
             music_out = os.path.join(work_dir, "composed_music.mp4")
             composed_path = ffmpeg.mix_background_music(
                 video_path=captioned_path,
@@ -143,11 +168,15 @@ async def recompose_video(
                 output_path=music_out,
             )
             stages[-1].status = "completed"
-            stages[-1].detail = f"Mixed {background_music} at vol={music_volume}"
+            stages[-1].detail = f"Mixed {'lyria AI' if lyria_tmp else background_music} at vol={music_volume}"
+            if lyria_tmp:
+                try:
+                    os.unlink(lyria_tmp)
+                except OSError:
+                    pass
         else:
-            logger.warning("Music preset file not found: %s — skipping", music_file)
             stages[-1].status = "failed"
-            stages[-1].detail = f"Music file not found: {music_file} — video produced without music"
+            stages[-1].detail = "Music source not available — video produced without music"
 
     # ── Stage 5: Platform export + upload ─────────────────────────────────────
 
