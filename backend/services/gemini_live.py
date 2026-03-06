@@ -56,6 +56,10 @@ async def transcribe_live(
     live_config = types.LiveConnectConfig(
         response_modalities=["TEXT"],
         system_instruction=_TRANSCRIPTION_SYSTEM,
+        context_window_compression=types.ContextWindowCompressionConfig(
+            trigger_tokens=100_000,
+            sliding_window=types.SlidingWindow(target_tokens=80_000),
+        ),
     )
 
     transcript_parts: list[str] = []

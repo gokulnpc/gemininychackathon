@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from uuid import uuid4
 
 from services.retry import call_with_retry
 
@@ -298,3 +300,274 @@ Respond ONLY with JSON:
     except Exception as e:
         logger.warning("Gemini auto_configure_series failed: %s", e)
         return {}
+
+
+# ── Second ADK agent: auto_configure_series_adk ────────────────────────────────
+# Showcases multi-agent architecture: 5 specialist sub-agents as ADK tools.
+
+_ART_STYLES = ["realism", "creepy_comic", "ghibli", "comic", "painting", "polaroid", "disney"]
+_CAPTION_STYLES = ["beast", "bold_stroke", "karaoke", "majestic", "red_highlight", "sleek", "elegant"]
+_MUSIC_PRESETS = ["breathing_shadows", "quiet_before_storm", "brilliant_symphony", "happy_rhythm", "peaceful_vibes", "none"]
+_VOICES = [
+    {"voice_id": "TxGEqnHWrfWFTfGW9XjX", "voice_name": "Josh",   "profile": "young conversational casual"},
+    {"voice_id": "pNInz6obpgDQGcFmaJgB", "voice_name": "Adam",   "profile": "deep authoritative serious"},
+    {"voice_id": "21m00Tcm4TlvDq8ikWAM", "voice_name": "Rachel", "profile": "calm lifestyle wellness"},
+    {"voice_id": "EXAVITQu4vr4xnSDxMaL", "voice_name": "Bella",  "profile": "soft gentle mindful"},
+    {"voice_id": "VR6AewLTigWG4xSOukaG", "voice_name": "Arnold", "profile": "crisp educational informative"},
+]
+
+
+def _analyze_content(transcript: str, target_platforms: str) -> dict:
+    """Sub-agent 1 — Content Analyst: identify niche, tone, and key topic from transcript.
+
+    Args:
+        transcript: Raw transcript or idea text to analyze.
+        target_platforms: Comma-separated target platform names.
+    """
+    return {
+        "transcript_length": len(transcript),
+        "platforms": target_platforms,
+        "instruction": (
+            "Identify: (1) the core niche/topic category, (2) emotional tone "
+            "(exciting/calm/dramatic/educational/funny), (3) target audience age range, "
+            "(4) content angle (story/facts/how-to/opinion). Return as structured analysis."
+        ),
+    }
+
+
+def _profile_audience(niche: str, primary_platform: str) -> dict:
+    """Sub-agent 2 — Audience Profiler: describe target audience and platform behavior.
+
+    Args:
+        niche: Content niche identified by the Content Analyst.
+        primary_platform: Primary target platform (instagram_reels, tiktok, youtube_shorts).
+    """
+    platform_behaviors = {
+        "instagram_reels": "Saves and shares drive reach; hook in 2s; 15-30s optimal",
+        "tiktok": "Re-hooks needed at 5s and 15s; duets/stitches amplify; 15-60s",
+        "youtube_shorts": "Subscription intent; can build context over 3-5 scenes; 30-60s",
+    }
+    return {
+        "niche": niche,
+        "platform": primary_platform,
+        "platform_behavior": platform_behaviors.get(primary_platform, platform_behaviors["instagram_reels"]),
+        "art_style_options": _ART_STYLES,
+        "instruction": "Based on niche + platform behavior, recommend the ideal viewer profile and content tone.",
+    }
+
+
+def _select_creative_style(niche: str, emotional_tone: str, analytics_hint: str = "") -> dict:
+    """Sub-agent 3 — Creative Director: pick art style, caption style, and background music.
+
+    Args:
+        niche: Content niche (horror, finance, fitness, etc.).
+        emotional_tone: Tone from Content Analyst (exciting, calm, dramatic, educational, funny).
+        analytics_hint: Optional performance data string to bias style selection.
+    """
+    return {
+        "niche": niche,
+        "emotional_tone": emotional_tone,
+        "analytics_hint": analytics_hint or "No historical data",
+        "available_art_styles": _ART_STYLES,
+        "available_caption_styles": _CAPTION_STYLES,
+        "available_music": _MUSIC_PRESETS,
+        "instruction": (
+            "Pick EXACTLY one art_style, one caption_style, one background_music. "
+            "Return choices with a one-sentence rationale for each."
+        ),
+    }
+
+
+def _select_production_config(primary_platform: str, emotional_tone: str) -> dict:
+    """Sub-agent 4 — Platform Strategist: select voice, video duration, and format.
+
+    Args:
+        primary_platform: Target platform (instagram_reels, tiktok, youtube_shorts).
+        emotional_tone: Tone from Content Analyst.
+    """
+    return {
+        "platform": primary_platform,
+        "emotional_tone": emotional_tone,
+        "available_voices": _VOICES,
+        "duration_options": ["15-30", "30-40", "60+"],
+        "format_options": ["storytelling", "what_if", "five_things", "random_fact"],
+        "instruction": (
+            "Choose voice_id + voice_name that matches the emotional tone. "
+            "Choose video_duration and video_format that suit the platform and tone. "
+            "Recommend music_volume between 0.10 and 0.30."
+        ),
+    }
+
+
+async def _commit_series_config(
+    series_name: str,
+    niche: str,
+    art_style: str,
+    caption_style: str,
+    background_music: str,
+    music_volume: float,
+    voice_id: str,
+    voice_name: str,
+    video_duration: str,
+    video_format: str,
+    target_platforms_json: str,
+    reasoning: str,
+    tool_context=None,
+) -> dict:
+    """Sub-agent 5 — Production Designer: commit final series configuration.
+
+    Call ONLY after all four other sub-agents have been consulted.
+
+    Args:
+        series_name: Punchy 2-3 word series name.
+        niche: Content niche.
+        art_style: Chosen art style (must be one of the available options).
+        caption_style: Chosen caption style.
+        background_music: Chosen music preset.
+        music_volume: Music volume between 0.10 and 0.30.
+        voice_id: ElevenLabs voice ID string.
+        voice_name: Human-readable voice name.
+        video_duration: Duration range string (15-30, 30-40, or 60+).
+        video_format: Format string (storytelling, what_if, five_things, random_fact).
+        target_platforms_json: JSON array string of platform names.
+        reasoning: 3-5 sentence explanation of all decisions.
+    """
+    try:
+        target_platforms = json.loads(target_platforms_json) if target_platforms_json else ["instagram_reels"]
+    except json.JSONDecodeError:
+        target_platforms = ["instagram_reels"]
+
+    config = {
+        "series_name": series_name,
+        "niche": niche,
+        "art_style": art_style,
+        "caption_style": caption_style,
+        "background_music": background_music,
+        "music_volume": float(music_volume),
+        "voice_id": voice_id,
+        "voice_name": voice_name,
+        "video_duration": video_duration,
+        "video_format": video_format,
+        "target_platforms": target_platforms,
+        "reasoning": reasoning,
+        "configured_by": "google-adk",
+    }
+    if tool_context is not None:
+        tool_context.state["series_config"] = config
+    return {"status": "accepted", "message": "Series configuration committed."}
+
+
+async def auto_configure_series_adk(
+    transcript: str,
+    target_platforms: list[str] | None = None,
+    reddit_context: dict | None = None,
+    analytics_context: dict | None = None,
+) -> dict:
+    """ADK multi-agent version of auto_configure_series.
+
+    5 specialist sub-agents collaborate as ADK tools to auto-generate a complete
+    series config from a raw transcript. Drop-in replacement — same return shape,
+    configured_by = 'google-adk'.
+    """
+    from google.adk.agents import Agent
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.adk.tools import ToolContext
+    from google.genai import types as genai_types
+
+    from config import get_settings
+    settings = get_settings()
+
+    if settings.use_vertex_ai:
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+        os.environ.setdefault("GOOGLE_CLOUD_LOCATION", settings.vertex_ai_location)
+    elif settings.gemini_api_key:
+        os.environ.setdefault("GOOGLE_API_KEY", settings.gemini_api_key)
+
+    platforms_str = ", ".join(target_platforms) if target_platforms else "instagram_reels"
+
+    reddit_hint = ""
+    if reddit_context and reddit_context.get("top_topics"):
+        topics = "\n".join(f"  • {t}" for t in reddit_context["top_topics"][:6])
+        reddit_hint = f"\n\nTRENDING ON REDDIT:\n{topics}"
+
+    analytics_hint = ""
+    if analytics_context:
+        art_rows = analytics_context.get("art_style_performance", [])
+        if art_rows:
+            analytics_hint = "Best performing art styles: " + ", ".join(
+                f"{r['art_style']} ({r.get('avg_quality', '?')}/100)"
+                for r in art_rows[:3]
+            )
+
+    system = (
+        "You are the Content Factory series configurator. "
+        "Use your 5 specialist sub-agent tools IN ORDER to analyse a transcript "
+        "and produce a complete series configuration:\n\n"
+        "1. Call _analyze_content — identify niche and tone\n"
+        "2. Call _profile_audience — understand the target viewer\n"
+        "3. Call _select_creative_style — pick art style, captions, music\n"
+        "4. Call _select_production_config — pick voice, duration, format\n"
+        "5. Call _commit_series_config — commit ALL decisions\n\n"
+        "You MUST call all five tools and commit before finishing."
+    )
+
+    app_name = "content-factory-config"
+    user_id = "series-configurator"
+    session_id = str(uuid4())
+
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+
+    agent = Agent(
+        name="series_configurator",
+        model=MODEL,
+        instruction=system,
+        tools=[
+            _analyze_content,
+            _profile_audience,
+            _select_creative_style,
+            _select_production_config,
+            _commit_series_config,
+        ],
+    )
+
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    message = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text=(
+            f"Configure a video series for this transcript:\n\n{transcript}\n\n"
+            f"Target platforms: {platforms_str}{reddit_hint}"
+            + (f"\n\nAnalytics hint: {analytics_hint}" if analytics_hint else "")
+        ))],
+    )
+
+    logger.info("ADK series configurator starting (platforms=%s)", platforms_str)
+
+    try:
+        async for _event in runner.run_async(
+            user_id=user_id, session_id=session_id, new_message=message
+        ):
+            pass
+
+        session = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+        config = (session.state or {}).get("series_config")
+        if config:
+            logger.info(
+                "ADK series config: series=%r art=%s voice=%s",
+                config.get("series_name"), config.get("art_style"), config.get("voice_name"),
+            )
+            return config
+
+        logger.warning("ADK series configurator: _commit_series_config was not called — falling back")
+
+    except Exception as exc:
+        logger.warning("ADK series configurator failed: %s — falling back to single-call", exc)
+
+    # Fall back to the original single-call implementation
+    return await auto_configure_series(transcript, target_platforms, reddit_context, analytics_context)

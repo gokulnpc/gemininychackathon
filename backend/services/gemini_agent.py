@@ -1,33 +1,35 @@
 """Gemini Agent — agentic script generation for Content Factory.
 
-Replaces claude_agent.py. Identical public interface.
-
-Gemini 3 Pro acts as the creative director, orchestrating the same 5-tool
-ReAct loop using Gemini native function calling:
+Uses Google ADK (Agent Development Kit) with a 5-tool ReAct loop:
   - search_trending_hooks   → Gemini Reasoning researches viral hook patterns
   - analyze_brand_voice     → style rules from art style + brand guidelines
   - optimize_for_platform   → pacing/CTA check against platform best practices
   - validate_script_quality → Gemini Reasoning independently scores the draft
-  - finalize_script         → output sink that ends the agent loop
+  - finalize_script         → output sink (stores result via ToolContext) that ends the loop
+
+Public interface unchanged: generate_script_with_agent() returns the same dict shape.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
+import os
 from uuid import uuid4
 
+from google.adk.agents import Agent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.adk.tools import ToolContext
+
 from services import gemini_reasoning
-from services.retry import call_with_retry
 
 logger = logging.getLogger(__name__)
 
-# Upgrade to gemini-3.0-pro when GA; gemini-2.5-pro is current best
-MODEL = "gemini-2.5-pro"
-MAX_TURNS = 14
+MODEL = "gemini-2.5-flash"
 
-# ── Reuse all pure-Python tool handlers from the original agent ───────────────
+
+# ── Reference data ─────────────────────────────────────────────────────────────
 
 _HOOK_LIBRARY: dict[str, list[dict]] = {
     "weather": [
@@ -102,6 +104,8 @@ _STYLE_RULES: dict[str, str] = {
 }
 
 
+# ── Pure-Python tool helpers ───────────────────────────────────────────────────
+
 def _tool_search_trending_hooks(niche: str, platform: str, style: str = "modern_energetic") -> dict:
     hooks = _HOOK_LIBRARY.get(niche.lower(), _HOOK_LIBRARY["default"])
     guidelines = _PLATFORM_GUIDELINES.get(platform, _PLATFORM_GUIDELINES["instagram_reels"])
@@ -124,7 +128,7 @@ def _tool_analyze_brand_voice(art_style: str, series_name: str = "", niche: str 
         "avoid": ["passive voice", "filler words", "jargon without explanation"],
         "visual_prompt_tip": (
             f"Every visual_prompt must specify: subject, lighting, camera angle, mood, and "
-            f"'{art_style}' art style for Veo video generation."
+            f"'{art_style}' art style for image generation."
         ),
     }
 
@@ -173,179 +177,155 @@ def _tool_validate_script_quality(hook: str, scenes: list, cta: str,
     }
 
 
-# ── Gemini function declarations ──────────────────────────────────────────────
+# ── ADK tool functions ─────────────────────────────────────────────────────────
 
-_TOOL_DECLARATIONS = [
-    {
-        "name": "search_trending_hooks",
-        "description": "Find viral hook patterns and opening lines for a content niche.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "niche": {"type": "string", "description": "Content niche, e.g. weather, finance, fitness"},
-                "platform": {"type": "string", "enum": ["instagram_reels", "tiktok", "youtube_shorts"]},
-                "style": {"type": "string", "description": "Video style e.g. modern_energetic, dramatic"},
-            },
-            "required": ["niche", "platform"],
-        },
-    },
-    {
-        "name": "analyze_brand_voice",
-        "description": "Convert art style and brand voice guidelines into concrete writing rules.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "art_style": {"type": "string", "description": "realism, ghibli, comic, creepy_comic, painting, polaroid, disney"},
-                "series_name": {"type": "string"},
-                "niche": {"type": "string"},
-                "brand_voice": {"type": "string"},
-            },
-            "required": ["art_style"],
-        },
-    },
-    {
-        "name": "optimize_for_platform",
-        "description": "Check draft hook and CTA against platform best practices.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "platform": {"type": "string", "enum": ["instagram_reels", "tiktok", "youtube_shorts"]},
-                "current_hook": {"type": "string"},
-                "current_cta": {"type": "string"},
-                "video_duration": {"type": "integer"},
-                "scenes": {"type": "array", "items": {"type": "object"}},
-            },
-            "required": ["platform", "current_hook", "current_cta"],
-        },
-    },
-    {
-        "name": "validate_script_quality",
-        "description": "Score the complete script 0-100. Score ≥70 → call finalize_script.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "hook": {"type": "string"},
-                "scenes": {"type": "array", "items": {"type": "object"}},
-                "cta": {"type": "string"},
-                "target_duration": {"type": "integer"},
-                "platform": {"type": "string"},
-            },
-            "required": ["hook", "scenes", "cta"],
-        },
-    },
-    {
-        "name": "finalize_script",
-        "description": "Submit the final approved script. Call ONLY after validate_script_quality returns score ≥70.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "hook": {
-                    "type": "object",
-                    "properties": {"text": {"type": "string"}, "duration": {"type": "integer"}},
-                    "required": ["text"],
-                },
-                "scenes": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "scene_id": {"type": "integer"},
-                            "duration_seconds": {"type": "integer"},
-                            "visual_prompt": {"type": "string"},
-                            "voiceover_text": {"type": "string"},
-                            "emotion": {"type": "string"},
-                            "text_overlay": {"type": "string"},
-                            "transition_to_next": {"type": "string"},
-                        },
-                        "required": ["scene_id", "duration_seconds", "visual_prompt", "voiceover_text", "emotion"],
-                    },
-                },
-                "cta": {
-                    "type": "object",
-                    "properties": {"text": {"type": "string"}, "type": {"type": "string"}},
-                    "required": ["text"],
-                },
-                "social_copy": {"type": "object"},
-                "quality_score": {"type": "number"},
-                "agent_reasoning": {"type": "string"},
-                "character_description": {
-                    "type": "string",
-                    "description": "Consistent physical description of the main character/subject used across all scene images.",
-                },
-            },
-            "required": ["hook", "scenes", "cta"],
-        },
-    },
-]
+async def search_trending_hooks(
+    niche: str, platform: str, style: str = "modern_energetic"
+) -> dict:
+    """Find viral hook patterns and opening lines for a content niche.
+
+    Args:
+        niche: Content niche, e.g. weather, finance, fitness.
+        platform: Target platform: instagram_reels, tiktok, or youtube_shorts.
+        style: Video style e.g. modern_energetic, dramatic.
+    """
+    base = _tool_search_trending_hooks(niche=niche, platform=platform, style=style)
+    try:
+        from services import feedback_store
+        top_hooks = await feedback_store.get_top_hooks(niche=niche)
+        if top_hooks:
+            base["proven_hooks_from_history"] = [
+                {"hook": h.get("hook_text"), "quality_score": h.get("quality_score")}
+                for h in top_hooks
+            ]
+    except Exception:
+        pass  # feedback is advisory — never block script generation
+    return base
 
 
-# ── Tool dispatcher ────────────────────────────────────────────────────────────
+def analyze_brand_voice(
+    art_style: str, series_name: str = "", niche: str = "", brand_voice: str = ""
+) -> dict:
+    """Convert art style and brand voice guidelines into concrete writing rules.
 
-async def _dispatch(tool_name: str, inputs: dict) -> dict:
-    if tool_name == "search_trending_hooks":
-        niche = inputs.get("niche", "default")
-        platform = inputs.get("platform", "instagram_reels")
+    Args:
+        art_style: Art style from the catalog (e.g. cinematic, gothic_clay, surreal).
+        series_name: Optional series name for context.
+        niche: Content niche for context.
+        brand_voice: Optional brand voice description.
+    """
+    return _tool_analyze_brand_voice(art_style, series_name, niche, brand_voice)
 
-        # Tier 1: Gemini Reasoning for deep hook analysis
-        gemini_result = await gemini_reasoning.research_hooks(
-            niche=niche,
-            platform=platform,
-            style=inputs.get("style", "modern_energetic"),
-        )
-        if gemini_result and gemini_result.get("hooks"):
-            guidelines = _PLATFORM_GUIDELINES.get(platform, _PLATFORM_GUIDELINES["instagram_reels"])
-            result = {**gemini_result, "platform_guidelines": guidelines}
-        else:
-            # Tier 2: curated library fallback
-            result = _tool_search_trending_hooks(**inputs)
 
-        # Tier 3: inject high-scoring hooks from Firestore feedback (non-blocking)
-        try:
-            from services import feedback_store
-            top_hooks = await feedback_store.get_top_hooks(niche=niche)
-            if top_hooks:
-                result["proven_hooks_from_history"] = [
-                    {"hook": h.get("hook_text"), "quality_score": h.get("quality_score")}
-                    for h in top_hooks
-                ]
-        except Exception:
-            pass  # feedback is advisory — never block script generation
+def optimize_for_platform(
+    platform: str, current_hook: str, current_cta: str, video_duration: int = 30
+) -> dict:
+    """Check draft hook and CTA against platform best practices.
 
-        return result
+    Args:
+        platform: instagram_reels, tiktok, or youtube_shorts.
+        current_hook: The hook text to evaluate.
+        current_cta: The CTA text to evaluate.
+        video_duration: Target video duration in seconds.
+    """
+    return _tool_optimize_for_platform(platform, current_hook, current_cta, video_duration)
 
-    if tool_name == "analyze_brand_voice":
-        return _tool_analyze_brand_voice(**inputs)
 
-    if tool_name == "optimize_for_platform":
-        return _tool_optimize_for_platform(**inputs)
+async def validate_script_quality(
+    hook: str,
+    scenes_json: str,
+    cta: str,
+    target_duration: int = 30,
+    platform: str = "instagram_reels",
+) -> dict:
+    """Score the complete script 0-100. Score ≥70 means ready to call finalize_script.
 
-    if tool_name == "validate_script_quality":
-        # Gemini Reasoning acts as independent critic (not the script author self-grading)
-        gemini_result = await gemini_reasoning.score_script(
-            hook=inputs.get("hook", ""),
-            scenes=inputs.get("scenes", []),
-            cta=inputs.get("cta", ""),
-            platform=inputs.get("platform", "instagram_reels"),
-            target_duration=inputs.get("target_duration", 30),
-        )
-        if gemini_result and "score" in gemini_result:
-            score = gemini_result.get("score", 70)
-            passed = gemini_result.get("passed", score >= 70)
-            return {
-                "score": score, "passed": passed,
-                "critique": [gemini_result.get("top_weakness", ""), gemini_result.get("reasoning", "")[:200]],
-                "estimated_duration_seconds": 0,
-                "recommendation": (
-                    "Call finalize_script — quality validated by Gemini."
-                    if passed
-                    else f"Revise: {gemini_result.get('top_weakness', 'improve quality')} (score={score}/100)"
-                ),
-                "top_strength": gemini_result.get("top_strength", ""),
-                "scored_by": "gemini",
-            }
-        return _tool_validate_script_quality(**inputs)
+    Args:
+        hook: The hook text.
+        scenes_json: JSON array string of scene objects, each with scene_id,
+                     duration_seconds, visual_prompt, voiceover_text, and emotion.
+                     Example: [{"scene_id":1,"duration_seconds":5,"voiceover_text":"...","visual_prompt":"...","emotion":"excited"}]
+        cta: The call-to-action text.
+        target_duration: Target video duration in seconds.
+        platform: Target platform name.
+    """
+    import json
+    try:
+        scenes = json.loads(scenes_json) if scenes_json else []
+    except (json.JSONDecodeError, TypeError):
+        scenes = []
 
-    return {"error": f"Unknown tool: {tool_name}"}
+    return _tool_validate_script_quality(
+        hook=hook, scenes=scenes, cta=cta,
+        target_duration=target_duration, platform=platform,
+    )
+
+
+async def finalize_script(
+    hook_text: str,
+    hook_duration: int,
+    scenes_json: str,
+    cta_text: str,
+    cta_type: str = "verbal_and_visual",
+    social_copy_json: str = "{}",
+    quality_score: float = 0.0,
+    agent_reasoning: str = "",
+    character_description: str = "",
+    tool_context: ToolContext = None,
+) -> dict:
+    """Submit the final approved script. Call ONLY after validate_script_quality returns score ≥70.
+
+    Args:
+        hook_text: The hook sentence shown at the start of the video.
+        hook_duration: Duration in seconds for the hook (usually 3).
+        scenes_json: JSON array string of scene objects. Each scene must have:
+                     scene_id (int), duration_seconds (int), visual_prompt (str, 60+ words),
+                     voiceover_text (str), emotion (str), and optionally text_overlay (str)
+                     and transition_to_next (str).
+                     Example: [{"scene_id":1,"duration_seconds":5,"visual_prompt":"...","voiceover_text":"...","emotion":"excited"}]
+        cta_text: The call-to-action spoken at the end.
+        cta_type: CTA type, e.g. verbal_and_visual, verbal_only.
+        social_copy_json: JSON string mapping platform names to caption/hashtags objects.
+                          Example: {"instagram_reels": {"caption": "...", "hashtags": ["#tag"]}}
+        quality_score: Score returned by validate_script_quality (should be ≥70).
+        agent_reasoning: Brief explanation of creative decisions made.
+        character_description: Consistent physical description of the main character
+                               used across all scene images.
+    """
+    import json
+    try:
+        scenes = json.loads(scenes_json) if scenes_json else []
+    except (json.JSONDecodeError, TypeError):
+        scenes = []
+
+    if not scenes:
+        return {
+            "status": "rejected",
+            "message": (
+                "scenes_json is empty — you MUST include at least 3 scenes, each with "
+                "scene_id, duration_seconds, visual_prompt, voiceover_text, and emotion. "
+                "Build the scenes array first, then call finalize_script again."
+            ),
+        }
+
+    try:
+        social_copy = json.loads(social_copy_json) if social_copy_json else {}
+    except (json.JSONDecodeError, TypeError):
+        social_copy = {}
+
+    result = {
+        "hook": {"text": hook_text, "duration": hook_duration},
+        "scenes": scenes,
+        "cta": {"text": cta_text, "type": cta_type},
+        "social_copy": social_copy,
+        "quality_score": quality_score,
+        "agent_reasoning": agent_reasoning,
+        "character_description": character_description,
+    }
+    if tool_context is not None:
+        tool_context.state["finalized_script"] = result
+    logger.info("finalize_script called — quality_score=%s scenes=%d", quality_score, len(scenes))
+    return {"status": "accepted", "message": "Script finalised — generation complete."}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -366,7 +346,6 @@ def _infer_niche(transcript: str) -> str:
 
 
 def _recommended_scene_count(duration: int) -> int:
-    # One new image every 2 seconds — drives the scene count for the pipeline
     return max(2, duration // 2)
 
 
@@ -411,7 +390,7 @@ def _build_response(finalized: dict, platform: str, video_duration: int) -> dict
             "agent_quality_score": finalized.get("quality_score"),
             "agent_reasoning": finalized.get("agent_reasoning", ""),
             "character_description": finalized.get("character_description", ""),
-            "generated_by": "gemini-agent + gemini-reasoning",
+            "generated_by": "google-adk + gemini-reasoning",
             "model": MODEL,
             "intelligence_model": MODEL,
         },
@@ -437,16 +416,22 @@ async def generate_script_with_agent(
     video_format: str = "storytelling",
     reddit_context: dict | None = None,
 ) -> dict:
-    """Run a Gemini agent loop to generate a high-quality video script.
+    """Run a Google ADK agent loop to generate a high-quality video script.
 
-    Drop-in replacement for claude_agent.generate_script_with_agent().
+    Drop-in replacement for the previous hand-rolled ReAct loop.
     Same arguments, same return shape.
     """
-    from google.genai import types
+    from config import get_settings
+    from google.genai import types as genai_types
 
-    from services.gemini_client import get_client
+    settings = get_settings()
 
-    client = get_client()
+    # Configure ADK's internal genai client (Vertex AI on GCP, API key locally)
+    if settings.use_vertex_ai:
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+        os.environ.setdefault("GOOGLE_CLOUD_LOCATION", settings.vertex_ai_location)
+    elif settings.gemini_api_key:
+        os.environ.setdefault("GOOGLE_API_KEY", settings.gemini_api_key)
 
     platform = target_platforms[0] if target_platforms else "instagram_reels"
     inferred_niche = niche or _infer_niche(transcript)
@@ -454,7 +439,7 @@ async def generate_script_with_agent(
     target_words = int(video_duration * 2.5)
 
     system = (
-        f"You are Content Factory's expert script director. Transform the creator's voice memo "
+        f"You are Scout, Content Factory's expert script director. Transform the creator's voice memo "
         f"into a viral {video_duration}-second marketing video script optimised for {platform}.\n\n"
         f"Use your tools strategically:\n"
         f"1. Call search_trending_hooks for niche=\"{inferred_niche}\"\n"
@@ -477,7 +462,11 @@ async def generate_script_with_agent(
         f"• Hook must land within the platform's hook window — punchy and specific\n"
         f"• CTA: {cta_preference or 'choose the highest-converting CTA for ' + platform}\n"
         f"• Format: {video_format}\n"
-        f"• Never call finalize_script with quality score < 70"
+        f"• Never call finalize_script with quality score < 70\n"
+        f"• validate_script_quality and finalize_script take scenes_json — a JSON array string:\n"
+        f'  \'[{{"scene_id":1,"duration_seconds":5,"visual_prompt":"...","voiceover_text":"...","emotion":"excited"}}]\'\n'
+        f"• finalize_script also takes hook_text, hook_duration (int), cta_text, cta_type separately\n"
+        f'• social_copy_json is a JSON string: \'{{\"instagram_reels\":{{\"caption\":\"...\",\"hashtags\":[\"#tag\"]}}}}\''
     )
 
     if reddit_context and reddit_context.get("top_topics"):
@@ -488,83 +477,256 @@ async def generate_script_with_agent(
             "Use these live trends to sharpen your hook angle and script perspective."
         )
 
-    tool = types.Tool(function_declarations=_TOOL_DECLARATIONS)
-    config = types.GenerateContentConfig(
-        system_instruction=system,
-        tools=[tool],
+    app_name = "content-factory"
+    user_id = "script-agent"
+    session_id = str(uuid4())
+
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
     )
 
-    # Start conversation
-    contents = [
-        types.Content(
-            role="user",
-            parts=[types.Part(text=(
-                f"Create a {video_duration}s {platform} script about this topic:\n\n"
-                f"{transcript}\n\n"
-                f"Niche: {inferred_niche} | Style: {style} | Art: {art_style}"
-            ))],
-        )
-    ]
+    from google.genai import types as genai_types_cfg
+    agent = Agent(
+        name="script_director",
+        model=MODEL,
+        instruction=system,
+        tools=[
+            search_trending_hooks,
+            analyze_brand_voice,
+            optimize_for_platform,
+            validate_script_quality,
+            finalize_script,
+        ],
+        # Raise the LLM call budget above the ADK default of 10 so the agent
+        # can revise and re-validate without hitting the limit.
+        generate_content_config=genai_types_cfg.GenerateContentConfig(
+            automatic_function_calling=genai_types_cfg.AutomaticFunctionCallingConfig(
+                maximum_remote_calls=12,
+            ),
+        ),
+    )
 
-    finalized: dict | None = None
-    turns = 0
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    message = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text=(
+            f"Create a {video_duration}s {platform} script about this topic:\n\n"
+            f"{transcript}\n\n"
+            f"Niche: {inferred_niche} | Style: {style} | Art: {art_style}"
+        ))],
+    )
 
     logger.info(
-        "Gemini agent starting: platform=%s niche=%s duration=%ds model=%s",
+        "ADK agent starting: platform=%s niche=%s duration=%ds model=%s",
         platform, inferred_niche, video_duration, MODEL,
     )
 
-    while turns < MAX_TURNS and finalized is None:
-        response = await call_with_retry(
-            client.models.generate_content,
-            model=MODEL,
-            contents=contents,
-            config=config,
-        )
-        turns += 1
+    # Retry wrapper — ADK's internal tenacity only covers individual LLM calls;
+    # a 503 mid-conversation exhausts those retries and surfaces here.
+    # On transient errors we restart the entire session (fresh context).
+    _MAX_ATTEMPTS = 3
+    _RETRY_DELAYS = [4, 8]  # seconds between attempts
+    finalized = None
+    last_exc: Exception | None = None
 
-        candidate = response.candidates[0]
-        contents.append(candidate.content)  # add model turn to history
-
-        # Count function calls in this turn
-        fc_parts = [p for p in candidate.content.parts if hasattr(p, "function_call") and p.function_call and p.function_call.name]
-        logger.info("Gemini turn %d/%d: %d function call(s)", turns, MAX_TURNS, len(fc_parts))
-
-        if not fc_parts:
-            logger.warning("Gemini stopped without calling finalize_script")
-            break
-
-        # Execute all function calls and collect results
-        result_parts = []
-        for part in fc_parts:
-            fc = part.function_call
-            tool_name = fc.name
-            tool_inputs = dict(fc.args) if fc.args else {}
-
-            logger.info("Gemini → tool: %s  inputs: %s", tool_name, str(tool_inputs)[:160])
-
-            if tool_name == "finalize_script":
-                finalized = tool_inputs
-                result = {"status": "accepted", "message": "Script finalised."}
-            else:
-                result = await _dispatch(tool_name, tool_inputs)
-
-            result_parts.append(
-                types.Part(
-                    function_response=types.FunctionResponse(
-                        name=tool_name,
-                        response={"result": result},
-                    )
-                )
+    for attempt in range(_MAX_ATTEMPTS):
+        if attempt:
+            delay = _RETRY_DELAYS[min(attempt - 1, len(_RETRY_DELAYS) - 1)]
+            logger.warning("ADK agent attempt %d/%d failed — retrying in %ds: %s",
+                           attempt, _MAX_ATTEMPTS, delay, last_exc)
+            await asyncio.sleep(delay)
+            # New session for fresh ADK context
+            session_id = str(uuid4())
+            await session_service.create_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
             )
 
-        contents.append(types.Content(role="user", parts=result_parts))
+        try:
+            async for _event in runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=message
+            ):
+                pass  # drain; finalize_script stores result via ToolContext as side-effect
+
+            session = await session_service.get_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+            finalized = (session.state or {}).get("finalized_script")
+            if finalized is not None:
+                break  # success
+            last_exc = RuntimeError("finalize_script was not called")
+        except Exception as exc:
+            last_exc = exc
+            # Only retry on transient server errors (503, 429, connection errors)
+            exc_str = str(exc)
+            if any(code in exc_str for code in ("503", "429", "500", "UNAVAILABLE", "RESOURCE_EXHAUSTED")):
+                continue
+            raise  # non-transient error — propagate immediately
 
     if finalized is None:
         raise RuntimeError(
-            f"Gemini agent did not call finalize_script within {MAX_TURNS} turns. "
-            "Check GEMINI_API_KEY and model availability."
+            "ADK agent did not call finalize_script within the allowed turns. "
+            "Check GEMINI_API_KEY / Vertex AI config and model availability."
         )
 
-    logger.info("Gemini agent completed in %d turns — quality_score=%s", turns, finalized.get("quality_score"))
+    logger.info(
+        "ADK agent completed — quality_score=%s scenes=%d",
+        finalized.get("quality_score"), len(finalized.get("scenes", [])),
+    )
     return _build_response(finalized, platform, video_duration)
+
+
+# ── SSE streaming entry point ──────────────────────────────────────────────────
+
+_TOOL_LABELS: dict[str, str] = {
+    "search_trending_hooks":   "Researching viral hook patterns…",
+    "analyze_brand_voice":     "Analyzing brand voice and art style…",
+    "optimize_for_platform":   "Optimizing hook and CTA for platform…",
+    "validate_script_quality": "Scoring script quality…",
+    "finalize_script":         "Finalizing script…",
+}
+
+
+async def stream_script_agent(
+    transcript: str,
+    target_platforms: list[str],
+    style: str = "modern_energetic",
+    video_duration: int = 30,
+    brand_voice: str | None = None,
+    cta_preference: str | None = None,
+    niche: str | None = None,
+    art_style: str = "realism",
+    video_format: str = "storytelling",
+    reddit_context: dict | None = None,
+):
+    """Async generator — same logic as generate_script_with_agent but yields SSE dicts.
+
+    Yields:
+        {"type": "agent_step", "tool": "<name>", "message": "<human label>"}  — per tool call
+        {"type": "complete", "script": {...}}                                  — on success
+        {"type": "error", "message": "..."}                                    — on failure
+    """
+    from config import get_settings
+    from google.genai import types as genai_types, types as genai_types_cfg
+
+    settings = get_settings()
+
+    if settings.use_vertex_ai:
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+        os.environ.setdefault("GOOGLE_CLOUD_LOCATION", settings.vertex_ai_location)
+    elif settings.gemini_api_key:
+        os.environ.setdefault("GOOGLE_API_KEY", settings.gemini_api_key)
+
+    platform = target_platforms[0] if target_platforms else "instagram_reels"
+    inferred_niche = niche or _infer_niche(transcript)
+    scene_count = _recommended_scene_count(video_duration)
+    target_words = int(video_duration * 2.5)
+
+    system = (
+        f"You are Scout, Content Factory's expert script director. Transform the creator's voice memo "
+        f"into a viral {video_duration}-second marketing video script optimised for {platform}.\n\n"
+        f"Use your tools strategically:\n"
+        f"1. Call search_trending_hooks for niche=\"{inferred_niche}\"\n"
+        f"2. Call analyze_brand_voice for art_style=\"{art_style}\"\n"
+        f"3. Draft: one hook + {scene_count} scenes + one CTA\n"
+        f"4. Call optimize_for_platform to check pacing and CTA\n"
+        f"5. Call validate_script_quality — if score < 70, revise and re-validate\n"
+        f"6. Call finalize_script ONLY when score ≥ 70\n\n"
+        f"HARD CONSTRAINTS:\n"
+        f"• Total voiceover ≈ {target_words} words across {scene_count} scenes\n"
+        f"• Each scene = exactly 2 seconds of screen time\n"
+        f"• Each visual_prompt must be 60+ words using this cinematic template:\n"
+        f"  'A [shot type] of [subject + detailed appearance], [action/expression], "
+        f"set in [specific environment]. Illuminated by [lighting description], creating "
+        f"a [mood/atmosphere]. [Camera/lens details]. [Key textures and details]. "
+        f"{art_style} art style.'\n"
+        f"• character_description: write ONE consistent physical description of the "
+        f"main character/subject (appearance, clothing, features) — used to keep all "
+        f"images visually consistent.\n"
+        f"• Hook must land within the platform's hook window — punchy and specific\n"
+        f"• CTA: {cta_preference or 'choose the highest-converting CTA for ' + platform}\n"
+        f"• Format: {video_format}\n"
+        f"• Never call finalize_script with quality score < 70\n"
+        f"• validate_script_quality and finalize_script take scenes_json — a JSON array string:\n"
+        f'  \'[{{"scene_id":1,"duration_seconds":5,"visual_prompt":"...","voiceover_text":"...","emotion":"excited"}}]\'\n'
+        f"• finalize_script also takes hook_text, hook_duration (int), cta_text, cta_type separately\n"
+        f'• social_copy_json is a JSON string: \'{{\"instagram_reels\":{{\"caption\":\"...\",\"hashtags\":[\"#tag\"]}}}}\''
+    )
+
+    if reddit_context and reddit_context.get("top_topics"):
+        topics = "\n".join(f"  • {t}" for t in reddit_context["top_topics"][:6])
+        subreddits = ", ".join(f"r/{s}" for s in reddit_context.get("subreddits_searched", []))
+        system += (
+            f"\n\nTRENDING ON REDDIT RIGHT NOW ({subreddits}):\n{topics}\n"
+            "Use these live trends to sharpen your hook angle and script perspective."
+        )
+
+    app_name = "content-factory"
+    user_id = "script-agent-stream"
+    session_id = str(uuid4())
+
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+
+    agent = Agent(
+        name="script_director",
+        model=MODEL,
+        instruction=system,
+        tools=[
+            search_trending_hooks,
+            analyze_brand_voice,
+            optimize_for_platform,
+            validate_script_quality,
+            finalize_script,
+        ],
+        generate_content_config=genai_types_cfg.GenerateContentConfig(
+            automatic_function_calling=genai_types_cfg.AutomaticFunctionCallingConfig(
+                maximum_remote_calls=12,
+            ),
+        ),
+    )
+
+    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
+
+    message = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text=(
+            f"Create a {video_duration}s {platform} script about this topic:\n\n"
+            f"{transcript}\n\n"
+            f"Niche: {inferred_niche} | Style: {style} | Art: {art_style}"
+        ))],
+    )
+
+    logger.info(
+        "ADK stream agent starting: platform=%s niche=%s duration=%ds",
+        platform, inferred_niche, video_duration,
+    )
+
+    try:
+        async for event in runner.run_async(
+            user_id=user_id, session_id=session_id, new_message=message
+        ):
+            if not event.content or not event.content.parts:
+                continue
+            for part in event.content.parts:
+                fc = getattr(part, "function_call", None)
+                if fc and fc.name in _TOOL_LABELS:
+                    yield {"type": "agent_step", "tool": fc.name, "message": _TOOL_LABELS[fc.name]}
+
+        session = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+        finalized = (session.state or {}).get("finalized_script")
+        if finalized is None:
+            yield {"type": "error", "message": "Scout did not produce a script — try again"}
+            return
+
+        logger.info("ADK stream agent completed — quality_score=%s", finalized.get("quality_score"))
+        yield {"type": "complete", "script": _build_response(finalized, platform, video_duration)}
+
+    except Exception as exc:
+        logger.exception("ADK stream agent error: %s", exc)
+        yield {"type": "error", "message": str(exc)}

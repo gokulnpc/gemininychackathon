@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
-from routers import auth, catalog, creative_director, projects, publish, recompose, script, video, voice_live, worker
+from routers import auth, catalog, creative_director, edit_voice, projects, publish, recompose, script, video, voice_agent, voice_live, worker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +38,8 @@ app.include_router(publish.router)
 app.include_router(creative_director.router)
 app.include_router(recompose.router)
 app.include_router(voice_live.router)
+app.include_router(voice_agent.router)
+app.include_router(edit_voice.router)
 app.include_router(worker.router)   # internal Cloud Tasks callbacks (not in public docs)
 
 # Serve locally generated videos when GCS is not configured

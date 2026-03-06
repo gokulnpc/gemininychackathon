@@ -487,3 +487,14 @@ class RecomposeResponse(BaseModel):
     caption_style: str = ""
     background_music: str = ""
     error: Optional[str] = None
+
+
+# ── Edit Agent (natural-language recompose) ────────────────────────────────────
+
+
+class EditAgentRequest(BaseModel):
+    """Natural-language instruction for the AI video edit agent."""
+    instruction: str = Field(
+        ...,
+        description="Natural-language edit request, e.g. 'make the captions more aggressive and add dark music'",
+    )

@@ -40,9 +40,11 @@ async def live_voice(websocket: WebSocket, project_id: UUID):
     await websocket.accept()
     logger.info("Live voice session started (project=%s)", project_id)
 
+    _AUDIO_QUEUE_MAX = 100
+
     # Queue bridges the WebSocket receive loop and the Gemini Live send loop.
     # None is used as a sentinel to signal end of stream.
-    audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+    audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
 
     async def _audio_stream():
         while True:
@@ -62,7 +64,12 @@ async def live_voice(websocket: WebSocket, project_id: UUID):
             while True:
                 message = await websocket.receive()
                 if "bytes" in message and message["bytes"]:
-                    await audio_queue.put(message["bytes"])
+                    if audio_queue.full():
+                        try:
+                            audio_queue.get_nowait()  # drop oldest chunk
+                        except asyncio.QueueEmpty:
+                            pass
+                    audio_queue.put_nowait(message["bytes"])
                 elif "text" in message and message["text"]:
                     try:
                         data = json.loads(message["text"])
