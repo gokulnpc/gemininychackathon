@@ -18,7 +18,6 @@ import json
 import logging
 from uuid import uuid4
 
-from config import get_settings
 from services import gemini_reasoning
 from services.retry import call_with_retry
 
@@ -284,20 +283,35 @@ _TOOL_DECLARATIONS = [
 
 async def _dispatch(tool_name: str, inputs: dict) -> dict:
     if tool_name == "search_trending_hooks":
+        niche = inputs.get("niche", "default")
+        platform = inputs.get("platform", "instagram_reels")
+
         # Tier 1: Gemini Reasoning for deep hook analysis
         gemini_result = await gemini_reasoning.research_hooks(
-            niche=inputs.get("niche", "default"),
-            platform=inputs.get("platform", "instagram_reels"),
+            niche=niche,
+            platform=platform,
             style=inputs.get("style", "modern_energetic"),
         )
         if gemini_result and gemini_result.get("hooks"):
-            guidelines = _PLATFORM_GUIDELINES.get(
-                inputs.get("platform", "instagram_reels"),
-                _PLATFORM_GUIDELINES["instagram_reels"],
-            )
-            return {**gemini_result, "platform_guidelines": guidelines}
-        # Tier 2: curated library fallback
-        return _tool_search_trending_hooks(**inputs)
+            guidelines = _PLATFORM_GUIDELINES.get(platform, _PLATFORM_GUIDELINES["instagram_reels"])
+            result = {**gemini_result, "platform_guidelines": guidelines}
+        else:
+            # Tier 2: curated library fallback
+            result = _tool_search_trending_hooks(**inputs)
+
+        # Tier 3: inject high-scoring hooks from Firestore feedback (non-blocking)
+        try:
+            from services import feedback_store
+            top_hooks = await feedback_store.get_top_hooks(niche=niche)
+            if top_hooks:
+                result["proven_hooks_from_history"] = [
+                    {"hook": h.get("hook_text"), "quality_score": h.get("quality_score")}
+                    for h in top_hooks
+                ]
+        except Exception:
+            pass  # feedback is advisory — never block script generation
+
+        return result
 
     if tool_name == "analyze_brand_voice":
         return _tool_analyze_brand_voice(**inputs)
@@ -428,15 +442,11 @@ async def generate_script_with_agent(
     Drop-in replacement for claude_agent.generate_script_with_agent().
     Same arguments, same return shape.
     """
-    from google import genai
     from google.genai import types
 
-    settings = get_settings()
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY is not set in .env")
+    from services.gemini_client import get_client
 
-    client = genai.Client(api_key=api_key)
+    client = get_client()
 
     platform = target_platforms[0] if target_platforms else "instagram_reels"
     inferred_niche = niche or _infer_niche(transcript)
@@ -517,7 +527,7 @@ async def generate_script_with_agent(
         contents.append(candidate.content)  # add model turn to history
 
         # Count function calls in this turn
-        fc_parts = [p for p in candidate.content.parts if hasattr(p, "function_call") and p.function_call.name]
+        fc_parts = [p for p in candidate.content.parts if hasattr(p, "function_call") and p.function_call and p.function_call.name]
         logger.info("Gemini turn %d/%d: %d function call(s)", turns, MAX_TURNS, len(fc_parts))
 
         if not fc_parts:

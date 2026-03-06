@@ -15,8 +15,6 @@ import json
 import logging
 import re
 
-from config import get_settings
-
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-pro"
@@ -50,14 +48,10 @@ async def transcribe_with_tone(audio_b64: str, audio_format: str = "webm") -> di
         ValueError: if GEMINI_API_KEY is not set.
         RuntimeError: if Gemini returns an unusable response.
     """
-    from google import genai
     from google.genai import types
 
-    settings = get_settings()
-    if not settings.gemini_api_key:
-        raise ValueError("GEMINI_API_KEY is not set in .env")
-
-    client = genai.Client(api_key=settings.gemini_api_key)
+    from services.gemini_client import get_client
+    client = get_client(force_api_key=True)
     mime_type = _MIME_MAP.get(audio_format.lower(), "audio/webm")
     audio_bytes = base64.b64decode(audio_b64)
 

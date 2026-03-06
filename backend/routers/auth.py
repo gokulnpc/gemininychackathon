@@ -32,7 +32,6 @@ _pending_flows: dict = {}
 async def auth_status():
     """Return which platforms are configured and ready to publish."""
     settings = get_settings()
-
     youtube_ok = False
     if settings.youtube_token_file and Path(settings.youtube_token_file).exists():
         try:

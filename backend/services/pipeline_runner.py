@@ -44,10 +44,10 @@ async def run_pipeline_stages(
     pre_generated_script: ScriptGenerationResponse | None = None,
     user_reference_path: str | None = None,
     user_character_role: str | None = None,
-) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None]:
+) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None, str | None, list[dict]]:
     """Run pipeline stages 2–7: script → video → voiceover → captions → compose → upload.
 
-    Returns (stages, video_urls, script).
+    Returns (stages, video_urls, script, thumbnail_url, visual_qa_report).
     Raises on unrecoverable errors — caller should catch and mark stage as failed.
     """
     stages: list[PipelineStageStatus] = []
@@ -119,8 +119,9 @@ async def _run_stages(
     pre_generated_script: ScriptGenerationResponse | None = None,
     user_reference_path: str | None = None,
     user_character_role: str | None = None,
-) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None]:
+) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None, str | None, list[dict]]:
     """Inner function containing the actual pipeline stage logic."""
+    qa_report: list[dict] = []
 
     # ── Stage 2: Claude Agent Script Generation ───────────────────────────────
     if pre_generated_script is not None:
@@ -172,46 +173,64 @@ async def _run_stages(
         stages[-1].status = "failed"
         stages[-1].detail = str(_tts_exc)
 
-    word_timestamps = captions.generate_word_timestamps_from_script(
-        voiceover_text=script.voiceover_full_script,
-        total_duration=resolved_duration,
-    )
+    if voiceover_path:
+        try:
+            from services import stt as stt_svc
+            word_timestamps = await stt_svc.extract_word_timestamps(voiceover_path)
+        except Exception as _stt_exc:
+            logger.warning("STT word timestamps failed — falling back to estimated: %s", _stt_exc)
+            word_timestamps = captions.generate_word_timestamps_from_script(
+                voiceover_text=script.voiceover_full_script,
+                total_duration=resolved_duration,
+            )
+    else:
+        word_timestamps = captions.generate_word_timestamps_from_script(
+            voiceover_text=script.voiceover_full_script,
+            total_duration=resolved_duration,
+        )
 
-    # ── Stage 4: Image Generation — one Gemini image per scene (5s each) ──────
+    # ── Stage 4: Image Generation — one Gemini image per scene ──────────────
     stages.append(PipelineStageStatus(
         stage="video_generation",
         status="running",
-        detail=f"Method: Gemini image generation ({art_style} style, 1 image per 2s)",
+        detail=f"Method: Gemini image generation ({art_style} style)",
     ))
-
-    # Camera move sequence — cinematic variety across scenes
-    EFFECT_VARIATIONS = [
-        "dolly_in",
-        "crane_down",
-        "zoom_in_right",
-        "dolly_out",
-        "zoom_in_left",
-        "crane_up",
-    ]
-
-    chunk_clips: list[str] = []
-    character_ref_path: str | None = None   # first-scene PNG — reused for character consistency
-    prev_image_path: str | None = None       # previous-scene PNG — chained for smooth evolution
 
     from services import gemini_image as gemini_image_svc
 
     char_desc = script.metadata.get("character_description", "")
 
-    for scene_idx, scene in enumerate(script.scenes):
-        effect = EFFECT_VARIATIONS[scene_idx % len(EFFECT_VARIATIONS)]
-        clip_duration = 2  # fixed 2-second clips (1 image every 2 seconds)
+    # ── Phase A: Generate a dedicated character sheet for stable reference ────
+    # A purpose-built neutral-pose character image anchors all scene generations,
+    # preventing the compounding drift that occurs when Scene 1's environment
+    # contaminates the character reference.
+    character_ref_path: str | None = None
+    char_sheet_path: str | None = None  # tracked separately for cleanup
 
+    if user_reference_path and user_character_role == "main_character":
+        # User photo is the character anchor — no sheet needed
+        character_ref_path = user_reference_path
+    elif char_desc:
+        try:
+            char_sheet_path = await gemini_image_svc.generate_character_sheet(
+                character_description=char_desc,
+                art_style=art_style,
+            )
+            character_ref_path = char_sheet_path
+            logger.info("Character sheet generated → %s", character_ref_path)
+        except Exception as _cs_exc:
+            logger.warning("Character sheet failed — will use scene 1 as anchor: %s", _cs_exc)
+
+    # ── Phase B: Generate all scene images (kept alive for VQD review) ───────
+    all_image_paths: list[str] = []
+    prev_image_path: str | None = None
+
+    for scene_idx, scene in enumerate(script.scenes):
         # Enrich prompt with character description for scenes after the first
         prompt = scene.visual_prompt or ""
         if char_desc and scene_idx > 0:
             prompt = f"{prompt}. Maintain consistent character: {char_desc}"
 
-        # ── Generate image (Gemini image model) ───────────────────────────────
         img_path = await gemini_image_svc.generate_image(
             prompt=prompt,
             art_style=art_style,
@@ -221,15 +240,57 @@ async def _run_stages(
             user_character_role=user_character_role,
         )
 
-        # For main_character: user photo IS the character reference — set it immediately.
-        # For others: use the first generated scene as the character anchor as before.
-        if scene_idx == 0:
-            if user_reference_path and user_character_role == "main_character":
-                character_ref_path = user_reference_path
-            else:
-                character_ref_path = img_path
+        # Fallback: if character sheet failed, use scene 1 as anchor
+        if scene_idx == 0 and character_ref_path is None:
+            character_ref_path = img_path
 
-        # ── Animate image → video clip ─────────────────────────────────────────
+        prev_image_path = img_path
+        all_image_paths.append(img_path)
+        logger.info("Scene %d/%d generated → %s", scene_idx + 1, len(script.scenes), img_path)
+
+    stages[-1].status = "completed"
+    stages[-1].detail = (
+        f"{len(all_image_paths)} images generated "
+        f"({len(script.scenes)} scenes, {art_style} style)"
+    )
+
+    # ── Stage 4c: Visual Quality Director — review and fix low-quality images ─
+    qa_report: list[dict] = []
+    stages.append(PipelineStageStatus(
+        stage="visual_qa",
+        status="running",
+        detail="Visual Quality Director: reviewing scene images",
+    ))
+    try:
+        from services import visual_quality_director
+        reviewed_image_paths, qa_report = await visual_quality_director.review_and_fix_scenes(
+            scene_images=all_image_paths,
+            scenes=script.scenes,
+            character_description=char_desc,
+            art_style=art_style,
+            user_reference_path=user_reference_path,
+            character_ref_path=character_ref_path,
+        )
+        improved = sum(1 for r in qa_report if r.get("regenerated"))
+        stages[-1].status = "completed"
+        stages[-1].detail = (
+            f"VQD reviewed {len(qa_report)} scenes; {improved} improved"
+        )
+    except Exception as _vqd_exc:
+        logger.warning("VQD failed (non-fatal, using original images): %s", _vqd_exc)
+        reviewed_image_paths = all_image_paths
+        stages[-1].status = "failed"
+        stages[-1].detail = str(_vqd_exc)
+
+    # ── Phase C: Animate reviewed images → video clips ────────────────────────
+    # Use scene.emotion for camera effect and scene.duration_seconds for timing
+    chunk_clips: list[str] = []
+    scene_transitions: list[str | None] = []
+
+    for scene_idx, (img_path, scene) in enumerate(zip(reviewed_image_paths, script.scenes)):
+        effect = ffmpeg.emotion_to_effect(scene.emotion)
+        clip_duration = getattr(scene, "duration_seconds", 2) or 2
+
         clip_path = os.path.join(work_dir, f"scene_{scene_idx + 1}.mp4")
         ffmpeg.animate_image(
             image_path=img_path,
@@ -237,35 +298,59 @@ async def _run_stages(
             duration=clip_duration,
             output_path=clip_path,
         )
-
-        # Keep image around for next scene chaining, clean up after that
-        if prev_image_path and prev_image_path != character_ref_path:
-            try:
-                os.unlink(prev_image_path)
-            except OSError:
-                pass
-        prev_image_path = img_path
-
         chunk_clips.append(clip_path)
-        logger.info("Scene %d/%d: image → %s, clip → %s", scene_idx + 1, len(script.scenes), img_path, clip_path)
+        scene_transitions.append(getattr(scene, "transition_to_next", None))
+        logger.info(
+            "Scene %d/%d: emotion=%s → effect=%s, duration=%ds → %s",
+            scene_idx + 1, len(script.scenes), scene.emotion, effect, clip_duration, clip_path,
+        )
 
-    # Clean up final scene image
-    if prev_image_path and prev_image_path != character_ref_path:
+    # Clean up all generated images (originals + any VQD replacements)
+    all_paths_to_clean = set(all_image_paths) | set(reviewed_image_paths)
+    for img_path in all_paths_to_clean:
+        if img_path == user_reference_path:
+            continue  # never delete the user's original photo
         try:
-            os.unlink(prev_image_path)
+            os.unlink(img_path)
         except OSError:
             pass
-    if character_ref_path:
+    if char_sheet_path:
         try:
-            os.unlink(character_ref_path)
+            os.unlink(char_sheet_path)
         except OSError:
             pass
 
-    stages[-1].status = "completed"
-    stages[-1].detail = (
-        f"{len(chunk_clips)} images generated and animated "
-        f"({len(script.scenes)} scenes, {art_style} style)"
-    )
+    # ── Stage 4b: Thumbnail Generation ───────────────────────────────────────
+    thumbnail_url: str | None = None
+    stages.append(PipelineStageStatus(
+        stage="thumbnail",
+        status="running",
+        detail="Generating catchy thumbnail with Gemini",
+    ))
+    try:
+        hook_text = script.hook.text if script.hook else script.voiceover_full_script[:120]
+        scene_visual = script.scenes[0].visual_prompt if script.scenes else hook_text
+        thumb_path = await gemini_image_svc.generate_thumbnail(
+            hook_text=hook_text,
+            scene_visual_prompt=scene_visual,
+            character_description=char_desc or None,
+            art_style=art_style,
+        )
+        thumbnail_url = await gcs.upload_file(
+            local_path=thumb_path,
+            gcs_key=f"projects/{project_id}/thumbnail.jpg",
+            content_type="image/jpeg",
+        )
+        try:
+            os.unlink(thumb_path)
+        except OSError:
+            pass
+        stages[-1].status = "completed"
+        stages[-1].detail = f"Thumbnail uploaded → {thumbnail_url}"
+    except Exception as _thumb_exc:
+        logger.warning("Thumbnail generation failed (non-fatal): %s", _thumb_exc)
+        stages[-1].status = "failed"
+        stages[-1].detail = str(_thumb_exc)
 
     # ── Stage 5: Caption Generation ──────────────────────────────────────────
     stages.append(PipelineStageStatus(stage="captions", status="running"))
@@ -282,12 +367,15 @@ async def _run_stages(
     # ── Stage 6: Video Composition ───────────────────────────────────────────
     stages.append(PipelineStageStatus(stage="composition", status="running"))
 
+    with_audio_dest = os.path.join(work_dir, "with_audio.mp4")
     composed_path = await ffmpeg.compose_video(
         scene_videos=chunk_clips,
         voiceover_path=voiceover_path,
         srt_path=srt_path,
         caption_style=caption_style,
         output_path=os.path.join(work_dir, "composed.mp4"),
+        save_intermediate_to=with_audio_dest,
+        scene_transitions=scene_transitions,
     )
 
     if music_preset != "none":
@@ -330,7 +418,15 @@ async def _run_stages(
     master_url = await gcs.upload_file(composed_path, master_key)
     video_urls["master"] = master_url
 
+    # Upload with_audio.mp4 so the recompose endpoint can regenerate captions/music
+    if os.path.exists(with_audio_dest):
+        await gcs.upload_file(
+            with_audio_dest,
+            f"projects/{project_id}/master/with_audio.mp4",
+            content_type="video/mp4",
+        )
+
     stages[-1].status = "completed"
     stages[-1].detail = f"Uploaded {len(video_urls)} versions to GCS"
 
-    return stages, video_urls, script
+    return stages, video_urls, script, thumbnail_url, qa_report

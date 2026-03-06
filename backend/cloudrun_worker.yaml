@@ -1,0 +1,49 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: voicevid-worker
+  annotations:
+    run.googleapis.com/ingress: internal   # Only Cloud Tasks can reach this service
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 1     # One generation job per instance — CPU-intensive
+      timeoutSeconds: 900         # 15 min max per task
+      serviceAccountName: voicevid-sa@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/voicevid/api:latest
+          resources:
+            limits:
+              memory: 4Gi         # Image generation + FFmpeg needs headroom
+              cpu: "4"
+          env:
+            - name: GCS_BUCKET
+              value: voicevid-assets
+            - name: GOOGLE_CLOUD_PROJECT
+              value: PROJECT_ID
+            - name: USE_VERTEX_AI
+              value: "true"
+            - name: VERTEX_AI_LOCATION
+              value: REGION
+            - name: CLOUD_TASKS_QUEUE
+              value: video-generation
+            - name: CLOUD_TASKS_LOCATION
+              value: REGION
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-api-key
+                  key: latest
+            - name: SENDGRID_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sendgrid-api-key
+                  key: latest
+            - name: NOTIFICATION_FROM_EMAIL
+              value: noreply@voicevid.app

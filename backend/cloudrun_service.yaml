@@ -1,0 +1,39 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: voicevid-api
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/cpu-throttling: "false"
+    spec:
+      timeoutSeconds: 3600
+      containerConcurrency: 10
+      serviceAccountName: voicevid-sa@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/voicevid/api:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          env:
+            - name: GCS_BUCKET
+              value: voicevid-assets
+            - name: GOOGLE_CLOUD_PROJECT
+              value: PROJECT_ID
+            - name: USE_VERTEX_AI
+              value: "true"
+            - name: VERTEX_AI_LOCATION
+              value: us-central1
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-api-key
+                  key: latest

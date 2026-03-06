@@ -181,10 +181,10 @@ def _extract_image(response) -> Image.Image | None:
 
 def _invoke(contents: list, api_key: str) -> object:
     """Synchronous Gemini call — run via asyncio.to_thread."""
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key or None)
+    from services.gemini_client import get_client
+    client = get_client(force_api_key=True)
     return client.models.generate_content(
         model=MODEL,
         contents=contents,
@@ -361,4 +361,168 @@ async def generate_image(
     tmp_path = tempfile.mktemp(suffix=".png", prefix="voicevid_gemini_")
     img.save(tmp_path, "PNG")
     logger.info("Gemini image saved → %s", tmp_path)
+    return tmp_path
+
+
+async def generate_character_sheet(
+    character_description: str,
+    art_style: str = "cinematic",
+    user_reference_path: str | None = None,
+) -> str:
+    """Generate a neutral full-body character sheet image for use as a stable reference.
+
+    A plain-background, neutral-pose image anchors all scene generations so
+    the character stays visually consistent. Generated once before the scene loop.
+
+    Args:
+        character_description: Physical description from script.metadata.character_description.
+        art_style:             Art style enum value.
+        user_reference_path:   Optional user photo — if provided, the character sheet
+                               will incorporate their likeness.
+
+    Returns:
+        Absolute path to a 9:16 PNG temp file.
+    """
+    settings = get_settings()
+    api_key = settings.gemini_api_key
+    suffix = _style_suffix(art_style)
+    style_ref_img = _style_reference_image(art_style)
+
+    user_clause = ""
+    user_img: object | None = None
+    if user_reference_path and os.path.exists(user_reference_path):
+        user_img = Image.open(user_reference_path).convert("RGB")
+        user_clause = (
+            "The character must look exactly like the person in the user reference photo — "
+            "match their face, hair colour, skin tone, and build precisely. "
+        )
+
+    prompt = (
+        f"Full-body character reference sheet. Neutral standing pose, arms at sides. "
+        f"Plain white or very light neutral background with no scenery or props. "
+        f"{user_clause}"
+        f"Character description: {character_description}. "
+        f"Art style: {suffix}. "
+        f"Vertical 9:16 portrait. Single character centred. "
+        f"High detail, clean render. No text, no watermarks."
+    )
+
+    contents: list = [prompt]
+    if style_ref_img is not None:
+        contents.append(style_ref_img)
+    if user_img is not None:
+        contents.append(user_img)
+
+    logger.info("Generating character sheet (art_style=%s, user_ref=%s)", art_style, "yes" if user_img else "no")
+
+    img: Image.Image | None = None
+    try:
+        response = await asyncio.to_thread(_invoke, contents, api_key)
+        img = _extract_image(response)
+    except Exception as exc:
+        logger.warning("Character sheet generation failed: %s — retrying text-only", exc)
+
+    if img is None:
+        fallback = [f"Character reference sheet, neutral pose, plain background. {character_description}. {suffix}. Vertical 9:16."]
+        if style_ref_img is not None:
+            fallback.append(style_ref_img)
+        try:
+            response = await asyncio.to_thread(_invoke, fallback, api_key)
+            img = _extract_image(response)
+        except Exception as exc2:
+            raise RuntimeError(f"Character sheet generation failed: {exc2}") from exc2
+
+    if img is None:
+        raise RuntimeError("Character sheet generation returned no image data.")
+
+    tmp_path = tempfile.mktemp(suffix=".png", prefix="voicevid_charsheet_")
+    img.save(tmp_path, "PNG")
+    logger.info("Character sheet saved → %s", tmp_path)
+    return tmp_path
+
+
+def _build_thumbnail_prompt(
+    hook_text: str,
+    scene_visual_prompt: str,
+    character_description: str | None,
+    art_style: str,
+) -> str:
+    """Build a scroll-stopping thumbnail generation prompt."""
+    char_clause = (
+        f"Character: {character_description}. "
+        if character_description
+        else ""
+    )
+    suffix = _style_suffix(art_style)
+    return (
+        f"Create a visually striking social media video thumbnail.\n"
+        f"Hook concept: {hook_text}\n"
+        f"Scene visual: {scene_visual_prompt}\n"
+        f"{char_clause}"
+        f"Art style: {suffix}\n\n"
+        f"Make it dramatic, high-contrast, and bold. "
+        f"Clear focal point, vibrant colours, strong lighting. "
+        f"The image must make someone stop scrolling — cinematic intensity, "
+        f"compelling subject, professional quality. "
+        f"Vertical 9:16 portrait format. No text or watermarks."
+    )
+
+
+async def generate_thumbnail(
+    hook_text: str,
+    scene_visual_prompt: str,
+    character_description: str | None,
+    art_style: str = "cinematic",
+) -> str:
+    """Generate a catchy thumbnail image for the video.
+
+    Uses Gemini image generation with a scroll-stopping prompt based on the
+    hook concept and first scene visual. No reference images needed — this is
+    a fresh, thumbnail-optimised generation.
+
+    Args:
+        hook_text:            The video's hook text (from script.hook.text).
+        scene_visual_prompt:  First scene's visual prompt for visual context.
+        character_description: Optional character description for consistency.
+        art_style:            Art style enum value (e.g. "cinematic", "realism").
+
+    Returns:
+        Absolute path to a 9:16 JPEG temp file.
+
+    Raises:
+        RuntimeError: if Gemini returns no image data.
+    """
+    settings = get_settings()
+    api_key = settings.gemini_api_key
+    prompt = _build_thumbnail_prompt(hook_text, scene_visual_prompt, character_description, art_style)
+
+    style_ref_img = _style_reference_image(art_style)
+    contents: list = [prompt]
+    if style_ref_img is not None:
+        contents.append(style_ref_img)
+
+    logger.info("Generating thumbnail (hook=%s…, art_style=%s)", hook_text[:60], art_style)
+
+    img: Image.Image | None = None
+    try:
+        response = await asyncio.to_thread(_invoke, contents, api_key)
+        img = _extract_image(response)
+    except Exception as exc:
+        logger.warning("Thumbnail generation failed: %s — retrying with text-only prompt", exc)
+
+    if img is None:
+        try:
+            response = await asyncio.to_thread(
+                _invoke, [f"Scroll-stopping video thumbnail: {hook_text}. {_style_suffix(art_style)}. Vertical 9:16."], api_key
+            )
+            img = _extract_image(response)
+        except Exception as exc2:
+            logger.warning("Thumbnail fallback also failed: %s", exc2)
+
+    if img is None:
+        raise RuntimeError("Gemini thumbnail generation returned no image data.")
+
+    tmp_path = tempfile.mktemp(suffix=".jpg", prefix="voicevid_thumb_")
+    img.save(tmp_path, "JPEG", quality=92)
+    logger.info("Thumbnail saved → %s", tmp_path)
     return tmp_path

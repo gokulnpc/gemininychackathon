@@ -231,6 +231,12 @@ class GenerateVideoRequest(BaseModel):
         description="Role of the user in the video: main_character (protagonist in every scene), side_character (supporting), or audience (bystander/crowd).",
     )
 
+    # Notification — email sent when generation completes
+    user_email: Optional[str] = Field(
+        default=None,
+        description="Email address to notify when video generation completes.",
+    )
+
 
 # ── Pipeline plumbing ─────────────────────────────────────────────────────────
 
@@ -250,6 +256,8 @@ class PipelineResponse(BaseModel):
         description="Platform → S3 URL mapping for final videos",
     )
     script: Optional[ScriptGenerationResponse] = None
+    thumbnail_url: Optional[str] = None
+    visual_qa_report: Optional[list[dict]] = None
     error: Optional[str] = None
 
 
@@ -340,7 +348,7 @@ class SeriesListResponse(BaseModel):
 class ProjectMetadata(BaseModel):
     project_id: str
     created_at: str                        # ISO-8601
-    status: str                            # "completed" | "failed"
+    status: str                            # "queued" | "in_progress" | "completed" | "failed"
     series_id: Optional[str] = None
     series_name: Optional[str] = None
     hook: Optional[str] = None
@@ -349,8 +357,132 @@ class ProjectMetadata(BaseModel):
     platforms: list[str] = []
     video_urls: dict[str, str] = {}
     error: Optional[str] = None
+    # Recompose fields (present on projects generated after recompose support was added)
+    voiceover_full_script: Optional[str] = None
+    caption_style: Optional[str] = None
+    background_music: Optional[str] = None
+    video_duration: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+    # Async job tracking
+    current_stage: Optional[str] = None
+    progress_pct: Optional[int] = None
+    queued_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    user_email: Optional[str] = None
+
+
+class JobStatusResponse(BaseModel):
+    """Lightweight job status response for polling during async generation."""
+    project_id: str
+    status: str                   # queued | in_progress | completed | failed
+    current_stage: Optional[str] = None
+    progress_pct: Optional[int] = None
+    stages: list[PipelineStageStatus] = []
+    queued_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    video_urls: dict[str, str] = {}
+    thumbnail_url: Optional[str] = None
+    error: Optional[str] = None
 
 
 class ProjectListResponse(BaseModel):
     projects: list[ProjectMetadata]
     total: int
+
+
+# ── Creative Director — Interleaved Multimodal Output ────────────────────────
+
+
+class CreativeMode(str, Enum):
+    storybook      = "storybook"       # alternating story text + inline illustrations
+    marketing      = "marketing"       # headline + hero image + body copy + CTA visual
+    educational    = "educational"     # narration sections + concept/diagram images
+    social_content = "social_content"  # caption + post image + hashtag cloud
+
+
+class InterleavedBlock(BaseModel):
+    """One unit of interleaved output — either a text block or a generated image."""
+    type: str                    # "text" | "image"
+    content: str                 # text string OR base64-encoded image data
+    mime_type: Optional[str] = None  # e.g. "image/png" — only present for image blocks
+
+
+class CreativeDirectorRequest(BaseModel):
+    brief: str = Field(
+        ...,
+        description="Creative brief — topic, target audience, tone, and goals",
+    )
+    mode: CreativeMode = Field(
+        default=CreativeMode.social_content,
+        description="Creative output mode: storybook | marketing | educational | social_content",
+    )
+    art_style: Optional[str] = Field(
+        default=None,
+        description=(
+            "Art style applied consistently to all generated images. "
+            "Accepts any ArtStyle enum value (e.g. 'cinematic', 'ghibli', 'realism')."
+        ),
+    )
+    include_narration: bool = Field(
+        default=False,
+        description="Generate a Gemini TTS audio narration of all text blocks (returns base64 WAV)",
+    )
+    voice_id: str = Field(
+        default="Aoede",
+        description="Gemini TTS voice name for narration (e.g. Aoede, Charon, Fenrir, Kore, Puck)",
+    )
+
+
+class CreativePackageResponse(BaseModel):
+    package_id: UUID = Field(default_factory=uuid4)
+    mode: CreativeMode
+    brief: str
+    blocks: list[InterleavedBlock]
+    total_images: int = 0
+    total_text_blocks: int = 0
+    narration_audio_b64: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded WAV narration of all text blocks (only present when include_narration=true)",
+    )
+
+
+# ── Recompose — change caption/music without re-running TTS or image gen ──────
+
+
+class RecomposeRequest(BaseModel):
+    """Recompose a completed project with a new caption style and/or background music.
+
+    Skips TTS, image generation, and FFmpeg animation — starts from the preserved
+    with_audio.mp4 (scenes + voiceover, no captions, no music).
+    Requires that generate-video was run at least once for this project.
+    """
+    caption_style: CaptionStyleEnum = Field(
+        ...,
+        description="New caption style to burn into the video",
+    )
+    background_music: MusicPreset = Field(
+        default=MusicPreset.none,
+        description="New background music preset. 'none' removes music entirely.",
+    )
+    target_platforms: list[Platform] = Field(
+        default=[Platform.instagram_reels],
+        description="Platforms to export. Defaults to instagram_reels.",
+    )
+    music_volume: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Background music relative volume (0.0–1.0). Only used when background_music != none.",
+    )
+
+
+class RecomposeResponse(BaseModel):
+    project_id: UUID
+    status: str                              # "completed" | "failed"
+    stages: list[PipelineStageStatus] = []
+    video_urls: dict[str, str] = Field(default_factory=dict)
+    caption_style: str = ""
+    background_music: str = ""
+    error: Optional[str] = None

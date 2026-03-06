@@ -20,9 +20,21 @@ class Settings(BaseSettings):
     # Google Gemini (script agent + reasoning + image generation)
     gemini_api_key: str = ""
 
-    # Google Cloud / Vertex AI (Veo 3 video generation)
+    # Google Cloud / Vertex AI
     google_cloud_project: str = ""          # GCP project ID, e.g. my-project-123
-    vertex_ai_location: str = "us-central1" # region for Veo 3
+    vertex_ai_location: str = "us-central1" # region for Vertex AI
+    use_vertex_ai: bool = False             # set True on Cloud Run (USE_VERTEX_AI=true)
+
+    # Async job queue — Cloud Tasks
+    cloud_tasks_queue: str = "video-generation"
+    cloud_tasks_location: str = "us-central1"
+    # URL of the worker Cloud Run service (set via WORKER_URL env var on Cloud Run)
+    # Locally: leave empty to fall back to synchronous in-process execution
+    worker_url: str = ""
+
+    # Email notifications — SendGrid
+    sendgrid_api_key: str = ""
+    notification_from_email: str = "noreply@voicevid.app"
 
     # App
     app_name: str = "VoiceVid"

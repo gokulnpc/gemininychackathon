@@ -55,10 +55,10 @@ def _invoke_tts(text: str, voice_name: str, api_key: str) -> bytes:
     """Synchronous Gemini TTS call — run via asyncio.to_thread."""
     import base64 as _b64
 
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key or None)
+    from services.gemini_client import get_client
+    client = get_client(force_api_key=True)
     response = client.models.generate_content(
         model=MODEL,
         contents=text,

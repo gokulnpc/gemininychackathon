@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
-from routers import auth, catalog, projects, publish, script, video
+from routers import auth, catalog, creative_director, projects, publish, recompose, script, video, worker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +35,9 @@ app.include_router(catalog.router)
 app.include_router(script.router)
 app.include_router(video.router)
 app.include_router(publish.router)
+app.include_router(creative_director.router)
+app.include_router(recompose.router)
+app.include_router(worker.router)   # internal Cloud Tasks callbacks (not in public docs)
 
 # Serve locally generated videos when GCS is not configured
 _outputs_dir = os.path.join(os.path.dirname(__file__), "outputs")

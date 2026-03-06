@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -27,6 +28,21 @@ EMOTION_TO_EFFECT: dict[str, str] = {
     "uplifting":  "slide_right",
     "sad":        "zoom_out",
     "reflective": "zoom_out",
+    # Horror / suspense emotions
+    "apprehension": "slide_left",
+    "unease":       "slide_left",
+    "dread":        "shaky",
+    "terror":       "shaky",
+    "anxiety":      "shaky",
+    "paranoia":     "slide_left",
+    "alarm":        "shaky",
+    "desperation":  "shaky",
+    "hopelessness": "zoom_out",
+    "shock":        "shaky",
+    "revelation":   "zoom_in_right",
+    "haunting":     "slide_left",
+    "isolation":    "zoom_out",
+    "curiosity":    "zoom_in_left",
 }
 
 
@@ -202,12 +218,96 @@ def _get_duration(file_path: str) -> float:
     return float(result.stdout.strip())
 
 
+_XFADE_TRANSITIONS: dict[str, str] = {
+    "fade":     "fade",
+    "dissolve": "dissolve",
+    "zoom":     "zoominout",
+    "slide":    "slideleft",
+    "wipe":     "wipeleft",
+}
+
+
+def _build_xfade_concat(
+    scene_videos: list[str],
+    transitions: list[str | None],
+    work_dir: str,
+    output_path: str,
+    xfade_duration: float = 0.3,
+) -> str:
+    """Build an xfade-based concat command for clips with per-scene transitions.
+
+    Falls back to simple concat (via concat demuxer) if only hard-cuts are needed.
+    Returns the path to the concatenated video.
+    """
+    has_xfade = any(t for t in transitions if t and t in _XFADE_TRANSITIONS)
+    if not has_xfade:
+        # All hard cuts — use fast copy concat
+        concat_list = os.path.join(work_dir, "concat.txt")
+        with open(concat_list, "w") as f:
+            for v in scene_videos:
+                f.write(f"file {shlex.quote(v)}\n")
+        _run_ffmpeg(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", output_path],
+            "concatenate scenes (hard cut)",
+        )
+        return output_path
+
+    # Build xfade filter_complex chain
+    # Each clip must be re-encoded to have a consistent timebase first
+    re_encoded: list[str] = []
+    for i, clip in enumerate(scene_videos):
+        out = os.path.join(work_dir, f"xf_clip_{i}.mp4")
+        _run_ffmpeg(
+            ["ffmpeg", "-y", "-i", clip, "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-an", out],
+            f"re-encode clip {i} for xfade",
+        )
+        re_encoded.append(out)
+
+    # Build cumulative offset and filter chain
+    # offset_i = sum(durations[0..i-1]) - i * xfade_duration
+    durations = [_get_duration(c) for c in re_encoded]
+
+    inputs = []
+    for c in re_encoded:
+        inputs += ["-i", c]
+
+    filter_parts: list[str] = []
+    last_label = "[0:v]"
+    offset = durations[0]
+
+    for i in range(1, len(re_encoded)):
+        t = transitions[i - 1] if i - 1 < len(transitions) else None
+        xfade = _XFADE_TRANSITIONS.get(t or "", "dissolve") if t and t in _XFADE_TRANSITIONS else "dissolve"
+        out_label = f"[xf{i}]" if i < len(re_encoded) - 1 else "[vout]"
+        filter_parts.append(
+            f"{last_label}[{i}:v]xfade=transition={xfade}:duration={xfade_duration}:offset={offset - xfade_duration:.4f}{out_label}"
+        )
+        last_label = out_label
+        offset += durations[i] - xfade_duration
+
+    filter_complex = ";".join(filter_parts)
+
+    _run_ffmpeg(
+        ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-an",
+            output_path,
+        ],
+        "concatenate scenes with xfade transitions",
+    )
+    return output_path
+
+
 async def compose_video(
     scene_videos: list[str],
     voiceover_path: str | None = None,
     srt_path: str | None = None,
     caption_style: str = "clean",
     output_path: str | None = None,
+    save_intermediate_to: str | None = None,
+    scene_transitions: list[str | None] | None = None,
 ) -> str:
     """Compose a final video from scene clips, voiceover, and captions.
 
@@ -217,6 +317,9 @@ async def compose_video(
         srt_path: Path to the .srt caption file.
         caption_style: Style hint for caption rendering ("hormozi", "clean", "karaoke").
         output_path: Where to write the final video. Defaults to /tmp.
+        save_intermediate_to: Optional path to copy the pre-caption video (scenes +
+            voiceover, no captions, no music). Used by the recompose endpoint to
+            allow caption/music changes without re-running TTS or image generation.
 
     Returns:
         Path to the composed video file.
@@ -227,23 +330,14 @@ async def compose_video(
     work_dir = f"/tmp/voicevid_work_{os.getpid()}"
     os.makedirs(work_dir, exist_ok=True)
 
-    # Step 1: Concatenate scene videos
-    concat_list_path = os.path.join(work_dir, "concat.txt")
-    with open(concat_list_path, "w") as f:
-        for video_path in scene_videos:
-            f.write(f"file {shlex.quote(video_path)}\n")
-
+    # Step 1: Concatenate scene videos (with optional xfade transitions)
     concat_output = os.path.join(work_dir, "concat.mp4")
-    _run_ffmpeg(
-        [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-            "-i", concat_list_path,
-            "-c", "copy",
-            concat_output,
-        ],
-        "concatenate scenes",
+    _build_xfade_concat(
+        scene_videos=scene_videos,
+        transitions=scene_transitions or [],
+        work_dir=work_dir,
+        output_path=concat_output,
     )
-
     current_video = concat_output
 
     # Step 2: Mix in voiceover audio
@@ -267,6 +361,11 @@ async def compose_video(
             "mix voiceover",
         )
         current_video = audio_mixed
+
+    # Preserve pre-caption video for recompose support
+    if save_intermediate_to:
+        shutil.copy2(current_video, save_intermediate_to)
+        logger.info("Saved intermediate with_audio → %s", save_intermediate_to)
 
     # Step 3: Burn in captions
     if srt_path and os.path.exists(srt_path):

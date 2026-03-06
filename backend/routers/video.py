@@ -1,84 +1,137 @@
-"""Generate-video router — shared Phase 2 endpoint for all three input flows.
+"""Generate-video router — supports both async queue and synchronous execution.
 
 POST /api/v1/projects/{project_id}/generate-video
 
-Accepts the ScriptGenerationResponse returned by /generate-script (after the
-user reviewed and approved it) plus the final video config. Runs:
+ASYNC MODE (Cloud Run, WORKER_URL set):
+  - Validates the request
+  - Writes project status = "queued" to Firestore
+  - Enqueues a Cloud Task to the Worker Service
+  - Returns 202 Accepted immediately with {project_id, status, poll_url}
+  - Client polls GET /api/v1/projects/{id}/status for progress
 
-  Veo 3 (one clip per scene) → captions → FFmpeg compose → S3 upload
-
-Returns PipelineResponse with per-stage status and S3 video URLs.
+SYNC MODE (local dev, WORKER_URL not set):
+  - Runs the full pipeline in-process (8-10 min blocking)
+  - Returns 200 with PipelineResponse (backward compatible)
 """
 
 from __future__ import annotations
 
-import base64
+import json
 import logging
-import os
-import tempfile
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
+from fastapi.responses import JSONResponse
 
+from config import get_settings
 from models.schemas import (
-    ArtStyle,
-    CaptionStyleEnum,
     GenerateVideoRequest,
-    MusicPreset,
     PipelineResponse,
     PipelineStageStatus,
-    SeriesConfig,
-    VideoFormat,
-    VideoDurationRange,
 )
-from routers.catalog import DURATION_MAP
-from services import gcs
-from services.pipeline_runner import run_pipeline_stages
+from services import firestore_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["video"])
 
 
-@router.post("/projects/{project_id}/generate-video", response_model=PipelineResponse)
+@router.post("/projects/{project_id}/generate-video")
 async def generate_video(project_id: UUID, request: GenerateVideoRequest):
     """Generate video from a user-confirmed script.
 
-    Runs Veo 3 clip generation → captions → FFmpeg composition → S3 upload.
-    Returns video URLs for each requested platform plus a master copy.
+    When WORKER_URL is configured (production): returns 202 immediately and
+    processes the job asynchronously. Poll GET /projects/{id}/status for updates.
+
+    When WORKER_URL is not set (local dev): runs synchronously and returns
+    the full PipelineResponse on completion (may take 8-10 minutes).
     """
+    settings = get_settings()
+    pid = str(project_id)
+    queued_at = datetime.now(timezone.utc).isoformat()
+
+    # ── Write initial Firestore record ────────────────────────────────────────
+    initial_metadata = {
+        "project_id":   pid,
+        "created_at":   queued_at,
+        "queued_at":    queued_at,
+        "status":       "queued",
+        "platforms":    [p.value for p in request.target_platforms],
+        "video_urls":   {},
+        "user_email":   request.user_email,
+        "series_id":    request.series_id,
+    }
+    try:
+        await firestore_db.save_project(pid, initial_metadata)
+    except Exception as e:
+        logger.warning("Failed to write initial Firestore record for %s: %s", pid, e)
+
+    # ── ASYNC MODE: enqueue Cloud Task and return 202 ─────────────────────────
+    if settings.worker_url:
+        try:
+            from services import task_queue
+            task_payload = json.loads(request.model_dump_json())
+            await task_queue.enqueue_video_generation(
+                project_id=project_id,
+                request_payload=task_payload,
+            )
+        except Exception as e:
+            # Mark as failed and propagate — task could not be enqueued
+            logger.exception("Failed to enqueue Cloud Task for project %s", project_id)
+            try:
+                await firestore_db.save_project(pid, {
+                    **initial_metadata,
+                    "status": "failed",
+                    "error": f"Failed to enqueue generation job: {e}",
+                })
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Failed to queue generation job: {e}")
+
+        poll_url = f"/api/v1/projects/{pid}/status"
+        logger.info("Project %s queued → Cloud Task dispatched. Poll: %s", pid, poll_url)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "project_id": pid,
+                "status":     "queued",
+                "poll_url":   poll_url,
+                "message":    "Video generation queued. Poll poll_url for status updates.",
+            },
+        )
+
+    # ── SYNC MODE: run in-process (local dev / no Cloud Tasks) ───────────────
+    logger.info("WORKER_URL not set — running pipeline synchronously for project %s", pid)
+
     stages: list[PipelineStageStatus] = []
-    work_dir = tempfile.mkdtemp(prefix=f"voicevid_gv_{project_id}_")
+    import base64, os, tempfile
+    from models.schemas import (ArtStyle, MusicPreset, SeriesConfig, VideoFormat, VideoDurationRange)
+    from routers.catalog import DURATION_MAP
+    from services import gcs
+    from services.pipeline_runner import run_pipeline_stages
 
     try:
-        # ── Resolve series config (series wins; fallback to per-field overrides) ──
-        series: SeriesConfig | None = None
+        await firestore_db.save_project(pid, {**initial_metadata, "status": "in_progress",
+                                               "started_at": queued_at})
 
+        series = None
         if request.series_id:
             try:
                 config_data = await gcs.load_json(f"series/{request.series_id}/config.json")
                 series = SeriesConfig(**config_data)
-                logger.info("Loaded series %s (%s)", request.series_id, series.series_name)
             except Exception as e:
                 raise HTTPException(status_code=404, detail=f"Series '{request.series_id}' not found: {e}")
-
         elif request.voice_id or request.art_style_override or request.music_preset_override:
-            # Build a minimal SeriesConfig from the per-field overrides
             art_val = request.art_style_override or "realism"
-            if art_val not in {e.value for e in ArtStyle}:
-                art_val = "realism"
+            if art_val not in {e.value for e in ArtStyle}: art_val = "realism"
             music_val = request.music_preset_override or "none"
-            if music_val not in {e.value for e in MusicPreset}:
-                music_val = "none"
+            if music_val not in {e.value for e in MusicPreset}: music_val = "none"
             series = SeriesConfig(
-                series_name="Custom",
-                video_format=VideoFormat.storytelling,
+                series_name="Custom", video_format=VideoFormat.storytelling,
                 voice_id=request.voice_id or "21m00Tcm4TlvDq8ikWAM",
-                background_music=MusicPreset(music_val),
-                art_style=ArtStyle(art_val),
-                caption_style=request.caption_style,
-                video_duration=VideoDurationRange.medium,
+                background_music=MusicPreset(music_val), art_style=ArtStyle(art_val),
+                caption_style=request.caption_style, video_duration=VideoDurationRange.medium,
             )
 
         video_duration = (
@@ -86,94 +139,92 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
             if series else request.video_duration
         )
 
-        # ── Decode user reference photo (optional) ────────────────────────────
-        user_ref_path: str | None = None
+        user_ref_path = None
         if request.user_reference_image_b64 and request.user_character_role:
             try:
                 img_bytes = base64.b64decode(request.user_reference_image_b64)
                 ref_fd, user_ref_path = tempfile.mkstemp(suffix=".png", prefix="voicevid_userref_")
                 with os.fdopen(ref_fd, "wb") as f:
                     f.write(img_bytes)
-                logger.info(
-                    "User reference photo decoded → %s (role=%s)",
-                    user_ref_path, request.user_character_role.value,
-                )
             except Exception as e:
                 logger.warning("Failed to decode user_reference_image_b64: %s — ignoring", e)
-                user_ref_path = None
 
-        # ── Run pipeline stages 4–7:
-        pipeline_stages, video_urls, script = await run_pipeline_stages(
+        work_dir = tempfile.mkdtemp(prefix=f"voicevid_gv_{project_id}_")
+        pipeline_stages, video_urls, script, thumbnail_url, visual_qa_report = await run_pipeline_stages(
             project_id=project_id,
             transcript=request.script.voiceover_full_script,
-            series=series,
-            series_id=request.series_id,
-            target_platforms=request.target_platforms,
-            style="modern_energetic",
-            video_duration=video_duration,
-            caption_style_override=request.caption_style.value,
-            brand_voice=None,
-            cta_preference=None,
-            work_dir=work_dir,
-            pre_generated_script=request.script,
-            user_reference_path=user_ref_path,
+            series=series, series_id=request.series_id,
+            target_platforms=request.target_platforms, style="modern_energetic",
+            video_duration=video_duration, caption_style_override=request.caption_style.value,
+            brand_voice=None, cta_preference=None, work_dir=work_dir,
+            pre_generated_script=request.script, user_reference_path=user_ref_path,
             user_character_role=request.user_character_role.value if request.user_character_role else None,
         )
         stages.extend(pipeline_stages)
 
-        # ── Save project metadata ─────────────────────────────────────────────
-        created_at = datetime.now(timezone.utc).isoformat()
-        metadata = {
-            "project_id":         str(project_id),
-            "created_at":         created_at,
-            "status":             "completed",
-            "series_id":          request.series_id,
-            "series_name":        series.series_name if series else None,
-            "hook":               script.hook.text if script else None,
-            "scenes_count":       len(script.scenes) if script else 0,
-            "voiceover_duration": None,
-            "platforms":          [p.value for p in request.target_platforms],
-            "video_urls":         video_urls,
-        }
-        try:
-            await gcs.store_json(metadata, f"projects/{project_id}/metadata.json")
-        except Exception:
-            logger.warning("Failed to save metadata for %s", project_id)
+        completed_at = datetime.now(timezone.utc).isoformat()
+        await firestore_db.save_project(pid, {
+            **initial_metadata,
+            "status":               "completed",
+            "completed_at":         completed_at,
+            "series_name":          series.series_name if series else None,
+            "hook":                 script.hook.text if script else None,
+            "scenes_count":         len(script.scenes) if script else 0,
+            "video_urls":           video_urls,
+            "voiceover_full_script": script.voiceover_full_script if script else None,
+            "caption_style":        request.caption_style.value,
+            "background_music":     series.background_music.value if series else "none",
+            "video_duration":       video_duration,
+            "thumbnail_url":        thumbnail_url,
+            "stages":               [s.model_dump() for s in pipeline_stages],
+        })
+
+        # Email notification (sync mode)
+        if request.user_email and script and script.hook:
+            try:
+                from services import email_notifier
+                await email_notifier.send_video_ready(
+                    to_email=request.user_email, project_id=pid,
+                    video_urls=video_urls, thumbnail_url=thumbnail_url,
+                )
+            except Exception: pass
+
+        # Feedback store
+        if script and script.hook:
+            try:
+                from services import feedback_store
+                await feedback_store.record_project_outcome(
+                    project_id=pid, hook_text=script.hook.text,
+                    niche=series.niche if series and series.niche else "default",
+                    art_style=series.art_style.value if series else "realism",
+                    quality_score=float(script.metadata.get("agent_quality_score", 0)),
+                    platforms=[p.value for p in request.target_platforms],
+                    scenes_count=len(script.scenes),
+                )
+            except Exception: pass
+
+        if user_ref_path:
+            try: os.unlink(user_ref_path)
+            except OSError: pass
 
         return PipelineResponse(
-            project_id=project_id,
-            status="completed",
-            stages=stages,
-            video_urls=video_urls,
-            script=script,
+            project_id=project_id, status="completed", stages=stages,
+            video_urls=video_urls, script=script, thumbnail_url=thumbnail_url,
+            visual_qa_report=visual_qa_report or None,
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Generate-video failed for project %s", project_id)
+        logger.exception("Sync generate-video failed for project %s", project_id)
         for stage in stages:
             if stage.status == "running":
                 stage.status = "failed"
                 stage.detail = str(e)
-        failed_at = datetime.now(timezone.utc).isoformat()
         try:
-            await gcs.store_json(
-                {
-                    "project_id": str(project_id),
-                    "created_at": failed_at,
-                    "status":     "failed",
-                    "platforms":  [p.value for p in request.target_platforms],
-                    "video_urls": {},
-                    "error":      str(e),
-                },
-                f"projects/{project_id}/metadata.json",
-            )
-        except Exception:
-            pass
-        return PipelineResponse(
-            project_id=project_id,
-            status="failed",
-            stages=stages,
-            error=str(e),
-        )
+            await firestore_db.save_project(pid, {
+                **initial_metadata, "status": "failed",
+                "completed_at": datetime.now(timezone.utc).isoformat(), "error": str(e),
+            })
+        except Exception: pass
+        return PipelineResponse(project_id=project_id, status="failed", stages=stages, error=str(e))
