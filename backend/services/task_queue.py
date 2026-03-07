@@ -88,7 +88,7 @@ async def enqueue_video_generation(
             "body": body,
             "oidc_token": {
                 "service_account_email": (
-                    f"voicevid-sa@{settings.google_cloud_project}.iam.gserviceaccount.com"
+                    f"storylab-sa@{settings.google_cloud_project}.iam.gserviceaccount.com"
                 ),
                 "audience": settings.worker_url,
             },
