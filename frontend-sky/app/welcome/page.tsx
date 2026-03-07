@@ -17,7 +17,7 @@ import {
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, CartesianGrid, YAxis } from "recharts";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
-import { Music, Image as LucideImage, Mic as VoiceMemo } from "lucide-react";
+import { Music, Image as LucideImage, Mic as VoiceMemo, ArrowRight } from "lucide-react";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -110,6 +110,28 @@ export default function WelcomePage() {
   const [totalVideos, setTotalVideos] = useState(0);
   const [recentsLoading, setRecentsLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [assetFilter, setAssetFilter] = useState("All");
+
+  const [assets, setAssets] = useState<{ images: any[]; music: any[]; voice_memos: any[] }>({ images: [], music: [], voice_memos: [] });
+  const [assetsLoading, setAssetsLoading] = useState(true);
+
+  const assetFilters = ["All", "Voice Memos", "Images", "Music"];
+
+  const allAssets = [
+    ...assets.voice_memos.map((a: any) => ({ ...a, category: "voice_memos" })),
+    ...assets.images.map((a: any) => ({ ...a, category: "images" })),
+    ...assets.music.map((a: any) => ({ ...a, category: "music" })),
+  ].sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime());
+
+  const filteredAssets = assetFilter === "All" 
+    ? allAssets 
+    : allAssets.filter(a => {
+        if (assetFilter === "Voice Memos" && a.category === "voice_memos") return true;
+        if (assetFilter === "Images" && a.category === "images") return true;
+        if (assetFilter === "Music" && a.category === "music") return true;
+        return false;
+      });
+  const displayAssets = filteredAssets.slice(0, 4);
 
   useEffect(() => {
     fetch(`${API}/api/v1/projects`)
@@ -120,6 +142,21 @@ export default function WelcomePage() {
       })
       .catch(() => setRecents([]))
       .finally(() => setRecentsLoading(false));
+
+    Promise.all([
+      fetch(`${API}/api/v1/assets?category=images`).then((r) => r.json()),
+      fetch(`${API}/api/v1/assets?category=music`).then((r) => r.json()),
+      fetch(`${API}/api/v1/assets?category=voice_memos`).then((r) => r.json()),
+    ])
+      .then(([img, mus, vcm]) => {
+        setAssets({
+          images: img.assets ?? [],
+          music: mus.assets ?? [],
+          voice_memos: vcm.assets ?? [],
+        });
+      })
+      .catch(() => {})
+      .finally(() => setAssetsLoading(false));
   }, []);
 
   const filteredRecents = recents.filter((p) =>
@@ -196,7 +233,7 @@ export default function WelcomePage() {
         </header>
 
         {/* Main Content */}
-        <main className="max-w-5xl mx-auto px-8 py-8 w-full">
+        <main className="max-w-8xl mx-auto px-12 py-8 w-full">
           {/* Welcome Section */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -341,9 +378,9 @@ export default function WelcomePage() {
               <h2 className="text-xl font-medium text-white">Recents</h2>
               <button
                 onClick={() => router.push("/dashboard")}
-                className="text-sm font-medium text-[#7ab0c8] hover:text-[#FFFFFF] transition-colors"
+                className="text-sm font-medium text-[#7ab0c8] hover:text-[#FFFFFF] transition-colors flex items-center gap-1"
               >
-                View more
+                View more <ArrowRight className="w-4 h-4" />
               </button>
             </div>
 
@@ -415,45 +452,106 @@ export default function WelcomePage() {
           </motion.div>
 
           {/* My Assets Section */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.6 }}
-            className="mt-16 mb-20"
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-medium text-white">My Assets</h2>
-              <button
-                onClick={() => router.push("/assets")}
-                className="text-sm font-medium text-[#7ab0c8] hover:text-[#FFFFFF] transition-colors"
-              >
-                View all
-              </button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-6">
-              {[
-                { id: "voice", title: "Voice Memos", icon: VoiceMemo, count: 12 },
-                { id: "images", title: "Images", icon: LucideImage, count: 24 },
-                { id: "music", title: "Music", icon: Music, count: 8 },
-              ].map((asset) => (
+          {!assetsLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.6 }}
+              className="mt-16 mb-20"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-medium text-white">My Assets</h2>
                 <button
-                  key={asset.id}
-                  className="bg-[#333333] rounded-2xl border border-white/10 p-6 text-left transition-all duration-200 hover:border-[#5a9ab5]/40 hover:bg-[#3d3d3d]"
+                  onClick={() => router.push("/assets")}
+                  className="text-sm font-medium text-[#7ab0c8] hover:text-[#FFFFFF] transition-colors flex items-center gap-1"
                 >
-                  <div className="w-12 h-12 rounded-xl bg-[#1A1A1A] flex items-center justify-center border border-white/5 mb-4 text-[#5a9ab5]">
-                    <asset.icon className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-sm font-medium text-white mb-1">
-                    {asset.title}
-                  </h3>
-                  <p className="text-xs text-white/40">{asset.count} items</p>
+                  View all <ArrowRight className="w-4 h-4" />
                 </button>
-              ))}
-            </div>
-          </motion.div>
+              </div>
+
+              <div className="flex flex-col gap-6">
+                {/* Filters */}
+                <div className="flex items-center gap-3">
+                  {assetFilters.map(filter => (
+                    <button
+                      key={filter}
+                      onClick={() => setAssetFilter(filter)}
+                      className={cn(
+                        "px-6 py-2 rounded-full text-sm font-medium transition-colors",
+                        assetFilter === filter 
+                          ? "bg-white text-black" 
+                          : "bg-white/15 text-white/80 hover:bg-white/20 hover:text-white"
+                      )}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Asset Grid or Empty State */}
+                {displayAssets.length > 0 ? (
+                  <div className="grid grid-cols-4 gap-6">
+                    {displayAssets.map(asset => (
+                      <AssetPreview key={asset.id} asset={asset} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 border border-white/10 rounded-2xl border-dashed flex items-center justify-center flex-col gap-2">
+                    <p className="text-white/40 text-sm">No {assetFilter.toLowerCase()} found.</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
         </main>
       </div>
+    </div>
+  );
+}
+
+function AssetPreview({ asset }: { asset: any }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (asset.category !== "images") return;
+    fetch(`${API}/api/v1/assets/${asset.id}/url?category=images`)
+      .then((r) => r.json())
+      .then((d) => setImageUrl(d.url))
+      .catch(() => {});
+  }, [asset.id, asset.category]);
+
+  if (asset.category === "images") {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="aspect-[3/2] rounded-2xl overflow-hidden border border-white/5 relative bg-[#1E2532] flex items-center justify-center">
+          {imageUrl ? (
+            <img src={imageUrl} alt={asset.filename} className="w-full h-full object-cover" />
+          ) : (
+            <LucideImage className="w-8 h-8 text-white/20" />
+          )}
+        </div>
+        <h3 className="text-sm font-medium text-white truncate">{asset.filename}</h3>
+      </div>
+    );
+  }
+
+  const Icon = asset.category === "music" ? Music : VoiceMemo;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="aspect-[3/2] rounded-2xl bg-[#1E2532] border border-white/5 p-5 flex flex-col justify-between overflow-hidden relative">
+        <div className="absolute left-8 right-8 top-0 bottom-0 bg-[#1A202C] opacity-50 z-0 rounded-lg pointer-events-none mix-blend-multiply" />
+        <div className="absolute left-0 right-0 top-0 bottom-0 bg-gradient-to-r from-transparent via-[#1A202C]/20 to-transparent z-0 pointer-events-none" />
+        
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="flex items-center gap-4 relative z-10 opacity-80">
+            <div className="w-8 h-8 rounded-full bg-[#303B52] flex items-center justify-center shrink-0 border border-white/5">
+              <Icon className="w-4 h-4 text-[#5a9ab5]" />
+            </div>
+            <div className="h-2.5 bg-[#303B52] rounded-full w-24 border border-white/5" />
+          </div>
+        ))}
+      </div>
+      <h3 className="text-sm font-medium text-white truncate">{asset.filename}</h3>
     </div>
   );
 }
