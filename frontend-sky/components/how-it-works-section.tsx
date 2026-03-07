@@ -224,8 +224,8 @@ export default function HowItWorksSection() {
                   <div className="space-y-2.5">
                     {[
                       {
-                        title: "Scary stories",
-                        desc: "Scary stories that give you goosebumps",
+                        title: "Horror stories",
+                        desc: "Horror stories that give you goosebumps",
                       },
                       {
                         title: "History",

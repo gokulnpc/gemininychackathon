@@ -69,7 +69,7 @@ print('cta:', d.get('cta',{}).get('text',''))
 
 ---
 
-## Source 3: SCARY STORIES preset (matches manual_test.py)
+## Source 3: Horror stories preset (matches manual_test.py)
 
 ```bash
 cd backend && python manual_test.py 2>&1 | head -60

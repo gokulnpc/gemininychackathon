@@ -47,12 +47,12 @@ export function Step3_Picture() {
       transition={{ duration: 0.3 }}
       className="space-y-8"
     >
-      <div className="grid grid-cols-2 gap-8">
-        <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-8 items-stretch">
+        <div className="flex flex-col space-y-4">
           <h3 className="text-sm font-medium text-white">Upload your picture</h3>
           
           <div 
-            className="border-2 border-dashed border-white/20 rounded-2xl p-8 bg-white/5 flex flex-col items-center justify-center min-h-[240px] relative transition-colors hover:bg-white/10 hover:border-white/30"
+            className="flex-1 w-full border-2 border-dashed border-white/20 rounded-2xl p-8 bg-white/5 flex flex-col items-center justify-center transition-colors hover:bg-white/10 hover:border-white/30"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -63,15 +63,15 @@ export function Step3_Picture() {
             }}
           >
             {state.uploadedPicture ? (
-              <div className="absolute inset-0 p-2">
+              <div className="relative w-full h-full p-2 flex items-center justify-center">
                 <img 
                   src={state.uploadedPicture} 
                   alt="Uploaded" 
-                  className="w-full h-full object-contain rounded-xl"
+                  className="max-h-full max-w-full object-contain rounded-xl"
                 />
                 <button 
                   onClick={removePicture}
-                  className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
+                  className="absolute top-0 right-0 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -83,7 +83,7 @@ export function Step3_Picture() {
                 </p>
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 px-6 py-3 rounded-full border border-white/30 hover:bg-white/10 transition-colors text-white text-sm font-medium"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-white/30 hover:bg-white/10 transition-colors text-white text-sm font-medium"
                 >
                   <Upload className="w-4 h-4" />
                   Browse file
@@ -100,15 +100,15 @@ export function Step3_Picture() {
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="flex flex-col space-y-4">
           <h3 className="text-sm font-medium text-white">Choose your role</h3>
-          <div className="space-y-3">
+          <div className="flex flex-col justify-between flex-1 gap-3">
             {roles.map((role) => (
               <button
                 key={role.id}
                 onClick={() => dispatch({ type: "SET_PICTURE_ROLE", payload: role.id })}
                 className={cn(
-                  "w-full text-left px-5 py-4 rounded-xl border transition-all duration-200",
+                  "w-full h-full flex-1 flex items-center px-5 py-4 rounded-xl border transition-all duration-200",
                   state.pictureRole === role.id
                     ? "border-[#5a9ab5] bg-[#5a9ab5]/20 text-white"
                     : "border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:bg-white/10"

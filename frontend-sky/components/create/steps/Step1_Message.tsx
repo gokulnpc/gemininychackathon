@@ -580,30 +580,45 @@ export function Step1_Message() {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.2 }}
-            className="space-y-3"
+            className="flex gap-6"
           >
-            {presets.map((preset, index) => (
-              <motion.button
-                key={preset.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                onClick={() => handlePresetSelect(preset.id)}
-                className={cn(
-                  "w-full text-left p-5 rounded-2xl border transition-all duration-200",
-                  state.selectedPreset === preset.id
-                    ? "border-[#5a9ab5] bg-[#5a9ab5]/20"
-                    : "border-white/20 bg-white/20 hover:border-[#5a9ab5]/50 hover:bg-white/25"
-                )}
-              >
-                <h4 className="text-sm font-medium text-white mb-1">
-                  {preset.title}
-                </h4>
-                <p className="text-sm text-white/50">{preset.description}</p>
-              </motion.button>
-            ))}
+            {/* Left Column: Preset List */}
+            <div className="w-1/2 flex flex-col gap-3">
+              {presets.map((preset, index) => (
+                <motion.button
+                  key={preset.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  onClick={() => handlePresetSelect(preset.id)}
+                  className={cn(
+                    "w-full text-left p-5 rounded-2xl border transition-all duration-200",
+                    state.selectedPreset === preset.id
+                      ? "border-transparent bg-[#1C1C1E]"
+                      : "border-white/10 bg-transparent hover:border-white/30 hover:bg-white/5"
+                  )}
+                >
+                  <h4 className="text-sm font-medium text-white mb-1">
+                    {preset.title}
+                  </h4>
+                  <p className="text-sm text-white/50">{preset.description}</p>
+                </motion.button>
+              ))}
+            </div>
+
+            {/* Right Column: Image Preview */}
+            <div className="w-1/2 rounded-2xl overflow-hidden relative">
+              {presets.find((p) => p.id === (state.selectedPreset || presets[0].id))?.image && (
+                <img
+                  src={presets.find((p) => p.id === (state.selectedPreset || presets[0].id))?.image}
+                  alt="Preset Preview"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              )}
+            </div>
           </motion.div>
         </TabsContent>
+
       </Tabs>
     </motion.div>
   );

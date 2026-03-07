@@ -12,7 +12,7 @@ Flow is determined by the `source` field:
   source="text"    (Flow 2) — User types their idea directly.
                               Text goes straight to the Gemini script agent.
 
-  source="preset"  (Flow 3) — User selects a content preset (scary stories,
+  source="preset"  (Flow 3) — User selects a content preset (Horror stories,
                               history, true crime, etc.) and optionally adds a
                               topic angle. Reddit trending posts for the niche
                               are fetched and injected into the agent as live
@@ -60,7 +60,7 @@ router = APIRouter(prefix="/api/v1", tags=["script"])
 
 _PRESETS: dict[PresetKey, dict] = {
     PresetKey.scary_stories: {
-        "name": "Scary Stories",
+        "name": "Horror stories",
         "niche": "horror",
         "topic": (
             "Create a chilling scary story with atmospheric dread and suspense. "

@@ -84,7 +84,7 @@ TONE_CATALOGUE: list[ToneOption] = [
 # ── Preset catalogue ──────────────────────────────────────────────────────────
 
 _PRESET_CATALOGUE: list[dict] = [
-    {"key": PresetKey.scary_stories.value,      "name": "Scary Stories",        "niche": "horror",      "description": "Chilling psychological horror with atmospheric dread and suspense."},
+    {"key": PresetKey.scary_stories.value,      "name": "Horror story",        "niche": "horror",      "description": "Chilling psychological horror with atmospheric dread and suspense."},
     {"key": PresetKey.history.value,             "name": "History",              "niche": "history",     "description": "Fascinating lesser-known historical events that changed the world."},
     {"key": PresetKey.true_crime.value,          "name": "True Crime",           "niche": "true_crime",  "description": "Gripping real crime stories — mysteries, disappearances, notorious cases."},
     {"key": PresetKey.stoic_motivation.value,    "name": "Stoic Motivation",     "niche": "motivation",  "description": "Stoic philosophy wisdom to overcome adversity and live with purpose."},
@@ -178,9 +178,41 @@ async def list_voices():
     """
     from services.gemini_tts import VOICE_CATALOGUE, DEFAULT_VOICE
     return [
-        {"id": name, "description": desc, "default": name == DEFAULT_VOICE}
+        {"id": name, "description": desc, "default": name == DEFAULT_VOICE, "gender": "Male" if "male" in desc.lower() else "Female"}
         for name, desc in VOICE_CATALOGUE.items()
     ]
+
+
+@router.get("/voices/{voice_id}/preview")
+async def preview_voice(voice_id: str):
+    """Generate and return a short audio preview for a specific voice.
+    
+    Returns the audio as a base64 encoded WAV string.
+    """
+    from services.gemini_tts import generate_voiceover, VOICE_CATALOGUE
+    import base64
+    import os
+    
+    if voice_id not in VOICE_CATALOGUE:
+        raise HTTPException(status_code=404, detail="Voice not found")
+
+    preview_text = "Hi there, I am Scout. Welcome to Story Lab!"
+
+    try:
+        wav_path = await generate_voiceover(preview_text, voice_name=voice_id)
+        with open(wav_path, "rb") as f:
+            wav_bytes = f.read()
+            
+        # Clean up temp file
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+            
+        return {"audio_base64": base64.b64encode(wav_bytes).decode("utf-8")}
+    except Exception as e:
+        logger.exception("Voice preview failed for %s", voice_id)
+        raise HTTPException(status_code=500, detail=f"Voice preview failed: {e}")
 
 
 @router.post("/series", response_model=SeriesCreateResponse)

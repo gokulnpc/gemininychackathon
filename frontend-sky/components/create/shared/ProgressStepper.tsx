@@ -8,6 +8,20 @@ export function ProgressStepper() {
   const { state } = useWizard();
   const totalSteps = 10; // Show all 10 steps in stepper
 
+  const isStepActuallyCompleted = (stepNum: number) => {
+    // Basic heuristics for step completion
+    if (stepNum === 1) return !!state.messageText || !!state.audioBase64 || !!state.selectedPreset;
+    if (stepNum === 2) return !!state.generatedScript;
+    if (stepNum === 3) return !!state.uploadedPicture;
+    if (stepNum === 4) return !!state.selectedVoice;
+    if (stepNum === 5) return !!state.selectedMusic;
+    if (stepNum === 6) return !!state.selectedArtStyle;
+    if (stepNum === 7) return !!state.selectedCaption;
+    if (stepNum === 8) return Object.values(state.effects).some(Boolean);
+    if (stepNum === 9) return !!state.seriesName;
+    return false;
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -19,7 +33,7 @@ export function ProgressStepper() {
         {Array.from({ length: totalSteps }, (_, i) => {
           const stepNumber = i + 1;
           const isActive = stepNumber === state.currentStep;
-          const isCompleted = stepNumber < state.currentStep;
+          const isCompleted = isStepActuallyCompleted(stepNumber);
           const isLast = stepNumber === totalSteps;
 
           return (

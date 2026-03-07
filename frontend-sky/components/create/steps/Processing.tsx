@@ -105,7 +105,7 @@ export function Processing() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="text-5xl font-medium text-[#1A1A1A]"
+          className="text-5xl font-medium text-white"
         >
           Creating Magic
         </motion.h1>
@@ -151,7 +151,7 @@ export function Processing() {
         </div>
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
           <motion.div
-            className="h-full bg-gradient-to-r from-[#EBA9A1] to-[#AC82A9] rounded-full"
+            className="h-full bg-gradient-to-r from-[#F5DBE9] to-[#4296BB] rounded-full"
             initial={{ width: "0%" }}
             animate={{ width: `${progress}%` }}
             transition={{ duration: 0.5, ease: "easeOut" }}

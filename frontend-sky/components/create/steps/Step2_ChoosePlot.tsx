@@ -127,6 +127,26 @@ export function Step2_ChoosePlot() {
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
     );
 
+  const updateScript = (field: "hook" | "cta", value: string, isDuration?: boolean) => {
+    if (!script) return;
+    const newScript = {
+      ...script,
+      [field]: { ...script[field], [isDuration ? "duration" : "text"]: value },
+    };
+    newScript.voiceover_full_script = `${newScript.hook.text}\n\n${newScript.scenes.map(s => s.voiceover_text).join("\n\n")}\n\n${newScript.cta.text}`;
+    dispatch({ type: "SET_GENERATED_SCRIPT", payload: newScript });
+  };
+
+  const updateScene = (id: number, field: string, value: any) => {
+    if (!script) return;
+    const newScenes = script.scenes.map(s => 
+      s.scene_id === id ? { ...s, [field]: value } : s
+    );
+    const newScript = { ...script, scenes: newScenes };
+    newScript.voiceover_full_script = `${newScript.hook.text}\n\n${newScript.scenes.map(s => s.voiceover_text).join("\n\n")}\n\n${newScript.cta.text}`;
+    dispatch({ type: "SET_GENERATED_SCRIPT", payload: newScript });
+  };
+
   if (error && !script) {
     return (
       <motion.div
@@ -222,12 +242,20 @@ export function Step2_ChoosePlot() {
         >
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-[#5a9ab5]">
-              Hook · {script.hook.duration}s
+              Hook · 
+              <input
+                type="number"
+                value={script.hook.duration}
+                onChange={(e) => updateScript("hook", e.target.value, true)}
+                className="w-12 bg-transparent border-b border-[#5a9ab5]/40 text-center focus:outline-none ml-1 mr-1"
+              />s
             </span>
           </div>
-          <p className="text-lg font-medium text-white leading-relaxed">
-            &ldquo;{script.hook.text}&rdquo;
-          </p>
+          <textarea
+            value={script.hook.text}
+            onChange={(e) => updateScript("hook", e.target.value)}
+            className="w-full text-lg font-medium text-white leading-relaxed bg-transparent border-none resize-none focus:outline-none focus:ring-0 min-h-[60px]"
+          />
         </motion.div>
 
         {/* Scenes */}
@@ -251,17 +279,19 @@ export function Step2_ChoosePlot() {
                       {scene.scene_id}
                     </div>
                     <div>
-                      <p
+                      <textarea
+                        value={scene.voiceover_text}
+                        onChange={(e) => updateScene(scene.scene_id, "voiceover_text", e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
                         className={cn(
-                          "text-sm text-white leading-snug",
-                          !isExpanded && "line-clamp-1"
+                          "w-full bg-transparent border-none text-sm text-white leading-snug resize-none focus:outline-none focus:ring-0",
+                          !isExpanded && "line-clamp-1 truncate block h-5"
                         )}
-                      >
-                        {scene.voiceover_text}
-                      </p>
+                        rows={isExpanded ? 3 : 1}
+                      />
                       {!isExpanded && (
-                        <p className="text-xs text-white/40 mt-0.5">
-                          {scene.duration_seconds}s · {scene.emotion}
+                        <p className="text-xs text-white/40 mt-1">
+                          {scene.duration_seconds}s · <span className="capitalize">{scene.emotion}</span>
                         </p>
                       )}
                     </div>
@@ -281,39 +311,40 @@ export function Step2_ChoosePlot() {
                     className="px-5 pb-5 pt-0 border-t border-white/10 space-y-3"
                   >
                     <div className="grid grid-cols-3 gap-3 mt-3">
-                      <div className="bg-white/10 rounded-xl p-3">
-                        <p className="text-xs text-white/40 mb-1">Duration</p>
-                        <p className="text-sm font-medium text-white">
-                          {scene.duration_seconds}s
-                        </p>
+                      <div className="bg-white/10 rounded-xl p-3 flex-1">
+                        <p className="text-xs text-white/40 mb-1">Duration (s)</p>
+                        <input
+                          type="number"
+                          value={scene.duration_seconds}
+                          onChange={(e) => updateScene(scene.scene_id, "duration_seconds", parseInt(e.target.value) || 0)}
+                          className="w-full text-sm font-medium text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-[#5a9ab5] focus:outline-none"
+                        />
                       </div>
-                      <div className="bg-white/10 rounded-xl p-3">
+                      <div className="bg-white/10 rounded-xl p-3 flex-1">
                         <p className="text-xs text-white/40 mb-1">Emotion</p>
-                        <p className="text-sm font-medium text-white capitalize">
-                          {scene.emotion}
-                        </p>
+                        <input
+                          value={scene.emotion}
+                          onChange={(e) => updateScene(scene.scene_id, "emotion", e.target.value)}
+                          className="w-full text-sm font-medium text-white capitalize bg-transparent border-b border-transparent hover:border-white/20 focus:border-[#5a9ab5] focus:outline-none"
+                        />
                       </div>
                       {scene.transition_to_next && (
-                        <div className="bg-white/10 rounded-xl p-3">
-                          <p className="text-xs text-white/40 mb-1">
-                            Transition
-                          </p>
+                        <div className="bg-white/10 rounded-xl p-3 flex-1">
+                          <p className="text-xs text-white/40 mb-1">Transition</p>
                           <p className="text-sm font-medium text-white capitalize">
                             {scene.transition_to_next.replace(/_/g, " ")}
                           </p>
                         </div>
                       )}
                     </div>
-                    {scene.visual_prompt && (
-                      <div>
-                        <p className="text-xs text-white/40 mb-1">
-                          Visual prompt
-                        </p>
-                        <p className="text-sm text-white/50 italic">
-                          {scene.visual_prompt}
-                        </p>
-                      </div>
-                    )}
+                    <div>
+                      <p className="text-xs text-white/40 mb-1">Visual prompt</p>
+                      <textarea
+                        value={scene.visual_prompt || ""}
+                        onChange={(e) => updateScene(scene.scene_id, "visual_prompt", e.target.value)}
+                        className="w-full text-sm text-white/50 italic bg-transparent border border-transparent hover:border-white/20 focus:border-[#5a9ab5] focus:outline-none rounded p-1 resize-none h-20"
+                      />
+                    </div>
                   </motion.div>
                 )}
               </motion.div>
@@ -331,7 +362,12 @@ export function Step2_ChoosePlot() {
           <p className="text-xs font-semibold uppercase tracking-wide text-white/40 mb-2">
             Call to Action
           </p>
-          <p className="text-sm font-medium text-white">{script.cta.text}</p>
+          <textarea
+            value={script.cta.text}
+            onChange={(e) => updateScript("cta", e.target.value)}
+            className="w-full text-sm font-medium text-white bg-transparent border-none resize-none focus:outline-none focus:ring-0"
+            rows={2}
+          />
         </motion.div>
 
         {/* Full Voiceover Script */}

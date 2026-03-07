@@ -29,217 +29,174 @@ function streamUrl(projectId: string, platform: string) {
 
 const PLATFORMS = [
   {
-    id: "tiktok",
-    name: "TikTok",
+    id: "youtube",
+    name: "YouTube",
+    description: "Share to YouTube as a video",
     icon: (
-      <svg viewBox="0 0 24 24" className="w-7 h-7" fill="currentColor">
-        <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z" />
-      </svg>
+      <div className="w-10 h-10 bg-[#FF0000] rounded-xl flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
+          <path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.54 3.5 12 3.5 12 3.5s-7.54 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.46 20.5 12 20.5 12 20.5s7.54 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.75 15.02V8.98L15.5 12l-5.75 3.02z" />
+        </svg>
+      </div>
     ),
-    enabled: false,
-    note: "Coming soon",
+    enabled: true,
   },
   {
     id: "instagram",
     name: "Instagram",
+    description: "Share as Reel or Post",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        className="w-7 h-7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-        <circle cx="12" cy="12" r="4" />
-        <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-    enabled: false,
-    note: "Coming soon",
-  },
-  {
-    id: "youtube",
-    name: "YouTube",
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-7 h-7" fill="currentColor">
-        <path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.54 3.5 12 3.5 12 3.5s-7.54 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.46 20.5 12 20.5 12 20.5s7.54 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.75 15.02V8.98L15.5 12l-5.75 3.02z" />
-      </svg>
+      <div className="w-10 h-10 bg-gradient-to-tr from-[#FFB900] via-[#FF0040] to-[#9900FF] rounded-xl flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+          <circle cx="12" cy="12" r="4" />
+          <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      </div>
     ),
     enabled: true,
-    note: "Connect your YouTube channel",
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    description: "Share as TikTok video",
+    icon: (
+      <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
+          <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z" />
+        </svg>
+      </div>
+    ),
+    enabled: true,
   },
 ];
 
-function ConnectAccountModal({
+function PublishModal({
   onClose,
+  onPublish,
+  connectedAccounts,
   onConnected,
 }: {
   onClose: () => void;
+  onPublish: (platforms: string[]) => void;
+  connectedAccounts: string[];
   onConnected: (platformId: string) => void;
 }) {
-  const [selected, setSelected] = useState<string>("youtube");
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
   const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const selectedPlatform = PLATFORMS.find((p) => p.id === selected);
-
-  // Clean up poll + popup on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
-      if (popupRef.current && !popupRef.current.closed)
-        popupRef.current.close();
+      if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
     };
   }, []);
 
-  const handleConnect = async () => {
-    if (selected !== "youtube") return;
-    setConnecting(true);
-    setError(null);
+  const handleToggle = async (platformId: string) => {
+    if (selected.includes(platformId)) {
+      setSelected(selected.filter((id) => id !== platformId));
+      return;
+    }
 
-    try {
-      // 1. Get the Google OAuth URL from the backend
-      const res = await fetch(`${API}/api/v1/auth/youtube`);
-      if (!res.ok) throw new Error("Failed to start YouTube auth");
-      const { auth_url } = await res.json();
+    if (platformId === "youtube" && !connectedAccounts.includes("youtube")) {
+      setConnectingId("youtube");
+      try {
+        const res = await fetch(`${API}/api/v1/auth/youtube`);
+        if (!res.ok) throw new Error("Failed to start YouTube auth");
+        const { auth_url } = await res.json();
 
-      // 2. Open the Google consent screen in a popup window
-      const popup = window.open(
-        auth_url,
-        "youtube-auth",
-        "width=520,height=640,left=200,top=100",
-      );
-      popupRef.current = popup;
+        const popup = window.open(auth_url, "youtube-auth", "width=520,height=640,left=200,top=100");
+        popupRef.current = popup;
 
-      // 3. Poll /auth/status every 2s until youtube = true or popup closed
-      pollRef.current = setInterval(async () => {
-        if (popup?.closed) {
-          clearInterval(pollRef.current!);
-          setConnecting(false);
-          return;
-        }
-        try {
-          const statusRes = await fetch(`${API}/api/v1/auth/status`);
-          const status = await statusRes.json();
-          if (status.youtube) {
+        pollRef.current = setInterval(async () => {
+          if (popup?.closed) {
             clearInterval(pollRef.current!);
-            popup?.close();
-            setConnecting(false);
-            onConnected("youtube");
+            setConnectingId(null);
+            return;
           }
-        } catch {
-          // ignore transient errors while polling
-        }
-      }, 2000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Connection failed");
-      setConnecting(false);
+          try {
+            const statusRes = await fetch(`${API}/api/v1/auth/status`);
+            const status = await statusRes.json();
+            if (status.youtube) {
+              clearInterval(pollRef.current!);
+              popup?.close();
+              setConnectingId(null);
+              onConnected("youtube");
+              setSelected((prev) => [...prev, "youtube"]);
+            }
+          } catch {}
+        }, 2000);
+      } catch (e) {
+        setConnectingId(null);
+      }
+    } else {
+      setSelected([...selected, platformId]);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.2 }}
-        className="bg-[#2B2B2B] rounded-2xl shadow-xl border border-white/20 w-full max-w-sm p-6"
+        className="bg-[#3A3A3A] rounded-2xl shadow-xl w-full max-w-md p-6 border border-white/10"
       >
-        <div className="flex items-start justify-between mb-1">
+        <div className="flex items-start justify-between mb-2">
           <div>
-            <h2 className="text-base font-semibold text-white">
-              Connect social media account
-            </h2>
-            <p className="text-sm text-white/50 mt-0.5">
-              Choose one of the supported platforms.
-            </p>
+            <h2 className="text-xl font-medium text-white">Publish Video</h2>
+            <p className="text-xs text-[#A0A0A0] mt-1">Select platforms to share your video</p>
           </div>
-          <button
-            onClick={onClose}
-            disabled={connecting}
-            className="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
-          >
-            <X className="w-4 h-4 text-white/50" />
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/10 text-white/50 transition-colors">
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 my-5">
-          {PLATFORMS.map((platform) => (
-            <button
-              key={platform.id}
-              onClick={() =>
-                platform.enabled && !connecting && setSelected(platform.id)
-              }
-              disabled={!platform.enabled || connecting}
-              className={cn(
-                "flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200",
-                platform.enabled
-                  ? selected === platform.id
-                    ? "border-[#5a9ab5] bg-[#5a9ab5]/20"
-                    : "border-white/20 hover:border-[#5a9ab5]/40"
-                  : "border-white/10 opacity-40 cursor-not-allowed",
-              )}
-            >
-              <span
+        <div className="space-y-3 mt-6 mb-6">
+          {PLATFORMS.map((platform) => {
+            const isSelected = selected.includes(platform.id);
+            const isConnecting = connectingId === platform.id;
+            return (
+              <button
+                key={platform.id}
+                onClick={() => handleToggle(platform.id)}
                 className={cn(
-                  selected === platform.id && platform.enabled
-                    ? "text-[#5a9ab5]"
-                    : "text-white/50",
+                  "w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-200",
+                  isSelected ? "border-[#5a9ab5] bg-white/5" : "border-white/10 hover:border-white/20 hover:bg-white/5"
                 )}
               >
-                {platform.icon}
-              </span>
-              <span className="text-xs font-medium text-white">
-                {platform.name}
-              </span>
-            </button>
-          ))}
+                <div className="flex items-center gap-4">
+                  {platform.icon}
+                  <div className="text-left">
+                    <div className="text-sm font-medium text-white flex items-center gap-2">
+                      {platform.name}
+                      {isConnecting && <Loader2 className="w-3 h-3 animate-spin text-white/50" />}
+                    </div>
+                    <div className="text-xs text-white/50 mt-0.5">{platform.description}</div>
+                  </div>
+                </div>
+                <div className={cn(
+                  "w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-colors",
+                  isSelected ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
+                )}>
+                  {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
-        {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
-
-        <p className="text-xs text-white/40 mb-4">
-          {connecting
-            ? "A Google sign-in window has opened. Complete authorization there…"
-            : selectedPlatform?.note}
-        </p>
-
-        <Button
-          onClick={handleConnect}
-          disabled={!selectedPlatform?.enabled || connecting}
-          className="w-full rounded-xl bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white h-11"
-        >
-          {connecting ? (
-            <span className="flex items-center gap-2">
-              <svg
-                className="w-4 h-4 animate-spin"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4l3-3-3-3V0a12 12 0 100 24v-4l-3 3 3 3v4A12 12 0 014 12z"
-                />
-              </svg>
-              Waiting for authorization…
-            </span>
-          ) : (
-            `Connect ${selectedPlatform?.name}`
-          )}
-        </Button>
+        <div className="flex gap-3">
+          <Button onClick={onClose} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 h-11">
+            Cancel
+          </Button>
+          <Button onClick={() => onPublish(selected)} disabled={selected.length === 0} className="flex-1 rounded-full bg-white/20 hover:bg-white/30 text-white border-none h-11 transition-all duration-200 disabled:opacity-50">
+            Publish to {selected.length} platform{selected.length !== 1 ? 's' : ''}
+          </Button>
+        </div>
       </motion.div>
     </div>
   );
@@ -295,8 +252,9 @@ export function Step10_ReviewVideo() {
     }
   };
 
-  const handlePublish = async () => {
-    if (!projectId || connectedAccounts.length === 0) return;
+  const handlePublish = async (platforms: string[]) => {
+    if (!projectId || platforms.length === 0) return;
+    setShowModal(false);
     setPublishing(true);
     setPublishResults(null);
     try {
@@ -340,7 +298,7 @@ export function Step10_ReviewVideo() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          platforms: connectedAccounts,
+          platforms,
           social_copy: enrichedSocialCopy,
         }),
       });
@@ -389,8 +347,10 @@ export function Step10_ReviewVideo() {
     <>
       <AnimatePresence>
         {showModal && (
-          <ConnectAccountModal
+          <PublishModal
             onClose={() => setShowModal(false)}
+            onPublish={handlePublish}
+            connectedAccounts={connectedAccounts}
             onConnected={handleConnected}
           />
         )}
@@ -439,10 +399,8 @@ export function Step10_ReviewVideo() {
               </Button>
             )}
             <Button
-              onClick={handlePublish}
-              disabled={
-                !projectId || connectedAccounts.length === 0 || publishing
-              }
+              onClick={() => setShowModal(true)}
+              disabled={!projectId || publishing}
               className="rounded-full px-5 py-2 h-10 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white disabled:opacity-50"
             >
               {publishing ? (
@@ -594,44 +552,7 @@ export function Step10_ReviewVideo() {
           </div>
         </div>
 
-        {/* Connected Accounts Section */}
-        <div className="mt-8 bg-white/20 rounded-2xl border border-white/20 p-5">
-          <h3 className="text-sm font-semibold text-white mb-1">
-            Connected Accounts
-          </h3>
-          <p className="text-xs text-white/40 mb-4">
-            You can connect multiple accounts to publish this video.
-          </p>
 
-          {connectedAccounts.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {connectedAccounts.map((id) => {
-                const platform = PLATFORMS.find((p) => p.id === id);
-                if (!platform) return null;
-                return (
-                  <div
-                    key={id}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-white/20 bg-white/10"
-                  >
-                    <span className="text-[#5a9ab5]">{platform.icon}</span>
-                    <span className="text-sm font-medium text-white flex-1">
-                      {platform.name}
-                    </span>
-                    <CheckCircle2 className="w-4 h-4 text-[#90D6F8]" />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <button
-            onClick={() => setShowModal(true)}
-            className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border border-dashed border-white/20 text-sm text-white/40 hover:border-[#5a9ab5]/40 hover:text-[#5a9ab5] hover:bg-[#5a9ab5]/10 transition-all duration-200"
-          >
-            <Plus className="w-4 h-4" />
-            Connect new account
-          </button>
-        </div>
 
         {/* Publish Results */}
         <AnimatePresence>
