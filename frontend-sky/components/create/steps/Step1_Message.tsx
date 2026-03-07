@@ -17,6 +17,7 @@ import { useWizard } from "@/context/WizardContext";
 import { presets } from "@/data/staticData";
 import { motion, AnimatePresence } from "framer-motion";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
+import { Play, RotateCcw, Pause } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -32,8 +33,12 @@ export function Step1_Message() {
   const [transcript, setTranscript] = useState<string | null>(null);
 
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,10 +73,76 @@ export function Step1_Message() {
       const data = await res.json();
       setTranscript(data.transcript ?? null);
     } catch {
-      // transcript is optional — silently skip on failure
+      // fallback strictly if it errors out
+      setTranscript("Transcription failed or no speech detected.");
     } finally {
       setTranscribing(false);
     }
+  };
+
+  const togglePlayback = () => {
+    if (!audioPlayerRef.current) return;
+    if (isPlaying) {
+      audioPlayerRef.current.pause();
+    } else {
+      audioPlayerRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleTimeUpdate = () => {
+    if (!audioPlayerRef.current) return;
+    setPlaybackProgress(audioPlayerRef.current.currentTime);
+  };
+
+  const handleLoadedMetadata = () => {
+    if (!audioPlayerRef.current) return;
+    setAudioDuration(audioPlayerRef.current.duration);
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setPlaybackProgress(0);
+  };
+
+  const resetRecording = () => {
+    setAudioReady(false);
+    setAudioUrl(null);
+    setTranscript(null);
+    setUploadedFileName(null);
+  };
+
+  const formatTime = (time: number) => {
+    if (!isFinite(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // ── Highlight logic ────────────────────────────────────────────────────────
+  // Rough estimation of word highlighting based on playback progress.
+  const renderHighlightedText = (text: string | null, currentTime: number, duration: number) => {
+    if (!text || duration === 0) return null;
+    const words = text.split(" ");
+    const wordDuration = duration / words.length;
+    
+    return words.map((word, index) => {
+      const isHighlighted = currentTime >= index * wordDuration && currentTime < (index + 1) * wordDuration;
+      const isPast = currentTime > (index + 1) * wordDuration;
+      
+      return (
+        <span
+          key={index}
+          className={cn(
+            "transition-colors duration-200",
+            isHighlighted ? "bg-[#9A7A76] rounded px-0.5 text-white" : "",
+            isPast ? "text-white" : "text-white/60"
+          )}
+        >
+          {word}{" "}
+        </span>
+      );
+    });
   };
 
   // ── Audio recording ────────────────────────────────────────────────────────
@@ -277,50 +348,73 @@ export function Step1_Message() {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
-                      className="mb-6 w-full"
+                      className="w-full text-left bg-[#404040] rounded-[24px] p-8 relative flex flex-col justify-between"
+                      style={{ minHeight: "260px" }}
                     >
-                      <CheckCircle2 className="w-12 h-12 text-[#90D6F8] mx-auto mb-3" />
-                      <p className="text-sm font-medium text-white">
-                        {uploadedFileName
-                          ? `Uploaded: ${uploadedFileName}`
-                          : "Recording saved!"}
-                      </p>
-
-                      {/* Audio playback */}
                       {audioUrl && (
-                        <div className="mt-4 px-2">
-                          <audio
-                            key={audioUrl}
-                            src={audioUrl}
-                            controls
-                            className="w-full h-10 rounded-lg"
-                          />
-                        </div>
+                        <audio
+                          ref={audioPlayerRef}
+                          src={audioUrl}
+                          onTimeUpdate={handleTimeUpdate}
+                          onLoadedMetadata={handleLoadedMetadata}
+                          onEnded={handleEnded}
+                          className="hidden"
+                        />
                       )}
 
                       {transcribing ? (
-                        <div className="flex items-center justify-center gap-2 mt-3">
-                          <Loader2 className="w-4 h-4 animate-spin text-[#5a9ab5]" />
-                          <span className="text-xs text-white/50">
-                            Transcribing…
+                        <div className="flex-1 flex items-center justify-center">
+                          <span className="text-sm font-medium text-white/50">
+                            Transcribing...
                           </span>
                         </div>
-                      ) : transcript ? (
-                        <div className="mt-4 p-4 bg-white/10 rounded-xl text-left max-h-32 overflow-y-auto">
-                          <p className="text-xs font-semibold text-[#5a9ab5] mb-1 uppercase tracking-wide">
-                            Transcript
-                          </p>
-                          <p className="text-sm text-white leading-relaxed">
-                            {transcript}
-                          </p>
-                        </div>
                       ) : (
-                        <p className="text-xs text-white/40 mt-1">
-                          Audio ready — continue through the wizard to generate
-                          your script
-                        </p>
+                        <>
+                          <div className="flex-1 mb-8 text-base text-white/80 leading-relaxed font-light">
+                            {transcript ? renderHighlightedText(transcript, playbackProgress, audioDuration) : "No transcript available."}
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <button
+                                onClick={togglePlayback}
+                                className="w-12 h-12 rounded-full border border-white/30 flex items-center justify-center bg-transparent hover:bg-white/5 transition-colors"
+                              >
+                                {isPlaying ? (
+                                  <Pause className="w-5 h-5 text-white" />
+                                ) : (
+                                  <Play className="w-5 h-5 text-white ml-1" />
+                                )}
+                              </button>
+                              <span className="text-sm text-white/50 font-medium">
+                                {formatTime(playbackProgress)} / {formatTime(audioDuration)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                              <Button
+                                variant="outline"
+                                onClick={resetRecording}
+                                className="rounded-full px-6 py-5 bg-[#3B3B3B] text-white border-white/20 hover:bg-white/20 hover:border-white/40"
+                              >
+                                Restart Recording
+                              </Button>
+                              <span className="text-sm text-white/40">or</span>
+                              <Button
+                                variant="outline"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="rounded-full px-6 py-5 bg-[#3B3B3B] text-white border-white/20 hover:bg-white/20 hover:border-white/40 flex items-center"
+                              >
+                                <Upload className="w-4 h-4 mr-2 text-white/70" />
+                                Upload Audio
+                              </Button>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </motion.div>
+                    // Intentionally replaced by playback wrapper component
+                    // (Audio player replaced above)
                   ) : (
                     <motion.div
                       key="start"
@@ -357,34 +451,36 @@ export function Step1_Message() {
                 />
 
                 <div className="flex items-center justify-center gap-4">
-                  {isRecording ? (
-                    <Button
-                      variant="outline"
-                      className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20 transition-colors duration-300"
-                      onClick={stopRecording}
-                    >
-                      <div className="w-3 h-3 bg-white rounded-sm mr-2 animate-pulse" />
-                      Stop Recording
-                    </Button>
-                  ) : (
-                    <>
+                  {!audioReady && (
+                    isRecording ? (
                       <Button
                         variant="outline"
-                        className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20"
-                        onClick={startRecording}
+                        className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20 transition-colors duration-300"
+                        onClick={stopRecording}
                       >
-                        {audioReady ? "Re-record" : "Start Recording"}
+                        <div className="w-3 h-3 bg-white rounded-sm mr-2 animate-pulse" />
+                        Stop Recording
                       </Button>
-                      <span className="text-white/40 text-sm">or</span>
-                      <Button
-                        variant="outline"
-                        className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20"
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        <Upload className="w-4 h-4 mr-2" />
-                        Upload Audio
-                      </Button>
-                    </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="outline"
+                          className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20"
+                          onClick={startRecording}
+                        >
+                          Start Recording
+                        </Button>
+                        <span className="text-white/40 text-sm">or</span>
+                        <Button
+                          variant="outline"
+                          className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Upload className="w-4 h-4 mr-2" />
+                          Upload Audio
+                        </Button>
+                      </>
+                    )
                   )}
                 </div>
               </div>
