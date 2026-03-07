@@ -7,13 +7,16 @@ GET    /api/v1/projects/{id}/stream  — 302 redirect to a signed GCS video URL
 GET    /api/v1/projects/{id}/thumbnail — 302 redirect to a JPEG thumbnail
 DELETE /api/v1/projects/{id}         — remove a project from the dashboard
 """
+import json
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 
 from config import get_settings
-from models.schemas import JobStatusResponse, ProjectListResponse, ProjectMetadata
+from models.schemas import JobStatusResponse, ProjectListResponse, ProjectMetadata, ScriptEditRequest
 from services import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
@@ -21,24 +24,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["projects"])
 
 
-@router.get("/projects", response_model=ProjectListResponse)
+@router.get("/projects")
 async def list_projects():
-    """List all generated projects for the dashboard, newest first."""
+    """List all projects for the Projects tab, newest first.
+
+    Returns ALL projects regardless of status (queued, generating_script,
+    script_ready, generating_video, completed, failed).
+    """
     try:
         items = await firestore_db.list_projects(limit=100)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list projects: {e}")
 
-    projects = []
-    for data in items:
-        if data.get("status") != "completed" or not data.get("video_urls"):
-            continue
-        try:
-            projects.append(ProjectMetadata(**data))
-        except Exception:
-            pass
-
-    return ProjectListResponse(projects=projects, total=len(projects))
+    return {"projects": items, "total": len(items)}
 
 
 @router.get("/projects/{project_id}", response_model=ProjectMetadata)
@@ -149,6 +147,101 @@ async def get_project_thumbnail(project_id: UUID, platform: str = "instagram_ree
         return RedirectResponse(url=f"{base}/{thumb_key}", status_code=302)
 
     raise HTTPException(status_code=404, detail="Thumbnail not available")
+
+
+@router.put("/projects/{project_id}/script")
+async def update_project_script(project_id: UUID, req: ScriptEditRequest):
+    """Save user edits to a generated script.
+
+    Only allowed when status == 'script_ready'.
+    """
+    doc = await firestore_db.get_project(str(project_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    if doc.get("status") != "script_ready":
+        raise HTTPException(status_code=409, detail="Script can only be edited when status is script_ready")
+
+    updated = {
+        **doc,
+        "script": req.script,
+        "hook": req.script.get("hook", {}).get("text", ""),
+        "voiceover_full_script": req.script.get("voiceover_full_script", ""),
+        "scenes_count": len(req.script.get("scenes", [])),
+    }
+    try:
+        await firestore_db.save_project(str(project_id), updated)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save script edits: {e}")
+
+    return {"status": "ok"}
+
+
+@router.post("/projects/{project_id}/approve-script", status_code=202)
+async def approve_script(project_id: UUID):
+    """Approve the generated script and kick off video generation.
+
+    Reconstructs GenerateVideoRequest from stored script + pipeline_config,
+    then enqueues the existing video generation Cloud Task.
+    Only allowed when status == 'script_ready'.
+    """
+    doc = await firestore_db.get_project(str(project_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    if doc.get("status") != "script_ready":
+        raise HTTPException(status_code=409, detail="Project must be in script_ready status to approve")
+
+    cfg = doc.get("pipeline_config", {})
+    script_data = doc.get("script")
+    if not script_data:
+        raise HTTPException(status_code=422, detail="No script found in project — regenerate first")
+
+    # Reconstruct GenerateVideoRequest from stored data
+    from models.schemas import GenerateVideoRequest, ScriptGenerationResponse, Platform, CaptionStyleEnum
+    try:
+        script = ScriptGenerationResponse(**script_data)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Stored script is malformed: {e}")
+
+    try:
+        gen_request = GenerateVideoRequest(
+            script=script,
+            target_platforms=[Platform(p) for p in cfg.get("target_platforms", ["instagram_reels"])],
+            voice_id=cfg.get("voice_id", "Aoede"),
+            art_style_override=cfg.get("art_style_override"),
+            music_preset_override=cfg.get("music_preset_override"),
+            caption_style=cfg.get("caption_style", "bold_stroke"),
+            video_duration=cfg.get("video_duration", 30),
+            user_reference_image_b64=cfg.get("user_reference_image_b64"),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not build video request: {e}")
+
+    # Update Firestore status to queued
+    now = datetime.now(timezone.utc).isoformat()
+    await firestore_db.save_project(str(project_id), {
+        **doc,
+        "status": "queued",
+        "current_stage": "Queued for video generation",
+        "progress_pct": 0,
+        "queued_at": now,
+    })
+
+    # Enqueue video generation Cloud Task
+    from services import task_queue
+    task_payload = json.loads(gen_request.model_dump_json())
+    try:
+        await task_queue.enqueue_video_generation(
+            project_id=project_id,
+            request_payload=task_payload,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue video generation: {e}")
+
+    return JSONResponse(status_code=202, content={
+        "project_id": str(project_id),
+        "status": "queued",
+        "poll_url": f"/api/v1/projects/{project_id}/status",
+    })
 
 
 @router.delete("/projects/{project_id}", status_code=204)

@@ -169,16 +169,30 @@ async def list_art_styles(base_url: str = "http://localhost:8000"):
     return {"art_styles": styles, "total": len(styles)}
 
 
+_VOICE_TAGS: dict[str, list[str]] = {
+    "Aoede":     ["female", "warm", "narrator", "storytelling"],
+    "Charon":    ["male", "dramatic", "deep", "cinematic"],
+    "Fenrir":    ["male", "bold", "intense", "commanding"],
+    "Kore":      ["female", "soft", "gentle", "conversational"],
+    "Orbit":     ["male", "calm", "smooth", "measured"],
+    "Autonoe":   ["female", "natural", "relaxed", "casual"],
+    "Zephyr":    ["female", "upbeat", "light", "enthusiastic"],
+    "Puck":      ["male", "playful", "animated", "expressive"],
+    "Laomedeia": ["female", "bright", "cheerful", "energetic"],
+}
+
+
 @router.get("/voices")
 async def list_voices():
     """List available Gemini TTS voices for voiceover generation.
 
-    Returns a list of voice options with name and description.
+    Returns a list of voice options with name, description, and tags.
     Pass the voice name as voice_id in /generate-video or series config.
     """
     from services.gemini_tts import VOICE_CATALOGUE, DEFAULT_VOICE
     return [
-        {"id": name, "description": desc, "default": name == DEFAULT_VOICE, "gender": "Male" if "male" in desc.lower() else "Female"}
+        {"id": name, "description": desc, "default": name == DEFAULT_VOICE,
+         "tags": _VOICE_TAGS.get(name, [])}
         for name, desc in VOICE_CATALOGUE.items()
     ]
 

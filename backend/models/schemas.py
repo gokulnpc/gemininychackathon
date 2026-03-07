@@ -153,8 +153,54 @@ class GenerateScriptRequest(BaseModel):
     brand_voice:      Optional[str]    = Field(default=None)
     cta_preference:   Optional[str]    = Field(default=None)
 
+    # Optional — user-selected plot direction from generate-plot-options
+    plot_summary: Optional[str] = Field(default=None, description="Brief story direction chosen by the user")
+
+    # Optional — character role when user uploads a reference photo
+    user_character_role: Optional[str] = Field(
+        default=None,
+        description="Role of the user in the video (main_character, side_character, audience). "
+                    "Injected as a character context hint for the script agent.",
+    )
+
     # Optional — load an existing saved series config (overrides the manual fields above)
     series_id: Optional[str] = Field(default=None, description="Saved series config ID from /api/v1/series")
+
+
+class QueueScriptRequest(BaseModel):
+    """Request body for POST /api/v1/projects/{id}/queue-script.
+
+    All config is saved to Firestore; the worker loads it by project_id.
+    Raw audio (audio_base64) is offloaded to GCS before the task is enqueued.
+    """
+    # Source
+    source: ScriptSource
+    audio_base64:  Optional[str]      = Field(default=None, description="Base64 audio (voice flow only)")
+    audio_format:  str                = Field(default="webm")
+    transcript:    Optional[str]      = Field(default=None)
+    preset:        Optional[PresetKey] = Field(default=None)
+    topic_hint:    Optional[str]      = Field(default=None)
+
+    # Plot + character context
+    plot_summary:        Optional[str] = Field(default=None)
+    user_character_role: Optional[str] = Field(default=None)
+
+    # Video config (stored in Firestore, used when video gen is approved)
+    target_platforms:      list[Platform]    = Field(default=[Platform.instagram_reels])
+    voice_id:              str               = Field(default="Aoede")
+    art_style_override:    Optional[str]     = Field(default=None)
+    music_preset_override: Optional[str]     = Field(default=None)
+    caption_style:         str               = Field(default="bold_stroke")
+    video_duration:        int               = Field(default=30)
+
+    # Optional personalization
+    user_reference_image_b64: Optional[str] = Field(default=None)
+    series_name:              Optional[str] = Field(default=None)
+
+
+class ScriptEditRequest(BaseModel):
+    """Request body for PUT /api/v1/projects/{id}/script — save user edits to the generated script."""
+    script: dict  # Full ScriptGenerationResponse-shaped dict
 
 
 class TextOverlay(BaseModel):
@@ -487,6 +533,24 @@ class RecomposeResponse(BaseModel):
     caption_style: str = ""
     background_music: str = ""
     error: Optional[str] = None
+
+
+# ── User Assets ───────────────────────────────────────────────────────────────
+
+
+class AssetCategory(str, Enum):
+    images = "images"
+    music = "music"
+    voice_memos = "voice_memos"
+
+
+class AssetMetadata(BaseModel):
+    id: str
+    filename: str
+    content_type: str
+    uploaded_at: str   # ISO-8601
+    gcs_key: str
+    size_bytes: int
 
 
 # ── Edit Agent (natural-language recompose) ────────────────────────────────────

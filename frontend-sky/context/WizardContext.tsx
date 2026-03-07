@@ -10,7 +10,7 @@ import type { WizardState, WizardAction } from "@/types";
 
 const initialState: WizardState = {
   currentStep: 1,
-  totalSteps: 10, // 10 steps including Choose the Plot
+  totalSteps: 11,
   isProcessing: false,
 
   // Step 1: Message
@@ -59,6 +59,9 @@ const initialState: WizardState = {
   generatedScript: null,
   scriptProjectId: null,
   showScriptReview: false,
+
+  // Plot selection (Step 2)
+  selectedPlotOption: null,
 };
 
 function wizardReducer(state: WizardState, action: WizardAction): WizardState {
@@ -72,8 +75,12 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
       };
     case "PREV_STEP": {
       const prevStep = Math.max(state.currentStep - 1, 1);
-      // Clear generated script when returning to step 1 so Step 2 re-generates on re-entry
+      // Clear plot selection when going back from step 2
       if (state.currentStep === 2) {
+        return { ...state, currentStep: prevStep, selectedPlotOption: null };
+      }
+      // Clear generated script when going back from step 10
+      if (state.currentStep === 10) {
         return { ...state, currentStep: prevStep, generatedScript: null, scriptProjectId: null };
       }
       return { ...state, currentStep: prevStep };
@@ -134,6 +141,8 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
       return { ...state, scriptProjectId: action.payload };
     case "SET_SHOW_SCRIPT_REVIEW":
       return { ...state, showScriptReview: action.payload };
+    case "SET_SELECTED_PLOT_OPTION":
+      return { ...state, selectedPlotOption: action.payload };
     case "RESET_WIZARD":
       return initialState;
     default:

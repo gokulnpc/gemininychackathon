@@ -18,6 +18,7 @@ import { Step6_ArtStyle } from "@/components/create/steps/Step6_ArtStyle";
 import { Step7_Caption } from "@/components/create/steps/Step7_Caption";
 import { Step8_Effects } from "@/components/create/steps/Step8_Effects";
 import { Step9_VideoDetails } from "@/components/create/steps/Step9_VideoDetails";
+import { Step10_GenerateScript } from "@/components/create/steps/Step10_GenerateScript";
 import { Step10_ReviewVideo } from "@/components/create/steps/Step10_ReviewVideo";
 import { Processing } from "@/components/create/steps/Processing";
 import { ScriptReview } from "@/components/create/steps/ScriptReview";
@@ -65,6 +66,8 @@ function WizardContent() {
       case 9:
         return <Step9_VideoDetails />;
       case 10:
+        return <Step10_GenerateScript />;
+      case 11:
         return <Step10_ReviewVideo />;
       default:
         return <Step1_Message />;
@@ -82,7 +85,7 @@ function WizardContent() {
         <div className="max-w-4xl mx-auto px-8 py-8">
           <Header />
 
-          {!state.isProcessing && !state.showScriptReview && state.currentStep < 10 && (
+          {!state.isProcessing && !state.showScriptReview && state.currentStep < 11 && (
             <ProgressStepper />
           )}
 

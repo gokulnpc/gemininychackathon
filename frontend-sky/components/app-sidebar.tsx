@@ -20,6 +20,7 @@ import {
   Image as ImageIcon,
   PanelLeft,
   BookOpen,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/context/SidebarContext";
@@ -121,6 +122,24 @@ export function AppSidebar({ activeStep }: AppSidebarProps) {
             >
               <FolderOpen className="w-4 h-4 shrink-0" />
               {!isCollapsed && <span>My Assets</span>}
+            </button>
+          </li>
+
+          {/* Projects */}
+          <li>
+            <button
+              onClick={() => router.push("/projects")}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
+                pathname.startsWith("/projects")
+                  ? "bg-[#5a9ab5] text-white"
+                  : "text-[#9B9B9B] hover:text-white hover:bg-white/10",
+                isCollapsed && "justify-center px-0",
+                !isCollapsed && "text-left"
+              )}
+            >
+              <ClipboardList className="w-4 h-4 shrink-0" />
+              {!isCollapsed && <span>Projects</span>}
             </button>
           </li>
 

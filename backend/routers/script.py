@@ -27,19 +27,24 @@ They can regenerate as many times as needed, then call /generate-video.
 
 from __future__ import annotations
 
+import base64
 import logging
+import os
+import tempfile
+from datetime import datetime, timezone
 from uuid import UUID
 
 import json
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from models.schemas import (
     ArtStyle,
     GenerateScriptRequest,
     MusicPreset,
     PresetKey,
+    QueueScriptRequest,
     ScriptGenerationResponse,
     ScriptSource,
     SeriesConfig,
@@ -47,7 +52,7 @@ from models.schemas import (
     VideoDurationRange,
 )
 from routers.catalog import DURATION_MAP
-from services import gcs, reddit
+from services import firestore_db, gcs, reddit, task_queue
 from services.gemini_agent import generate_script_with_agent
 
 logger = logging.getLogger(__name__)
@@ -128,6 +133,84 @@ _TONE_TO_STYLE: dict[str, str] = {
     "conversational": "fun",
     "authoritative": "corporate",
 }
+
+
+@router.post("/projects/{project_id}/generate-plot-options")
+async def generate_plot_options(project_id: UUID, request: GenerateScriptRequest):
+    """Generate 3 brief story/plot direction options for the user to choose from.
+
+    Fast single Gemini call (not the full agentic loop).
+    Returns 3 options with a short title and 2-3 sentence summary each.
+    """
+    import asyncio
+    from google.genai import types
+    from services.gemini_client import get_client
+
+    # Resolve transcript (same logic as generate_script)
+    transcript: str
+
+    if request.source == ScriptSource.voice:
+        if not request.audio_base64:
+            raise HTTPException(status_code=422, detail="audio_base64 is required when source=voice")
+        from services import gemini_audio
+        try:
+            result = await gemini_audio.transcribe_with_tone(
+                audio_b64=request.audio_base64,
+                audio_format=request.audio_format,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+        transcript = result["transcript"]
+
+    elif request.source == ScriptSource.text:
+        if not request.transcript or not request.transcript.strip():
+            raise HTTPException(status_code=422, detail="transcript is required when source=text")
+        transcript = request.transcript.strip()
+
+    elif request.source == ScriptSource.preset:
+        if not request.preset:
+            raise HTTPException(status_code=422, detail="preset is required when source=preset")
+        preset_def = _PRESETS[request.preset]
+        transcript = preset_def["topic"]
+        if request.topic_hint and request.topic_hint.strip():
+            transcript = f"{transcript}\n\nSpecific angle: {request.topic_hint.strip()}"
+
+    else:
+        raise HTTPException(status_code=422, detail=f"Unknown source: {request.source}")
+
+    prompt = (
+        "You are a creative director for short-form video content.\n\n"
+        "Based on the following content brief, generate exactly 3 DISTINCT story/plot directions "
+        "for a short-form video. Each option must be meaningfully different — vary the angle, "
+        "tone, narrative hook, or emotional journey.\n\n"
+        f"Content brief:\n{transcript}\n\n"
+        "Respond ONLY with a valid JSON array, no markdown, no explanation:\n"
+        '[{"id":1,"title":"Short title 4-6 words","summary":"2-3 sentence description."},'
+        '{"id":2,"title":"Short title 4-6 words","summary":"2-3 sentence description."},'
+        '{"id":3,"title":"Short title 4-6 words","summary":"2-3 sentence description."}]'
+    )
+
+    def _generate():
+        client = get_client()
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.9,
+                response_mime_type="application/json",
+            ),
+        )
+        return response.text
+
+    try:
+        raw = await asyncio.to_thread(_generate)
+        options = json.loads(raw)
+        if not isinstance(options, list):
+            raise ValueError("Expected a JSON array")
+        return {"options": options[:3]}
+    except Exception as e:
+        logger.exception("generate-plot-options failed for project %s", project_id)
+        raise HTTPException(status_code=500, detail=f"Plot options generation failed: {e}")
 
 
 @router.post("/projects/{project_id}/generate-script", response_model=ScriptGenerationResponse)
@@ -285,6 +368,21 @@ async def generate_script_stream(project_id: UUID, request: GenerateScriptReques
     else:
         raise HTTPException(status_code=422, detail=f"Unknown source: {request.source}")
 
+    # Inject user-selected plot direction as a preamble so the agent follows it
+    if request.plot_summary:
+        transcript = (
+            f"User selected this story direction: {request.plot_summary}\n\n"
+            f"Content context: {transcript}"
+        )
+
+    # Inject character role hint when user has uploaded a reference photo
+    if request.user_character_role:
+        transcript = (
+            f"Character context: The user will appear as '{request.user_character_role}' in the video "
+            f"(they uploaded a reference photo of themselves). Write scenes that portray this character "
+            f"consistently with their role.\n\n{transcript}"
+        )
+
     # ── Step 2: Resolve video config ───────────────────────────────────────────
     series = None
     if request.series_id:
@@ -329,3 +427,63 @@ async def generate_script_stream(project_id: UUID, request: GenerateScriptReques
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/projects/{project_id}/queue-script", status_code=202)
+async def queue_script(project_id: UUID, request: QueueScriptRequest):
+    """Queue async script generation for a project.
+
+    Saves all config to Firestore, offloads voice audio to GCS if needed,
+    then enqueues a Cloud Tasks job. Returns 202 immediately.
+    Poll GET /api/v1/projects/{id}/status for progress.
+    """
+    pid = str(project_id)
+    now = datetime.now(timezone.utc).isoformat()
+
+    # ── Offload audio to GCS so the worker can download it ──────────────────
+    audio_gcs_key: str | None = None
+    if request.source == ScriptSource.voice and request.audio_base64:
+        audio_bytes = base64.b64decode(request.audio_base64)
+        audio_gcs_key = f"user_audio/{pid}/input.{request.audio_format}"
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{request.audio_format}") as f:
+                f.write(audio_bytes)
+                tmp_path = f.name
+            await gcs.upload_file(tmp_path, audio_gcs_key, f"audio/{request.audio_format}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to upload audio: {e}")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    # ── Save config to Firestore (excluding raw audio) ───────────────────────
+    config = request.model_dump(exclude={"audio_base64"})
+    doc: dict = {
+        "project_id": pid,
+        "created_at": now,
+        "queued_at": now,
+        "status": "queued",
+        "current_stage": "Waiting to start",
+        "progress_pct": 0,
+        "pipeline_config": config,
+        "audio_gcs_key": audio_gcs_key,
+        "video_urls": {},
+    }
+    try:
+        await firestore_db.save_project(pid, doc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save project: {e}")
+
+    # ── Enqueue the script generation task ───────────────────────────────────
+    try:
+        task_name = await task_queue.enqueue_script_generation(pid)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue script generation: {e}")
+
+    logger.info("Script generation queued for project %s (task=%s)", pid, task_name)
+    return JSONResponse(status_code=202, content={
+        "project_id": pid,
+        "status": "queued",
+        "poll_url": f"/api/v1/projects/{pid}/status",
+    })

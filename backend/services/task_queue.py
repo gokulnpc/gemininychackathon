@@ -58,10 +58,20 @@ async def enqueue_video_generation(
         return "local"
 
     if not _tasks_available():
-        raise RuntimeError(
-            "google-cloud-tasks not installed. "
-            "Run: pip install google-cloud-tasks"
-        )
+        # Local dev with WORKER_URL set — direct HTTP call (no Cloud Tasks needed)
+        import asyncio
+        import httpx
+
+        async def _call_video() -> None:
+            async with httpx.AsyncClient(timeout=600) as client:
+                await client.post(
+                    f"{settings.worker_url.rstrip('/')}/internal/worker/generate-video",
+                    json={"project_id": str(project_id), **request_payload},
+                )
+
+        asyncio.create_task(_call_video())
+        logger.info("Local mode — direct HTTP video gen task fired for %s", project_id)
+        return "local-http"
 
     import asyncio
     from google.cloud import tasks_v2
@@ -107,4 +117,79 @@ async def enqueue_video_generation(
 
     response = await asyncio.to_thread(_create)
     logger.info("Cloud Task created: %s → %s", response.name, target_url)
+    return response.name
+
+
+async def enqueue_script_generation(project_id: str) -> str:
+    """Submit a script-only generation job to Cloud Tasks.
+
+    Args:
+        project_id: The project ID (string UUID). Full config is loaded from Firestore by the worker.
+
+    Returns:
+        Cloud Tasks task name or "local" if running in-process.
+    """
+    from config import get_settings
+    settings = get_settings()
+
+    if not settings.worker_url:
+        logger.info("No WORKER_URL set — skipping Cloud Tasks enqueue for script gen (local mode)")
+        return "local"
+
+    if not _tasks_available():
+        # Local dev with WORKER_URL set — direct HTTP call (no Cloud Tasks needed)
+        import asyncio
+        import httpx
+
+        async def _call_script() -> None:
+            async with httpx.AsyncClient(timeout=600) as client:
+                await client.post(
+                    f"{settings.worker_url.rstrip('/')}/internal/worker/generate-script",
+                    json={"project_id": project_id},
+                )
+
+        asyncio.create_task(_call_script())
+        logger.info("Local mode — direct HTTP script gen task fired for %s", project_id)
+        return "local-http"
+
+    import asyncio
+    from google.cloud import tasks_v2
+    from google.protobuf import duration_pb2
+
+    parent = (
+        f"projects/{settings.google_cloud_project}"
+        f"/locations/{settings.cloud_tasks_location}"
+        f"/queues/{settings.cloud_tasks_queue}"
+    )
+
+    body = json.dumps({"project_id": project_id}).encode()
+    target_url = f"{settings.worker_url.rstrip('/')}/internal/worker/generate-script"
+
+    task = {
+        "http_request": {
+            "http_method": tasks_v2.HttpMethod.POST,
+            "url": target_url,
+            "headers": {"Content-Type": "application/json"},
+            "body": body,
+            "oidc_token": {
+                "service_account_email": (
+                    f"storylab-sa@{settings.google_cloud_project}.iam.gserviceaccount.com"
+                ),
+                "audience": settings.worker_url,
+            },
+        },
+        "dispatch_deadline": duration_pb2.Duration(seconds=_TASK_TIMEOUT_SECONDS),
+    }
+
+    def _create():
+        client = tasks_v2.CloudTasksClient()
+        return client.create_task(
+            request={
+                "parent": parent,
+                "task": task,
+            }
+        )
+
+    response = await asyncio.to_thread(_create)
+    logger.info("Script-gen Cloud Task created: %s → %s", response.name, target_url)
     return response.name

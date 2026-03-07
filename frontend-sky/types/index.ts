@@ -1,3 +1,9 @@
+export interface PlotOption {
+  id: number;
+  title: string;
+  summary: string;
+}
+
 export interface GeneratedScriptScene {
   scene_id: number;
   duration_seconds: number;
@@ -136,6 +142,9 @@ export interface WizardState {
   generatedScript: GeneratedScript | null;
   scriptProjectId: string | null;
   showScriptReview: boolean;
+
+  // Plot selection (Step 2)
+  selectedPlotOption: PlotOption | null;
 }
 
 export type WizardAction =
@@ -168,4 +177,5 @@ export type WizardAction =
   | { type: "SET_GENERATED_SCRIPT"; payload: GeneratedScript | null }
   | { type: "SET_SCRIPT_PROJECT_ID"; payload: string | null }
   | { type: "SET_SHOW_SCRIPT_REVIEW"; payload: boolean }
+  | { type: "SET_SELECTED_PLOT_OPTION"; payload: PlotOption | null }
   | { type: "RESET_WIZARD" };

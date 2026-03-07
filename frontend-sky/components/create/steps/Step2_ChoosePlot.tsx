@@ -1,28 +1,26 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Loader2, ChevronDown, ChevronUp, AlertCircle, Check } from "lucide-react";
+import { RefreshCw, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
+import type { PlotOption } from "@/types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export function Step2_ChoosePlot() {
   const { state, dispatch } = useWizard();
+  const [options, setOptions] = useState<PlotOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedScenes, setExpandedScenes] = useState<number[]>([]);
-  const [agentSteps, setAgentSteps] = useState<string[]>([]);
-  const [currentStepMsg, setCurrentStepMsg] = useState<string | null>(null);
-  const autoGenTriggered = useRef(false);
+  const autoFetchTriggered = useRef(false);
 
   const isSpeechMode = state.messageTab === "speech";
   const isPresetMode = state.messageTab === "preset";
 
-  const generateScript = useCallback(async () => {
-    // Guard: speech mode needs audio, preset needs a preset selected
+  const fetchOptions = async () => {
     if (isSpeechMode && !state.audioBase64) {
       setError("No audio recorded. Go back and record your voice memo.");
       return;
@@ -35,19 +33,14 @@ export function Step2_ChoosePlot() {
     const projectId = crypto.randomUUID();
     setLoading(true);
     setError(null);
-    setAgentSteps([]);
-    setCurrentStepMsg(null);
+    dispatch({ type: "SET_SELECTED_PLOT_OPTION", payload: null });
+
     try {
-      const body: Record<string, unknown> = {
-        target_platforms: ["instagram_reels"],
-        style: "modern_energetic",
-        video_duration: 30,
-      };
+      const body: Record<string, unknown> = {};
 
       if (isPresetMode && state.selectedPreset) {
-        const presetKey = state.selectedPreset.replace(/-/g, "_");
         body.source = "preset";
-        body.preset = presetKey;
+        body.preset = state.selectedPreset.replace(/-/g, "_");
       } else if (isSpeechMode) {
         body.source = "voice";
         body.audio_base64 = state.audioBase64;
@@ -57,97 +50,47 @@ export function Step2_ChoosePlot() {
         body.transcript = state.messageText;
       }
 
-      const res = await fetch(`${API}/api/v1/projects/${projectId}/generate-script-stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok || !res.body) {
+      const res = await fetch(
+        `${API}/api/v1/projects/${projectId}/generate-plot-options`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        const detail = typeof errBody?.detail === "string"
-          ? errBody.detail
-          : JSON.stringify(errBody?.detail ?? "Script generation failed");
+        const detail =
+          typeof errBody?.detail === "string"
+            ? errBody.detail
+            : JSON.stringify(errBody?.detail ?? "Failed to generate options");
         throw new Error(detail);
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          if (!chunk.startsWith("data: ")) continue;
-          const evt = JSON.parse(chunk.slice(6));
-          if (evt.type === "agent_step") {
-            setAgentSteps(prev => [...prev, evt.message]);
-            setCurrentStepMsg(evt.message);
-          } else if (evt.type === "complete") {
-            const newScript = { ...evt.script, project_id: projectId };
-            dispatch({ type: "SET_SCRIPT_PROJECT_ID", payload: projectId });
-            dispatch({ type: "SET_GENERATED_SCRIPT", payload: newScript });
-            setCurrentStepMsg(null);
-          } else if (evt.type === "error") {
-            throw new Error(evt.message);
-          }
-        }
-      }
+      const data = await res.json();
+      setOptions(data.options ?? []);
     } catch (e) {
-      console.error("Generate script failed:", e);
-      setError(e instanceof Error ? e.message : "Script generation failed");
+      console.error("Plot options fetch failed:", e);
+      setError(e instanceof Error ? e.message : "Failed to generate options");
     } finally {
       setLoading(false);
     }
-  }, [
-    isPresetMode,
-    isSpeechMode,
-    state.selectedPreset,
-    state.audioBase64,
-    state.audioFormat,
-    state.messageText,
-    dispatch,
-  ]);
+  };
 
-  // Auto-generate on mount if no script yet
   useEffect(() => {
-    if (!state.generatedScript && !autoGenTriggered.current) {
-      autoGenTriggered.current = true;
-      generateScript();
+    if (!autoFetchTriggered.current) {
+      autoFetchTriggered.current = true;
+      fetchOptions();
     }
-  }, [state.generatedScript, generateScript]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const script = state.generatedScript;
-
-  const toggleScene = (id: number) =>
-    setExpandedScenes((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
-    );
-
-  const updateScript = (field: "hook" | "cta", value: string, isDuration?: boolean) => {
-    if (!script) return;
-    const newScript = {
-      ...script,
-      [field]: { ...script[field], [isDuration ? "duration" : "text"]: value },
-    };
-    newScript.voiceover_full_script = `${newScript.hook.text}\n\n${newScript.scenes.map(s => s.voiceover_text).join("\n\n")}\n\n${newScript.cta.text}`;
-    dispatch({ type: "SET_GENERATED_SCRIPT", payload: newScript });
+  const handleSelect = (option: PlotOption) => {
+    dispatch({ type: "SET_SELECTED_PLOT_OPTION", payload: option });
   };
 
-  const updateScene = (id: number, field: string, value: any) => {
-    if (!script) return;
-    const newScenes = script.scenes.map(s => 
-      s.scene_id === id ? { ...s, [field]: value } : s
-    );
-    const newScript = { ...script, scenes: newScenes };
-    newScript.voiceover_full_script = `${newScript.hook.text}\n\n${newScript.scenes.map(s => s.voiceover_text).join("\n\n")}\n\n${newScript.cta.text}`;
-    dispatch({ type: "SET_GENERATED_SCRIPT", payload: newScript });
-  };
-
-  if (error && !script) {
+  if (error && options.length === 0) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -158,7 +101,7 @@ export function Step2_ChoosePlot() {
         <p className="text-red-400 text-sm text-center max-w-sm">{error}</p>
         <Button
           variant="outline"
-          onClick={generateScript}
+          onClick={fetchOptions}
           className="rounded-full px-5 py-2 h-10 border-white/20 bg-white/10 hover:bg-white/20 text-white"
         >
           <RefreshCw className="w-4 h-4 mr-2" />
@@ -168,45 +111,18 @@ export function Step2_ChoosePlot() {
     );
   }
 
-  if (loading && !script) {
+  if (loading) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        transition={{ duration: 0.3 }}
-        className="flex flex-col items-center py-12 gap-2"
+        className="flex flex-col items-center justify-center py-16 gap-3"
       >
-        <Loader2 className="w-8 h-8 animate-spin text-[#5a9ab5] mb-2" />
-        <p className="text-white/60 text-sm">Scout is crafting your script…</p>
-        <div className="w-full max-w-sm space-y-2 mt-6">
-          {agentSteps.map((msg, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-3 text-sm text-white/70"
-            >
-              <Check className="w-4 h-4 text-green-400 shrink-0" />
-              <span>{msg}</span>
-            </motion.div>
-          ))}
-          {currentStepMsg && (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-3 text-sm text-white"
-            >
-              <Loader2 className="w-4 h-4 animate-spin text-[#5a9ab5] shrink-0" />
-              <span>{currentStepMsg}</span>
-            </motion.div>
-          )}
-        </div>
+        <Loader2 className="w-8 h-8 animate-spin text-[#5a9ab5]" />
+        <p className="text-white/60 text-sm">Generating story directions…</p>
       </motion.div>
     );
   }
-
-  if (!script) return null;
 
   return (
     <motion.div
@@ -214,178 +130,65 @@ export function Step2_ChoosePlot() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.3 }}
+      className="space-y-4"
     >
-      {/* Regenerate button */}
-      <div className="flex justify-end mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm text-white/60">
+          Pick the story direction that resonates most.
+        </p>
         <Button
           variant="outline"
-          onClick={generateScript}
+          onClick={fetchOptions}
           disabled={loading}
-          className="rounded-full px-5 py-2 h-10 border-white/20 bg-white/10 hover:bg-white/20 text-white"
+          className="rounded-full px-4 py-2 h-9 border-white/20 bg-white/10 hover:bg-white/20 text-white text-xs"
         >
-          {loading ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4 mr-2" />
-          )}
-          {loading ? "Regenerating…" : "Regenerate"}
+          <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+          Regenerate
         </Button>
       </div>
 
-      <div className="space-y-4">
-        {/* Hook */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white/10 rounded-2xl border border-[#5a9ab5]/40 p-5"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-[#5a9ab5]">
-              Hook · 
-              <input
-                type="number"
-                value={script.hook.duration}
-                onChange={(e) => updateScript("hook", e.target.value, true)}
-                className="w-12 bg-transparent border-b border-[#5a9ab5]/40 text-center focus:outline-none ml-1 mr-1"
-              />s
-            </span>
-          </div>
-          <textarea
-            value={script.hook.text}
-            onChange={(e) => updateScript("hook", e.target.value)}
-            className="w-full text-lg font-medium text-white leading-relaxed bg-transparent border-none resize-none focus:outline-none focus:ring-0 min-h-[60px]"
-          />
-        </motion.div>
-
-        {/* Scenes */}
-        <div className="space-y-3">
-          {script.scenes.map((scene, index) => {
-            const isExpanded = expandedScenes.includes(scene.scene_id);
-            return (
-              <motion.div
-                key={scene.scene_id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 + index * 0.06 }}
-                className="bg-white/10 rounded-2xl border border-white/20 overflow-hidden"
-              >
-                <button
-                  onClick={() => toggleScene(scene.scene_id)}
-                  className="w-full flex items-center justify-between p-5 text-left hover:bg-white/5 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full bg-white text-[#1A1A1A] flex items-center justify-center text-xs font-semibold flex-shrink-0">
-                      {scene.scene_id}
-                    </div>
-                    <div>
-                      <textarea
-                        value={scene.voiceover_text}
-                        onChange={(e) => updateScene(scene.scene_id, "voiceover_text", e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        className={cn(
-                          "w-full bg-transparent border-none text-sm text-white leading-snug resize-none focus:outline-none focus:ring-0",
-                          !isExpanded && "line-clamp-1 truncate block h-5"
-                        )}
-                        rows={isExpanded ? 3 : 1}
-                      />
-                      {!isExpanded && (
-                        <p className="text-xs text-white/40 mt-1">
-                          {scene.duration_seconds}s · <span className="capitalize">{scene.emotion}</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {isExpanded ? (
-                    <ChevronUp className="w-4 h-4 text-white/40 flex-shrink-0 ml-3" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-white/40 flex-shrink-0 ml-3" />
+      <div className="space-y-3">
+        {options.map((option, index) => {
+          const isSelected = state.selectedPlotOption?.id === option.id;
+          return (
+            <motion.button
+              key={option.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.08 }}
+              onClick={() => handleSelect(option)}
+              className={cn(
+                "w-full text-left p-5 rounded-2xl border transition-all duration-200",
+                isSelected
+                  ? "border-[#5a9ab5] bg-[#5a9ab5]/20"
+                  : "border-white/20 bg-white/10 hover:border-[#5a9ab5]/40 hover:bg-white/15"
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors",
+                    isSelected
+                      ? "border-[#5a9ab5] bg-[#5a9ab5]"
+                      : "border-white/30"
                   )}
-                </button>
-
-                {isExpanded && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="px-5 pb-5 pt-0 border-t border-white/10 space-y-3"
-                  >
-                    <div className="grid grid-cols-3 gap-3 mt-3">
-                      <div className="bg-white/10 rounded-xl p-3 flex-1">
-                        <p className="text-xs text-white/40 mb-1">Duration (s)</p>
-                        <input
-                          type="number"
-                          value={scene.duration_seconds}
-                          onChange={(e) => updateScene(scene.scene_id, "duration_seconds", parseInt(e.target.value) || 0)}
-                          className="w-full text-sm font-medium text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-[#5a9ab5] focus:outline-none"
-                        />
-                      </div>
-                      <div className="bg-white/10 rounded-xl p-3 flex-1">
-                        <p className="text-xs text-white/40 mb-1">Emotion</p>
-                        <input
-                          value={scene.emotion}
-                          onChange={(e) => updateScene(scene.scene_id, "emotion", e.target.value)}
-                          className="w-full text-sm font-medium text-white capitalize bg-transparent border-b border-transparent hover:border-white/20 focus:border-[#5a9ab5] focus:outline-none"
-                        />
-                      </div>
-                      {scene.transition_to_next && (
-                        <div className="bg-white/10 rounded-xl p-3 flex-1">
-                          <p className="text-xs text-white/40 mb-1">Transition</p>
-                          <p className="text-sm font-medium text-white capitalize">
-                            {scene.transition_to_next.replace(/_/g, " ")}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs text-white/40 mb-1">Visual prompt</p>
-                      <textarea
-                        value={scene.visual_prompt || ""}
-                        onChange={(e) => updateScene(scene.scene_id, "visual_prompt", e.target.value)}
-                        className="w-full text-sm text-white/50 italic bg-transparent border border-transparent hover:border-white/20 focus:border-[#5a9ab5] focus:outline-none rounded p-1 resize-none h-20"
-                      />
-                    </div>
-                  </motion.div>
-                )}
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* CTA */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white/10 rounded-2xl border border-white/20 p-5"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wide text-white/40 mb-2">
-            Call to Action
-          </p>
-          <textarea
-            value={script.cta.text}
-            onChange={(e) => updateScript("cta", e.target.value)}
-            className="w-full text-sm font-medium text-white bg-transparent border-none resize-none focus:outline-none focus:ring-0"
-            rows={2}
-          />
-        </motion.div>
-
-        {/* Full Voiceover Script */}
-        <motion.details
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.35 }}
-          className="bg-white/10 rounded-2xl border border-white/20 overflow-hidden"
-        >
-          <summary className="p-5 cursor-pointer text-sm font-medium text-white/50 hover:text-white hover:bg-white/5 transition-colors select-none">
-            Full voiceover script
-          </summary>
-          <div className="px-5 pb-5 pt-2 border-t border-white/10">
-            <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">
-              {script.voiceover_full_script}
-            </p>
-          </div>
-        </motion.details>
+                >
+                  {isSelected && (
+                    <div className="w-2 h-2 rounded-full bg-white" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white mb-1">
+                    {option.title}
+                  </p>
+                  <p className="text-sm text-white/60 leading-relaxed">
+                    {option.summary}
+                  </p>
+                </div>
+              </div>
+            </motion.button>
+          );
+        })}
       </div>
     </motion.div>
   );

@@ -16,6 +16,7 @@ import {
   ChevronDown,
   BookOpen,
   Image as ImageIcon,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
@@ -32,7 +33,8 @@ const createSubItems = [
   { id: 7, label: "Caption Style (opt.)", icon: Type },
   { id: 8, label: "Video Effect (opt.)", icon: Zap },
   { id: 9, label: "Video Config.", icon: Clock },
-  { id: 10, label: "Review & Publish", icon: Eye },
+  { id: 10, label: "Generate Script", icon: Sparkles },
+  { id: 11, label: "Review & Publish", icon: Eye },
 ];
 
 export function Sidebar() {

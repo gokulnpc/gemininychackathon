@@ -1,14 +1,14 @@
 "use client";
 
-import { Info } from "lucide-react";
 import { useWizard } from "@/context/WizardContext";
 import { motion } from "framer-motion";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+const DURATION_OPTIONS = [
+  { label: "Less than 20 seconds", value: "20" },
+  { label: "30 to 60 seconds", value: "60" },
+  { label: "60 to 90 seconds", value: "90" },
+];
 
 export function Step9_VideoDetails() {
   const { state, dispatch } = useWizard();
@@ -21,7 +21,7 @@ export function Step9_VideoDetails() {
       transition={{ duration: 0.3 }}
       className="space-y-6"
     >
-      {/* Series Name */}
+      {/* Video Name */}
       <div>
         <label className="block text-sm font-medium text-white mb-2">
           Video Name
@@ -39,29 +39,41 @@ export function Step9_VideoDetails() {
 
       {/* Video Duration */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <label className="text-sm font-medium text-white">
-            Video Duration
-          </label>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger>
-                <Info className="w-4 h-4 text-white/40" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Set the target duration for your videos</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        <label className="block text-sm font-medium text-white mb-3">
+          Video Duration
+        </label>
+        <div className="space-y-3">
+          {DURATION_OPTIONS.map((option, index) => {
+            const isSelected = state.videoDuration === option.value;
+            return (
+              <motion.button
+                key={option.value}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.06 }}
+                onClick={() =>
+                  dispatch({ type: "SET_VIDEO_DURATION", payload: option.value })
+                }
+                className={cn(
+                  "w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 text-left",
+                  isSelected
+                    ? "border-[#5a9ab5] bg-[#5a9ab5]/20"
+                    : "border-white/20 bg-white/10 hover:border-[#5a9ab5]/40 hover:bg-white/15"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors",
+                    isSelected ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
+                  )}
+                >
+                  {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <span className="text-sm font-medium text-white">{option.label}</span>
+              </motion.button>
+            );
+          })}
         </div>
-        <input
-          type="text"
-          value={state.videoDuration}
-          onChange={(e) =>
-            dispatch({ type: "SET_VIDEO_DURATION", payload: e.target.value })
-          }
-          className="w-full p-4 rounded-xl border border-white/20 bg-white/20 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5a9ab5]/30 focus:border-[#5a9ab5] transition-all duration-200"
-        />
       </div>
 
       {/* Schedule */}
@@ -92,9 +104,9 @@ export function Step9_VideoDetails() {
 
         <div className="bg-white/10 rounded-xl p-4 border border-white/10">
           <p className="text-sm text-white/50">
-            <span className="font-medium text-white">Note:</span> Videos
-            will be generated 1 hour before the scheduled publish time so you
-            have time to review them.
+            <span className="font-medium text-white">Note:</span> Videos will
+            be generated 1 hour before the scheduled publish time so you have
+            time to review them.
           </p>
         </div>
       </div>

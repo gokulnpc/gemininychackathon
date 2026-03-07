@@ -11,7 +11,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 interface VoiceOption {
   id: string;
   description: string;
-  gender: "Male" | "Female";
+  tags: string[];
   default: boolean;
 }
 
@@ -51,7 +51,7 @@ export function Step4_Language() {
       })
       .catch(() => setVoices([]))
       .finally(() => setLoadingVoices(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleVoiceSelect = (voiceId: string) => {
@@ -80,7 +80,7 @@ export function Step4_Language() {
       const data = await res.json();
       const audio = new Audio(`data:audio/wav;base64,${data.audio_base64}`);
       audioRef.current = audio;
-      audio.play();
+      await audio.play();
       setPlayingId(voiceId);
       audio.onended = () => {
         setPlayingId(null);
@@ -134,7 +134,7 @@ export function Step4_Language() {
                   "w-full flex items-center justify-between p-4 rounded-2xl border transition-all duration-200",
                   state.selectedVoice === voice.id
                     ? "border-[#5a9ab5] bg-[#5a9ab5]/20"
-                    : "border-white/20 bg-white/20 hover:border-[#5a9ab5]/40 hover:bg-white/25"
+                    : "border-white/20 bg-white/20 hover:border-[#5a9ab5]/40 hover:bg-white/25",
                 )}
               >
                 <div className="flex items-center gap-4">
@@ -142,30 +142,33 @@ export function Step4_Language() {
                   <div
                     className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0",
-                      AVATAR_COLORS[index % AVATAR_COLORS.length]
+                      AVATAR_COLORS[index % AVATAR_COLORS.length],
                     )}
                   >
                     {voice.id.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="text-left">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white">
-                        {voice.id}
-                      </span>
-                      <span
-                        className={cn(
-                          "text-xs px-2 py-0.5 rounded-full",
-                          voice.gender === "Male"
-                            ? "bg-blue-500/20 text-blue-300"
-                            : "bg-pink-500/20 text-pink-300"
-                        )}
-                      >
-                        {voice.gender}
-                      </span>
+                      <span className="text-sm font-medium text-white">{voice.id}</span>
+                      {(voice.tags ?? []).filter(t => t === "female" || t === "male").map((tag) => (
+                        <span
+                          key={tag}
+                          className={cn(
+                            "text-xs px-2 py-0.5 rounded-full",
+                            tag === "female" ? "bg-pink-500/20 text-pink-300" : "bg-blue-500/20 text-blue-300"
+                          )}
+                        >
+                          {tag}
+                        </span>
+                      ))}
                     </div>
-                    <p className="text-sm text-white/50 mt-0.5">
-                      {voice.description}
-                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {(voice.tags ?? []).filter(t => t !== "female" && t !== "male").map((tag) => (
+                        <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/60">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

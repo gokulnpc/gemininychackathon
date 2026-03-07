@@ -9,16 +9,11 @@ export function ProgressStepper() {
   const totalSteps = 10; // Show all 10 steps in stepper
 
   const isStepActuallyCompleted = (stepNum: number) => {
-    // Basic heuristics for step completion
     if (stepNum === 1) return !!state.messageText || !!state.audioBase64 || !!state.selectedPreset;
-    if (stepNum === 2) return !!state.generatedScript;
-    if (stepNum === 3) return !!state.uploadedPicture;
-    if (stepNum === 4) return !!state.selectedVoice;
-    if (stepNum === 5) return !!state.selectedMusic;
-    if (stepNum === 6) return !!state.selectedArtStyle;
-    if (stepNum === 7) return !!state.selectedCaption;
-    if (stepNum === 8) return Object.values(state.effects).some(Boolean);
-    if (stepNum === 9) return !!state.seriesName;
+    if (stepNum === 2) return !!state.selectedPlotOption;
+    // Optional steps 3–9: completed once the user has moved past them
+    if (stepNum >= 3 && stepNum <= 9) return stepNum < state.currentStep;
+    if (stepNum === 10) return !!state.generatedScript;
     return false;
   };
 
