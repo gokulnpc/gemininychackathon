@@ -47,4 +47,4 @@ def get_client(force_api_key: bool = False):
         )
 
     logger.debug("Gemini client: API key")
-    return genai.Client(api_key=settings.gemini_api_key or None)
+    return genai.Client(vertexai=False, api_key=settings.gemini_api_key or None)

@@ -140,8 +140,8 @@ gcloud run deploy "$API_SERVICE" \
   --concurrency=80 \
   --min-instances=0 \
   --max-instances=10 \
-  --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION,WORKER_URL=$WORKER_URL" \
-  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
+  --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION,WORKER_URL=$WORKER_URL,YOUTUBE_CLIENT_SECRETS_FILE=/secrets/youtube_client_secrets.json" \
+  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,/secrets/youtube_client_secrets.json=youtube-client-secrets:latest" \
   --no-cpu-throttling
 
 # ── Print result ──────────────────────────────────────────────────────────────
