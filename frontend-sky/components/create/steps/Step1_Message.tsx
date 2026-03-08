@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Loader2,
   Sparkles,
+  Trash2,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
@@ -215,6 +217,14 @@ export function Step1_Message() {
   const textFileInputRef = useRef<HTMLInputElement>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrFileName, setOcrFileName] = useState<string | null>(null);
+  const [ocrFileSize, setOcrFileSize] = useState<number | null>(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  };
 
   const handleTextFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -224,21 +234,28 @@ export function Step1_Message() {
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       // PDF → Mistral Document AI OCR
       setOcrFileName(file.name);
+      setOcrFileSize(file.size);
       setOcrLoading(true);
+      setOcrProgress(10);
       const reader = new FileReader();
       reader.onloadend = async () => {
         try {
+          setOcrProgress(30);
           const b64 = (reader.result as string).split(",")[1];
           const res = await fetch(`${API}/api/v1/ocr-pdf`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ pdf_base64: b64 }),
           });
+          setOcrProgress(80);
           if (!res.ok) throw new Error("OCR request failed");
           const data = await res.json();
           dispatch({ type: "SET_MESSAGE_TEXT", payload: data.text ?? "" });
+          setOcrProgress(100);
         } catch {
           setOcrFileName(null);
+          setOcrFileSize(null);
+          setOcrProgress(0);
         } finally {
           setOcrLoading(false);
         }
@@ -246,7 +263,10 @@ export function Step1_Message() {
       reader.readAsDataURL(file);
     } else {
       // Plain text / markdown / rtf — read directly
-      setOcrFileName(null);
+      setOcrFileName(file.name);
+      setOcrFileSize(file.size);
+      setOcrProgress(100);
+      setOcrLoading(false);
       const reader = new FileReader();
       reader.onload = (event) => {
         const text = event.target?.result;
@@ -256,6 +276,12 @@ export function Step1_Message() {
       };
       reader.readAsText(file);
     }
+  };
+
+  const removeUploadedFile = () => {
+    setOcrFileName(null);
+    setOcrFileSize(null);
+    setOcrProgress(0);
   };
 
   return (
@@ -497,58 +523,105 @@ export function Step1_Message() {
             transition={{ duration: 0.2 }}
           >
             <h3 className="text-base font-semibold text-white mb-4">
-              Type your idea
+              Type or upload your idea
             </h3>
             <div className="space-y-4">
-              <textarea
-                value={state.messageText}
-                onChange={(e) =>
-                  dispatch({
-                    type: "SET_MESSAGE_TEXT",
-                    payload: e.target.value,
-                  })
-                }
-                placeholder="E.g, a video showcasing the marketing campaign for a vegan-friendly skincare product"
-                className="w-full min-h-[120px] p-5 rounded-2xl border border-white/20 bg-white/20 text-white placeholder:text-white/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#5a9ab5]/30 focus:border-[#5a9ab5] transition-all duration-200"
-              />
-
-              <div className="flex items-center justify-end gap-3">
-                {ocrLoading && (
-                  <span className="flex items-center gap-2 text-xs text-white/50">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Extracting text from PDF…
-                  </span>
-                )}
-                {ocrFileName && !ocrLoading && (
-                  <span className="flex items-center gap-1.5 text-xs text-[#5a9ab5]">
-                    <CheckCircle2 className="w-3 h-3" />
-                    {ocrFileName}
-                  </span>
-                )}
-                <input
-                  type="file"
-                  accept=".txt,.md,.rtf,.pdf"
-                  className="hidden"
-                  ref={textFileInputRef}
-                  onChange={handleTextFileUpload}
+              {/* Textarea card with upload button inside */}
+              <div className="rounded-2xl border border-white/20 bg-white/10 overflow-hidden">
+                <textarea
+                  value={state.messageText}
+                  onChange={(e) =>
+                    dispatch({
+                      type: "SET_MESSAGE_TEXT",
+                      payload: e.target.value,
+                    })
+                  }
+                  placeholder="E.g, a video showcasing the marketing campaign for a vegan-friendly skincare product"
+                  className="w-full min-h-[140px] p-5 pb-2 bg-transparent text-white placeholder:text-white/30 resize-none focus:outline-none transition-all duration-200 text-[15px] leading-relaxed"
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={ocrLoading}
-                  onClick={() => textFileInputRef.current?.click()}
-                  className="bg-transparent text-white border-white/20 hover:bg-white/10 disabled:opacity-50"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload your Message
-                </Button>
+                <div className="flex justify-end px-5 pb-4">
+                  <input
+                    type="file"
+                    accept=".txt,.md,.rtf,.pdf"
+                    className="hidden"
+                    ref={textFileInputRef}
+                    onChange={handleTextFileUpload}
+                  />
+                  <button
+                    disabled={ocrLoading}
+                    onClick={() => textFileInputRef.current?.click()}
+                    className="flex items-center gap-2 text-white/70 text-sm font-medium px-4 py-2 rounded-full border border-white/20 hover:bg-white/10 hover:border-white/30 transition-all disabled:opacity-50"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {ocrFileName ? "Reupload Message" : "Upload Message"}
+                  </button>
+                </div>
               </div>
 
-              <div className="bg-white/20 rounded-2xl border border-white/20 p-5">
-                <h4 className="text-sm font-medium text-white/60 mb-3">
+              {/* File upload indicator */}
+              <AnimatePresence>
+                {ocrFileName && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2 }}
+                    className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4"
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* File icon */}
+                      <div className="w-10 h-10 rounded-lg bg-[#e84c1e]/15 flex items-center justify-center shrink-0">
+                        <FileText className="w-5 h-5 text-[#e84c1e]" />
+                      </div>
+
+                      {/* File info + progress */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">
+                          {ocrFileName}
+                        </p>
+                        <p className="text-xs text-white/40 mt-0.5">
+                          {ocrFileSize ? formatFileSize(ocrFileSize) : ""}{ocrFileSize ? " - " : ""}
+                          {ocrLoading
+                            ? `${ocrProgress}% uploaded`
+                            : "100% uploaded"}
+                        </p>
+                        {ocrLoading && (
+                          <div className="mt-2 h-1 w-full bg-white/10 rounded-full overflow-hidden">
+                            <motion.div
+                              className="h-full bg-[#5a9ab5] rounded-full"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${ocrProgress}%` }}
+                              transition={{ duration: 0.3 }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Status + delete */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        {ocrLoading ? (
+                          <Loader2 className="w-5 h-5 text-[#5a9ab5] animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        )}
+                        <button
+                          onClick={removeUploadedFile}
+                          className="text-white/30 hover:text-white/60 transition-colors"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Ideas for you */}
+              <div className="rounded-2xl border border-white/20 bg-white/10 p-5">
+                <h4 className="text-sm font-semibold text-white mb-4">
                   Ideas for you
                 </h4>
-                <div className="space-y-3">
+                <div className="space-y-1">
                   {[
                     "Close-up ASMR-style film of hands refilling a ceramic skincare jar from a glass pouch.",
                     "A poetic environmental brand film.",
@@ -559,10 +632,15 @@ export function Step1_Message() {
                       onClick={() =>
                         dispatch({ type: "SET_MESSAGE_TEXT", payload: idea })
                       }
-                      className="w-full flex items-start gap-3 text-left group hover:bg-white/10 p-2 rounded-lg transition-colors"
+                      className={cn(
+                        "w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl transition-all duration-200",
+                        state.messageText === idea
+                          ? "bg-[#1C1C1E] text-white"
+                          : "text-white/50 hover:bg-white/5 hover:text-white/80"
+                      )}
                     >
-                      <Sparkles className="w-4 h-4 text-[#5a9ab5] mt-0.5 shrink-0" />
-                      <span className="text-sm text-white/70 group-hover:text-white transition-colors">
+                      <Sparkles className="w-4 h-4 text-[#5a9ab5] shrink-0" />
+                      <span className="text-sm leading-relaxed">
                         {idea}
                       </span>
                     </button>

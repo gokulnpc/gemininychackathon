@@ -81,26 +81,29 @@ export default function HeroSection() {
 
           {/* CTA button */}
           <div className="hero-cta mt-8 sm:mt-10">
-            <Link href="/login" className="btn-scale flex items-center gap-2 bg-white/15 backdrop-blur-md border border-white/25 text-white font-medium px-7 py-3.5 rounded-full hover:bg-white/25 transition-all text-base">
+            <Link
+              href="/login"
+              className="btn-scale flex items-center gap-2 bg-white/15 backdrop-blur-md border border-white/25 text-white font-medium px-7 py-3.5 rounded-full hover:bg-white/25 transition-all text-base"
+            >
               Get Started - It&apos;s Free
             </Link>
           </div>
 
           {/* Feature tags — staggered rows */}
           <div className="hero-tags mt-10 sm:mt-12 flex flex-col gap-2.5 items-start self-start md:self-auto md:items-start ml-2 sm:ml-8 md:ml-0 md:absolute md:left-8 lg:left-12 md:bottom-[14%]">
-            {/* Row 1: Text-to-movie + */}
+            {/* Row 1: Text-to-video + */}
             <div
               className="flex items-center gap-2"
               style={{ animation: "floatChip 5s ease-in-out infinite 0s" }}
             >
               <span className="bg-[#111111]/50 backdrop-blur-sm text-white text-xs font-medium px-4 py-1.5 rounded-full border border-white hover:border-white/80 transition-colors cursor-default">
-                Text-to-movie
+                Text-to-video
               </span>
               <span className="bg-[#111111]/50 backdrop-blur-sm text-white text-xs w-6 h-6 flex items-center justify-center rounded-full border border-white hover:border-white/80 transition-colors cursor-default font-bold">
                 +
               </span>
             </div>
-            {/* Row 2: + Speech-to-movie — indented right */}
+            {/* Row 2: + Speech-to-video — indented right */}
             <div
               className="flex items-center gap-2 ml-10"
               style={{ animation: "floatChip 5.8s ease-in-out infinite 0.7s" }}
@@ -109,7 +112,7 @@ export default function HeroSection() {
                 +
               </span>
               <span className="bg-[#111111]/50 backdrop-blur-sm text-white text-xs font-medium px-4 py-1.5 rounded-full border border-white hover:border-white/80 transition-colors cursor-default">
-                Speech-to-movie
+                Speech-to-video
               </span>
             </div>
             {/* Row 3: Pre-built Presets + */}

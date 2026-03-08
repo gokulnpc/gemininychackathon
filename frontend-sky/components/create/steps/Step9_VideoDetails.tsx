@@ -76,40 +76,6 @@ export function Step9_VideoDetails() {
         </div>
       </div>
 
-      {/* Schedule */}
-      <div>
-        <label className="block text-sm font-medium text-white mb-2">
-          Schedule
-        </label>
-        <p className="text-sm text-white/50 mb-4">
-          Set when you want your videos to be published.
-        </p>
-
-        <div className="mb-3">
-          <label className="block text-xs text-[#9B9B9B] mb-2">
-            Publish time:
-          </label>
-          <div className="flex items-center gap-3">
-            <input
-              type="time"
-              value={state.publishTime}
-              onChange={(e) =>
-                dispatch({ type: "SET_PUBLISH_TIME", payload: e.target.value })
-              }
-              className="p-3 rounded-xl border border-white/20 bg-white/20 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#5a9ab5]/30 focus:border-[#5a9ab5] transition-all duration-200"
-            />
-            <span className="text-sm text-white/40">(Your local time)</span>
-          </div>
-        </div>
-
-        <div className="bg-white/10 rounded-xl p-4 border border-white/10">
-          <p className="text-sm text-white/50">
-            <span className="font-medium text-white">Note:</span> Videos will
-            be generated 1 hour before the scheduled publish time so you have
-            time to review them.
-          </p>
-        </div>
-      </div>
     </motion.div>
   );
 }

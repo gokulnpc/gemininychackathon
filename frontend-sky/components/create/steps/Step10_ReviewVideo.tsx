@@ -3,12 +3,12 @@
 import {
   Download,
   ArrowRight,
-  Sparkles,
+
   Pause,
   Play,
   Plus,
   X,
-  CheckCircle2,
+
   Loader2,
   ExternalLink,
   AlertCircle,
@@ -71,14 +71,12 @@ const PLATFORMS = [
   },
 ];
 
-function PublishModal({
+function ConnectAccountModal({
   onClose,
-  onPublish,
   connectedAccounts,
   onConnected,
 }: {
   onClose: () => void;
-  onPublish: (platforms: string[]) => void;
   connectedAccounts: string[];
   onConnected: (platformId: string) => void;
 }) {
@@ -86,6 +84,10 @@ function PublishModal({
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const unconnectedPlatforms = PLATFORMS.filter(
+    (p) => !connectedAccounts.includes(p.id),
+  );
 
   useEffect(() => {
     return () => {
@@ -100,7 +102,7 @@ function PublishModal({
       return;
     }
 
-    if (platformId === "youtube" && !connectedAccounts.includes("youtube")) {
+    if (platformId === "youtube") {
       setConnectingId("youtube");
       try {
         const res = await fetch(`${API}/api/v1/auth/youtube`);
@@ -124,11 +126,10 @@ function PublishModal({
               popup?.close();
               setConnectingId(null);
               onConnected("youtube");
-              setSelected((prev) => [...prev, "youtube"]);
             }
           } catch {}
         }, 2000);
-      } catch (e) {
+      } catch {
         setConnectingId(null);
       }
     } else {
@@ -147,7 +148,7 @@ function PublishModal({
       >
         <div className="flex items-start justify-between mb-2">
           <div>
-            <h2 className="text-xl font-medium text-white">Publish Video</h2>
+            <h2 className="text-xl font-medium text-white">Connect Account</h2>
             <p className="text-xs text-[#A0A0A0] mt-1">Select platforms to share your video</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/10 text-white/50 transition-colors">
@@ -156,45 +157,46 @@ function PublishModal({
         </div>
 
         <div className="space-y-3 mt-6 mb-6">
-          {PLATFORMS.map((platform) => {
-            const isSelected = selected.includes(platform.id);
-            const isConnecting = connectingId === platform.id;
-            return (
-              <button
-                key={platform.id}
-                onClick={() => handleToggle(platform.id)}
-                className={cn(
-                  "w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-200",
-                  isSelected ? "border-[#5a9ab5] bg-white/5" : "border-white/10 hover:border-white/20 hover:bg-white/5"
-                )}
-              >
-                <div className="flex items-center gap-4">
-                  {platform.icon}
-                  <div className="text-left">
-                    <div className="text-sm font-medium text-white flex items-center gap-2">
-                      {platform.name}
-                      {isConnecting && <Loader2 className="w-3 h-3 animate-spin text-white/50" />}
+          {unconnectedPlatforms.length === 0 ? (
+            <p className="text-sm text-white/50 text-center py-4">All platforms are connected</p>
+          ) : (
+            unconnectedPlatforms.map((platform) => {
+              const isSelected = selected.includes(platform.id);
+              const isConnecting = connectingId === platform.id;
+              return (
+                <button
+                  key={platform.id}
+                  onClick={() => handleToggle(platform.id)}
+                  className={cn(
+                    "w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-200",
+                    isSelected ? "border-[#5a9ab5] bg-white/5" : "border-white/10 hover:border-white/20 hover:bg-white/5"
+                  )}
+                >
+                  <div className="flex items-center gap-4">
+                    {platform.icon}
+                    <div className="text-left">
+                      <div className="text-sm font-medium text-white flex items-center gap-2">
+                        {platform.name}
+                        {isConnecting && <Loader2 className="w-3 h-3 animate-spin text-white/50" />}
+                      </div>
+                      <div className="text-xs text-white/50 mt-0.5">{platform.description}</div>
                     </div>
-                    <div className="text-xs text-white/50 mt-0.5">{platform.description}</div>
                   </div>
-                </div>
-                <div className={cn(
-                  "w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-colors",
-                  isSelected ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
-                )}>
-                  {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
-                </div>
-              </button>
-            );
-          })}
+                  <div className={cn(
+                    "w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-colors",
+                    isSelected ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
+                  )}>
+                    {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                  </div>
+                </button>
+              );
+            })
+          )}
         </div>
 
         <div className="flex gap-3">
           <Button onClick={onClose} variant="outline" className="flex-1 rounded-full bg-transparent border-white/20 text-white hover:bg-white/10 h-11">
             Cancel
-          </Button>
-          <Button onClick={() => onPublish(selected)} disabled={selected.length === 0} className="flex-1 rounded-full bg-white/20 hover:bg-white/30 text-white border-none h-11 transition-all duration-200 disabled:opacity-50">
-            Publish to {selected.length} platform{selected.length !== 1 ? 's' : ''}
           </Button>
         </div>
       </motion.div>
@@ -208,8 +210,9 @@ export function Step10_ReviewVideo() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [showModal, setShowModal] = useState(false);
+  const [showConnectModal, setShowConnectModal] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<string[]>([]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [publishResults, setPublishResults] = useState<
     | { platform: string; status: string; post_url?: string; error?: string }[]
@@ -252,9 +255,17 @@ export function Step10_ReviewVideo() {
     }
   };
 
-  const handlePublish = async (platforms: string[]) => {
+  const togglePlatformSelect = (platformId: string) => {
+    setSelectedPlatforms((prev) =>
+      prev.includes(platformId)
+        ? prev.filter((id) => id !== platformId)
+        : [...prev, platformId],
+    );
+  };
+
+  const handlePublish = async () => {
+    const platforms = selectedPlatforms;
     if (!projectId || platforms.length === 0) return;
-    setShowModal(false);
     setPublishing(true);
     setPublishResults(null);
     try {
@@ -325,7 +336,7 @@ export function Step10_ReviewVideo() {
     if (!connectedAccounts.includes(platformId)) {
       setConnectedAccounts((prev) => [...prev, platformId]);
     }
-    setShowModal(false);
+    setShowConnectModal(false);
   };
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -336,20 +347,33 @@ export function Step10_ReviewVideo() {
     return `${m}:${String(sec).padStart(2, "0")}`;
   };
 
-  const aiSuggestions = [
-    "Make the hook more energetic",
-    "Add more emotion to the narration",
-    "Shorten to 30 seconds",
-    "Change to a professional tone",
-  ];
+  // Look up static data for display
+  const musicPresets: Record<string, string> = {
+    breathing_shadows: "Breathing Shadows",
+    quiet_before_storm: "Quiet Before Storm",
+    brilliant_symphony: "Brilliant Symphony",
+    happy_rhythm: "Happy Rhythm",
+    peaceful_vibes: "Peaceful Vibes",
+    lyria: "AI Generated",
+    none: "None",
+  };
+
+  const captionStyles: Record<string, string> = {
+    beast: "Beast",
+    bold_stroke: "Bold Stroke",
+    karaoke: "Karaoke",
+    majestic: "Majestic",
+    red_highlight: "Red Highlight",
+    sleek: "Sleek",
+    elegant: "Elegant",
+  };
 
   return (
     <>
       <AnimatePresence>
-        {showModal && (
-          <PublishModal
-            onClose={() => setShowModal(false)}
-            onPublish={handlePublish}
+        {showConnectModal && (
+          <ConnectAccountModal
+            onClose={() => setShowConnectModal(false)}
             connectedAccounts={connectedAccounts}
             onConnected={handleConnected}
           />
@@ -398,23 +422,6 @@ export function Step10_ReviewVideo() {
                 Download
               </Button>
             )}
-            <Button
-              onClick={() => setShowModal(true)}
-              disabled={!projectId || publishing}
-              className="rounded-full px-5 py-2 h-10 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white disabled:opacity-50"
-            >
-              {publishing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Publishing…
-                </>
-              ) : (
-                <>
-                  Publish
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </>
-              )}
-            </Button>
           </div>
         </div>
 
@@ -491,51 +498,150 @@ export function Step10_ReviewVideo() {
             </div>
           </div>
 
-          {/* Right Column — AI Suggestions & Stats */}
+          {/* Right Column — Stats & Publish */}
           <div className="flex-1 space-y-4">
-            <div className="bg-white/20 rounded-2xl border border-white/20 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4">
-                AI suggestions
-              </h3>
-              <div className="space-y-2">
-                {aiSuggestions.map((suggestion, index) => (
-                  <motion.button
-                    key={index}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-white/20 text-left hover:border-[#5a9ab5]/40 hover:bg-[#5a9ab5]/10 transition-all duration-200"
-                  >
-                    <Sparkles className="w-4 h-4 text-[#5a9ab5] shrink-0" />
-                    <span className="text-sm text-white/80">{suggestion}</span>
-                  </motion.button>
-                ))}
-              </div>
-            </div>
-
+            {/* Generation Stats */}
             <div className="bg-white/20 rounded-2xl border border-white/20 p-5">
               <h3 className="text-sm font-semibold text-white mb-4">
                 Generation Stats
               </h3>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-white/50">Art Style</span>
-                  <span className="text-sm font-medium text-white capitalize">
-                    {artStyles.find(a => a.id === state.selectedArtStyle)?.name ?? "Comic"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-white/50">Voice</span>
-                  <span className="text-sm font-medium text-white">
+                  <span className="text-sm text-white/50">Language &amp; Voices</span>
+                  <span className="text-sm font-medium text-[#5a9ab5]">
                     {voices.find(v => v.id === state.selectedVoice)?.name ?? "Rachel"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-white/50">Duration</span>
-                  <span className="text-sm font-medium text-white">
-                    {duration > 0 ? `${Math.round(duration)}s` : "30s"}
+                  <span className="text-sm text-white/50">Background Music</span>
+                  <span className="text-sm font-medium text-[#5a9ab5]">
+                    {musicPresets[state.selectedMusic ?? ""] ?? state.selectedMusic ?? "None"}
                   </span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/50">Art Style</span>
+                  <span className="text-sm font-medium text-[#5a9ab5] capitalize">
+                    {artStyles.find(a => a.id === state.selectedArtStyle)?.name ?? "Comic"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/50">Caption Style</span>
+                  <span className="text-sm font-medium text-[#5a9ab5]">
+                    {captionStyles[state.selectedCaption ?? ""] ?? state.selectedCaption ?? "Bold Stroke"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/50">Duration</span>
+                  <span className="text-sm font-medium text-[#5a9ab5]">
+                    {duration > 0 ? `${Math.round(duration)} seconds` : "30 seconds"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Publish Video */}
+            <div className="bg-white/20 rounded-2xl border border-white/20 p-5">
+              <div className="flex items-center justify-between mb-1">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Publish Video</h3>
+                  <p className="text-xs text-white/40 mt-0.5">Select platforms to share your video</p>
+                </div>
+                <Button
+                  onClick={handlePublish}
+                  disabled={!projectId || publishing || selectedPlatforms.length === 0}
+                  className="rounded-full px-5 py-2 h-9 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white text-sm disabled:opacity-50"
+                >
+                  {publishing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      Publishing…
+                    </>
+                  ) : (
+                    <>
+                      Publish
+                      <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              <div className="space-y-2 mt-4">
+                {connectedAccounts.length === 0 ? (
+                  <div className="flex items-center gap-3 p-3 rounded-xl border border-white/10 bg-white/5">
+                    <span className="text-sm text-white/40">No accounts connected yet</span>
+                  </div>
+                ) : (
+                  connectedAccounts.map((accountId) => {
+                    const platform = PLATFORMS.find((p) => p.id === accountId);
+                    if (!platform) return null;
+                    const isSelected = selectedPlatforms.includes(accountId);
+                    const publishResult = publishResults?.find(
+                      (r) => r.platform === accountId,
+                    );
+                    const isPublished =
+                      publishResult?.status === "success" ||
+                      publishResult?.status === "published";
+                    return (
+                      <button
+                        key={accountId}
+                        onClick={() => togglePlatformSelect(accountId)}
+                        className={cn(
+                          "w-full flex items-center justify-between p-3 rounded-xl border transition-all duration-200",
+                          isSelected
+                            ? "border-[#5a9ab5] bg-white/5"
+                            : "border-white/10 hover:border-white/20 hover:bg-white/5",
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          {platform.icon}
+                          <span className="text-sm font-medium text-white">
+                            {platform.name}
+                          </span>
+                          {isPublished && (
+                            <Badge className="bg-green-500/20 text-green-300 hover:bg-green-500/20 text-xs px-2 py-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5 inline-block" />
+                              Published
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {publishResult?.post_url && (
+                            <a
+                              href={publishResult.post_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            >
+                              <ExternalLink className="w-4 h-4 text-white/40" />
+                            </a>
+                          )}
+                          <div
+                            className={cn(
+                              "w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-colors",
+                              isSelected
+                                ? "border-[#5a9ab5] bg-[#5a9ab5]"
+                                : "border-white/30",
+                            )}
+                          >
+                            {isSelected && (
+                              <div className="w-2 h-2 bg-white rounded-full" />
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+
+                {/* Connect more account */}
+                <button
+                  onClick={() => setShowConnectModal(true)}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 transition-all duration-200"
+                >
+                  <Plus className="w-4 h-4 text-white/50" />
+                  <span className="text-sm text-white/50">Connect more account</span>
+                </button>
               </div>
             </div>
 
@@ -552,11 +658,11 @@ export function Step10_ReviewVideo() {
           </div>
         </div>
 
-
-
-        {/* Publish Results */}
+        {/* Publish Error Results */}
         <AnimatePresence>
-          {publishResults && (
+          {publishResults?.some(
+            (r) => r.status !== "success" && r.status !== "published",
+          ) && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -565,55 +671,47 @@ export function Step10_ReviewVideo() {
               className="mt-4 bg-white/20 rounded-2xl border border-white/20 p-5"
             >
               <h3 className="text-sm font-semibold text-white mb-3">
-                Publish Results
+                Publish Errors
               </h3>
               <div className="space-y-2">
-                {publishResults.map((result, i) => {
-                  const platform = PLATFORMS.find(
-                    (p) => p.id === result.platform,
-                  );
-                  const isSuccess =
-                    result.status === "success" ||
-                    result.status === "published";
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        "flex items-center gap-3 p-3 rounded-xl border",
-                        isSuccess
-                          ? "border-green-500/30 bg-green-500/10"
-                          : "border-red-500/30 bg-red-500/10",
-                      )}
-                    >
-                      {isSuccess ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
-                      ) : (
+                {publishResults
+                  ?.filter(
+                    (r) =>
+                      r.status !== "success" && r.status !== "published",
+                  )
+                  .map((result, i) => {
+                    const platform = PLATFORMS.find(
+                      (p) => p.id === result.platform,
+                    );
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 p-3 rounded-xl border border-red-500/30 bg-red-500/10"
+                      >
                         <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                      )}
-                      <span className="text-sm font-medium text-white flex-1 capitalize">
-                        {platform?.name ?? result.platform}
-                        {isSuccess
-                          ? " — Published!"
-                          : ` — ${result.error ?? "Failed"}`}
-                      </span>
-                      {result.post_url && (
-                        <a
-                          href={result.post_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-[#5a9ab5] hover:underline"
-                        >
-                          View post
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                  );
-                })}
+                        <span className="text-sm font-medium text-white flex-1 capitalize">
+                          {platform?.name ?? result.platform} —{" "}
+                          {result.error ?? "Failed"}
+                        </span>
+                      </div>
+                    );
+                  })}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Not satisfied? Regenerate */}
+        <div className="flex items-center justify-end gap-3 mt-6">
+          <span className="text-sm text-white/40">Not satisfied?</span>
+          <Button
+            variant="outline"
+            className="rounded-full px-5 py-2 h-10 border-white/20 hover:bg-white/10 text-white"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Regenerate
+          </Button>
+        </div>
       </motion.div>
     </>
   );
