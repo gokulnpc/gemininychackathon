@@ -29,6 +29,11 @@ import os
 from collections.abc import AsyncIterator, Callable, Coroutine
 from uuid import UUID, uuid4
 
+try:
+    from google.adk.tools import ToolContext  # needed at module level for nested tool function type annotations
+except ImportError:
+    ToolContext = object  # type: ignore[misc,assignment]
+
 logger = logging.getLogger(__name__)
 
 _LIVE_MODEL = "gemini-2.0-flash-live-001"
@@ -390,7 +395,6 @@ async def run_edit_text_agent(
     from google.adk.agents import Agent
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
-    from google.adk.tools import ToolContext
     from google.genai import types as genai_types
 
     settings_env()
