@@ -7,7 +7,7 @@ services:
     container_name: voicevid-api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8000:8080"
     env_file:
       - ./backend/.env          # all secrets live here — never committed
     volumes:

@@ -3,3 +3,5 @@ client_secrets.json
 *.pyc
 __pycache__
 outputs/
+.venv/
+input/

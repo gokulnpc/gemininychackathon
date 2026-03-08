@@ -14,18 +14,18 @@ spec:
     spec:
       timeoutSeconds: 3600
       containerConcurrency: 10
-      serviceAccountName: voicevid-sa@PROJECT_ID.iam.gserviceaccount.com
+      serviceAccountName: storylab-sa@PROJECT_ID.iam.gserviceaccount.com
       containers:
         - image: REGION-docker.pkg.dev/PROJECT_ID/voicevid/api:latest
           ports:
-            - containerPort: 8000
+            - containerPort: 8080
           resources:
             limits:
               cpu: "2"
               memory: 2Gi
           env:
             - name: GCS_BUCKET
-              value: voicevid-assets
+              value: storylab-assets
             - name: GOOGLE_CLOUD_PROJECT
               value: PROJECT_ID
             - name: USE_VERTEX_AI

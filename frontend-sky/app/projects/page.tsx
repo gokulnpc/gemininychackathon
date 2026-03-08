@@ -193,7 +193,7 @@ function ProjectCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
-                onClick={() => router.push("/create")}
+                onClick={() => router.push(`/projects/${project.project_id}/edit`)}
                 className="cursor-pointer"
               >
                 <Pencil className="w-4 h-4 mr-2" /> Edit

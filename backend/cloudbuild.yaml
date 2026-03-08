@@ -13,56 +13,10 @@ steps:
       - push
       - $_IMAGE
 
-  # Deploy voicevid-api (public, lightweight request handler)
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - voicevid-api
-      - --image=$_IMAGE
-      - --region=$_REGION
-      - --project=$_PROJECT_ID
-      - --platform=managed
-      - --allow-unauthenticated
-      - --memory=512Mi
-      - --cpu=1
-      - --timeout=60s
-      - --concurrency=80
-      - --min-instances=0
-      - --max-instances=10
-      - --set-env-vars=GCS_BUCKET=voicevid-assets,GOOGLE_CLOUD_PROJECT=$_PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$_REGION,CLOUD_TASKS_QUEUE=video-generation,CLOUD_TASKS_LOCATION=$_REGION,WORKER_URL=$_WORKER_URL
-      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
-      - --no-cpu-throttling
-
-  # Deploy voicevid-worker (internal, heavy generation workload)
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
-    args:
-      - run
-      - deploy
-      - voicevid-worker
-      - --image=$_IMAGE
-      - --region=$_REGION
-      - --project=$_PROJECT_ID
-      - --platform=managed
-      - --no-allow-unauthenticated
-      - --ingress=internal
-      - --memory=4Gi
-      - --cpu=4
-      - --timeout=900s
-      - --concurrency=1
-      - --min-instances=0
-      - --max-instances=5
-      - --set-env-vars=GCS_BUCKET=voicevid-assets,GOOGLE_CLOUD_PROJECT=$_PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$_REGION,CLOUD_TASKS_QUEUE=video-generation,CLOUD_TASKS_LOCATION=$_REGION
-      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest,SENDGRID_API_KEY=sendgrid-api-key:latest
-      - --no-cpu-throttling
-
 substitutions:
   _REGION: us-central1
   _PROJECT_ID: voicevid
   _IMAGE: us-central1-docker.pkg.dev/voicevid/voicevid/api:latest
-  _WORKER_URL: ""   # populated at deploy time by deploy.sh after worker is live
 
 images:
   - $_IMAGE

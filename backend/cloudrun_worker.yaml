@@ -15,7 +15,7 @@ spec:
     spec:
       containerConcurrency: 1     # One generation job per instance — CPU-intensive
       timeoutSeconds: 900         # 15 min max per task
-      serviceAccountName: voicevid-sa@PROJECT_ID.iam.gserviceaccount.com
+      serviceAccountName: storylab-sa@PROJECT_ID.iam.gserviceaccount.com
       containers:
         - image: REGION-docker.pkg.dev/PROJECT_ID/voicevid/api:latest
           resources:
@@ -24,7 +24,7 @@ spec:
               cpu: "4"
           env:
             - name: GCS_BUCKET
-              value: voicevid-assets
+              value: storylab-assets
             - name: GOOGLE_CLOUD_PROJECT
               value: PROJECT_ID
             - name: USE_VERTEX_AI
