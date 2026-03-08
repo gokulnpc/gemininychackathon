@@ -40,6 +40,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useSidebar } from "@/context/SidebarContext";
+import { cn } from "@/lib/utils";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -98,6 +100,7 @@ function thumbnailUrl(projectId: string, platform: string) {
 // ── Page ────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
+  const { isCollapsed } = useSidebar();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,9 +183,9 @@ export default function DashboardPage() {
     <div className="flex min-h-screen bg-[#2B2B2B]">
       <AppSidebar />
 
-      <div className="ml-[280px] flex-1 flex flex-col min-h-screen">
+      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-300", isCollapsed ? "ml-[80px]" : "ml-[280px]")}>
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between px-8 py-6 border-b border-white/10">
+        <header className="flex items-center justify-between px-8 h-[80px] border-b border-white/10">
           <div /> {/* spacer */}
 
           <div className="flex items-center gap-4">
@@ -200,7 +203,7 @@ export default function DashboardPage() {
                     <AvatarImage src="/Avatar.png" alt="An Tran" />
                     <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">AT</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm font-medium text-white">An Tran</span>
+                  <span className="text-sm font-medium text-white whitespace-nowrap">An Tran</span>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
@@ -235,7 +238,7 @@ export default function DashboardPage() {
         </header>
 
         {/* ── Main ────────────────────────────────────────────────────────── */}
-        <main className="max-w-7xl mx-auto px-8 py-8 w-full">
+        <main className="px-8 py-8 w-full">
           {/* Title */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
             <h1 className="text-3xl font-medium text-white mb-2">Your Videos</h1>

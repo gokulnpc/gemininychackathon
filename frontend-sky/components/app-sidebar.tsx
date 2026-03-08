@@ -59,8 +59,8 @@ export function AppSidebar({ activeStep }: AppSidebarProps) {
     >
       {/* Logo */}
       <div className={cn(
-        "p-6 border-b border-white/10 flex items-center transition-all duration-300",
-        isCollapsed ? "justify-center px-0" : "justify-between"
+        "h-[80px] border-b border-white/10 flex items-center transition-all duration-300",
+        isCollapsed ? "justify-center px-4" : "justify-between px-6"
       )}>
         {!isCollapsed && (
           <button

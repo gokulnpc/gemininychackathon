@@ -151,17 +151,9 @@ export default function AssetsPage() {
           isCollapsed ? "ml-[80px]" : "ml-[280px]"
         )}
       >
-        <main className="max-w-5xl mx-auto px-8 py-8 w-full">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-start justify-between mb-8"
-          >
-            <div>
-              <h1 className="text-3xl font-medium text-white mb-2">My Assets</h1>
-              <p className="text-white/50">Upload and manage your images, music, and voice memos</p>
-            </div>
+        <header className="flex items-center justify-between px-8 h-[80px] border-b border-white/10">
+          <div />
+          <div className="flex items-center gap-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
@@ -169,7 +161,7 @@ export default function AssetsPage() {
                     <AvatarImage src="/Avatar.png" alt="An Tran" />
                     <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">AT</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm font-medium text-white">An Tran</span>
+                  <span className="text-sm font-medium text-white whitespace-nowrap">An Tran</span>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
@@ -197,6 +189,17 @@ export default function AssetsPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        </header>
+
+        <main className="px-8 py-8 w-full">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8"
+          >
+            <h1 className="text-3xl font-medium text-white mb-2">My Assets</h1>
+            <p className="text-white/50">Upload and manage your images, music, and voice memos</p>
           </motion.div>
 
           {/* Tabs + Upload */}
