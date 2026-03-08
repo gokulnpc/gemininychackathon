@@ -137,7 +137,7 @@ export default function WelcomePage() {
     fetch(`${API}/api/v1/projects`)
       .then((r) => r.json())
       .then((d) => {
-        setRecents((d.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 3));
+        setRecents((d.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
         setTotalVideos(d.total ?? 0);
       })
       .catch(() => setRecents([]))
@@ -404,7 +404,7 @@ export default function WelcomePage() {
                 {recents.length === 0 ? "No movies yet." : "No results."}
               </p>
             ) : (
-              <div className="grid grid-cols-3 gap-6">
+              <div className="grid grid-cols-5 gap-4">
                 {filteredRecents.map((project, index) => {
                   const t = projectTitle(project);
                   const platform = (project.platforms ?? [])[0] ?? "master";

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
-from routers import assets, auth, catalog, creative_director, edit_voice, projects, publish, recompose, script, transcribe, video, voice_agent, voice_live, worker
+from routers import assets, auth, catalog, creative_director, edit_voice, ocr, projects, publish, recompose, script, transcribe, video, voice_agent, voice_live, worker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +41,7 @@ app.include_router(voice_live.router)
 app.include_router(voice_agent.router)
 app.include_router(edit_voice.router)
 app.include_router(transcribe.router)
+app.include_router(ocr.router)
 app.include_router(worker.router)   # internal Cloud Tasks callbacks (not in public docs)
 app.include_router(assets.router)
 

@@ -311,7 +311,7 @@ export default function DashboardPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className={viewMode === "grid" ? "grid grid-cols-4 gap-6" : "space-y-4"}
+              className={viewMode === "grid" ? "grid grid-cols-5 gap-4" : "space-y-4"}
             >
               {filtered.map((project, index) => {
                 const t = title(project);
@@ -407,7 +407,7 @@ export default function DashboardPage() {
 
                       {viewMode === "list" && (
                         <div className="flex items-center gap-3 mt-2">
-                          <span className="text-xs text-white/40">{project.platforms.join(", ")}</span>
+                          <span className="text-xs text-white/40">{(project.platforms ?? []).join(", ")}</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
                             ready ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
                           }`}>
@@ -448,7 +448,7 @@ export default function DashboardPage() {
           </DialogHeader>
 
           {selected && (() => {
-            const platform = selected.platforms[0] ?? "master";
+            const platform = (selected.platforms ?? [])[0] ?? "master";
             const src = streamUrl(selected.project_id, platform);
             return (
               <>
@@ -459,10 +459,10 @@ export default function DashboardPage() {
                   <div className="space-y-1">
                     <p className="text-sm text-[#9B9B9B]">Scenes: {selected.scenes_count}</p>
                     <p className="text-sm text-[#9B9B9B]">Created: {timeAgo(selected.created_at)}</p>
-                    <p className="text-sm text-[#9B9B9B]">Platforms: {selected.platforms.join(", ")}</p>
+                    <p className="text-sm text-[#9B9B9B]">Platforms: {(selected.platforms ?? []).join(", ")}</p>
                   </div>
                   <div className="flex gap-2 flex-wrap justify-end">
-                    {selected.platforms.map((p) => (
+                    {(selected.platforms ?? []).map((p) => (
                       <Button key={p} variant="outline" asChild>
                         <a href={streamUrl(selected.project_id, p)} target="_blank" rel="noreferrer">
                           <Download className="w-4 h-4 mr-2" />

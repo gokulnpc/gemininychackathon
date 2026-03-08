@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = ""
     notification_from_email: str = "noreply@voicevid.app"
 
+    # Google Document AI (optional — leave empty to use Gemini for PDF OCR)
+    document_ai_processor_id: str = ""      # Processor ID from GCP Console
+    document_ai_location: str = "us"        # "us" or "eu"
+
     # App
     app_name: str = "VoiceVid"
     debug: bool = False
