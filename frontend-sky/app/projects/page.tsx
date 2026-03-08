@@ -1,24 +1,27 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  Archive,
   CheckCircle2,
-  ChevronRight,
-  Clock,
   Coins,
+  Copy,
   LayoutDashboard,
   Loader2,
   LogOut,
+  MoreVertical,
+  Pencil,
   Play,
-  RefreshCw,
+  Search,
   Settings,
-  ThumbsUp,
+  Trash2,
   User,
   Video,
+  X,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -62,6 +65,17 @@ interface Project {
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
 
+const STATUS_FILTERS: { key: ProjectStatus | "all"; label: string }[] = [
+  { key: "all",               label: "All" },
+  { key: "queued",            label: "Queued" },
+  { key: "generating_script", label: "Scripting" },
+  { key: "script_ready",      label: "Script Ready" },
+  { key: "generating_video",  label: "Generating" },
+  { key: "in_progress",       label: "In Progress" },
+  { key: "completed",         label: "Completed" },
+  { key: "failed",            label: "Failed" },
+];
+
 function timeAgo(iso?: string): string {
   if (!iso) return "";
   const diff = Date.now() - new Date(iso).getTime();
@@ -73,19 +87,19 @@ function timeAgo(iso?: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function StatusPill({ status }: { status: ProjectStatus }) {
+export function StatusPill({ status }: { status: ProjectStatus }) {
   const config: Record<ProjectStatus, { label: string; className: string }> = {
     queued: { label: "Queued", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    generating_script: { label: "Generating Script", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    script_ready: { label: "Script Ready", className: "bg-green-500/20 text-green-300 border-green-500/30" },
-    generating_video: { label: "Generating Video", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    in_progress: { label: "Generating Video", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    generating_script: { label: "Scripting", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
+    script_ready: { label: "Script Ready", className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
+    generating_video: { label: "Generating", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    in_progress: { label: "Generating", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
     completed: { label: "Completed", className: "bg-green-500/20 text-green-300 border-green-500/30" },
     failed: { label: "Failed", className: "bg-red-500/20 text-red-300 border-red-500/30" },
   };
   const { label, className } = config[status] ?? config.failed;
   return (
-    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", className)}>
+    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium whitespace-nowrap", className)}>
       {label}
     </span>
   );
@@ -93,261 +107,172 @@ function StatusPill({ status }: { status: ProjectStatus }) {
 
 function ProjectCard({
   project,
-  isSelected,
-  onClick,
+  index,
+  isArchived,
+  onDelete,
+  onArchive,
+  onUnarchive,
 }: {
   project: Project;
-  isSelected: boolean;
-  onClick: () => void;
+  index: number;
+  isArchived: boolean;
+  onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
 }) {
+  const router = useRouter();
   const isActive = ACTIVE_STATUSES.includes(project.status);
+  const isCompleted = project.status === "completed";
 
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "w-full text-left p-4 rounded-2xl border transition-all duration-200",
-        isSelected
-          ? "bg-[#5a9ab5]/15 border-[#5a9ab5]/50"
-          : "bg-[#333333] border-white/10 hover:border-white/20 hover:bg-[#3a3a3a]"
-      )}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.04 * index }}
+      className="group relative cursor-pointer"
+      onClick={() => router.push(`/projects/${project.project_id}`)}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <StatusPill status={project.status} />
-            {isActive && <Loader2 className="w-3 h-3 text-blue-400 animate-spin shrink-0" />}
+      {/* Thumbnail */}
+      <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10 group-hover:border-[#5a9ab5]/50 transition-all duration-200">
+        {isCompleted && (
+          <img
+            src={`${API}/api/v1/projects/${project.project_id}/thumbnail`}
+            alt={project.hook ?? "Video"}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        )}
+
+        {/* Status placeholder for non-completed */}
+        {!isCompleted && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
+            {isActive ? (
+              <>
+                <Loader2 className="w-8 h-8 text-[#5a9ab5] animate-spin" />
+                <p className="text-xs text-white/40 text-center leading-relaxed">
+                  {project.current_stage ?? "Processing..."}
+                </p>
+              </>
+            ) : project.status === "script_ready" ? (
+              <>
+                <Video className="w-8 h-8 text-white/20" />
+                <p className="text-xs text-white/40">Script ready</p>
+              </>
+            ) : (
+              <AlertCircle className="w-8 h-8 text-red-400/50" />
+            )}
           </div>
-          <p className="text-xs text-white/40 font-mono truncate">
-            {project.project_id.slice(0, 18)}...
-          </p>
-          {project.current_stage && (
-            <p className="text-xs text-white/60 mt-1 truncate">{project.current_stage}</p>
-          )}
-          {project.hook && (
-            <p className="text-xs text-white/50 mt-1 truncate italic">"{project.hook}"</p>
-          )}
+        )}
+
+        {/* Play hover overlay (completed only) */}
+        {isCompleted && (
+          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+              <Play className="w-5 h-5 text-white ml-0.5" />
+            </div>
+          </div>
+        )}
+
+        {/* Status badge — top left */}
+        <div className="absolute top-2 left-2 pointer-events-none">
+          <StatusPill status={project.status} />
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <ChevronRight className={cn("w-4 h-4 transition-colors", isSelected ? "text-[#5a9ab5]" : "text-white/30")} />
-          <span className="text-xs text-white/30">{timeAgo(project.queued_at ?? project.created_at)}</span>
-        </div>
-      </div>
 
-      {/* Progress bar for in-progress */}
-      {isActive && typeof project.progress_pct === "number" && project.progress_pct > 0 && (
-        <div className="mt-3 h-1 rounded-full bg-white/10 overflow-hidden">
-          <div
-            className="h-full bg-[#5a9ab5] rounded-full transition-all duration-500"
-            style={{ width: `${project.progress_pct}%` }}
-          />
-        </div>
-      )}
-    </button>
-  );
-}
-
-function ScriptReadyPanel({
-  project,
-  onRegenerate,
-  onApprove,
-}: {
-  project: Project;
-  onRegenerate: () => Promise<void>;
-  onApprove: () => Promise<void>;
-}) {
-  const [hook, setHook] = useState(project.hook ?? "");
-  const [voiceover, setVoiceover] = useState(project.voiceover_full_script ?? "");
-  const [saving, setSaving] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Auto-save on blur with debounce
-  const scheduleAutoSave = useCallback(() => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      setSaving(true);
-      setSaveError(null);
-      const updatedScript = {
-        ...(project.script ?? {}),
-        hook: { ...(project.script?.hook as Record<string, unknown> ?? {}), text: hook },
-        voiceover_full_script: voiceover,
-      };
-      try {
-        const res = await fetch(`${API}/api/v1/projects/${project.project_id}/script`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ script: updatedScript }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      } catch (e) {
-        setSaveError("Failed to save edits");
-      } finally {
-        setSaving(false);
-      }
-    }, 800);
-  }, [hook, voiceover, project]);
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Hook</label>
-          {saving && <span className="text-xs text-white/30">Saving...</span>}
-          {saveError && <span className="text-xs text-red-400">{saveError}</span>}
-        </div>
-        <textarea
-          value={hook}
-          onChange={(e) => { setHook(e.target.value); scheduleAutoSave(); }}
-          className="w-full bg-[#2a2a2a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 resize-none focus:outline-none focus:border-[#5a9ab5]/50 transition-colors"
-          rows={2}
-        />
-      </div>
-
-      {typeof project.scenes_count === "number" && (
-        <div className="flex items-center gap-2 text-sm text-white/50">
-          <Video className="w-4 h-4" />
-          <span>{project.scenes_count} scenes</span>
-        </div>
-      )}
-
-      <div>
-        <label className="text-xs font-medium text-white/50 uppercase tracking-wider mb-2 block">
-          Voiceover Script
-        </label>
-        <textarea
-          value={voiceover}
-          onChange={(e) => { setVoiceover(e.target.value); scheduleAutoSave(); }}
-          className="w-full bg-[#2a2a2a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/80 placeholder-white/30 resize-none focus:outline-none focus:border-[#5a9ab5]/50 transition-colors leading-relaxed"
-          rows={8}
-        />
-      </div>
-
-      <div className="flex gap-3">
-        <Button
-          variant="outline"
-          disabled={regenerating}
-          onClick={async () => {
-            setRegenerating(true);
-            try { await onRegenerate(); } finally { setRegenerating(false); }
-          }}
-          className="flex-1 rounded-full border-white/20 text-white/70 hover:text-white hover:bg-white/10 bg-transparent"
+        {/* Options menu — top right */}
+        <div
+          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
         >
-          {regenerating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-          Regenerate Script
-        </Button>
-        <Button
-          disabled={approving}
-          onClick={async () => {
-            setApproving(true);
-            try { await onApprove(); } finally { setApproving(false); }
-          }}
-          className="flex-1 rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
-        >
-          {approving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ThumbsUp className="w-4 h-4 mr-2" />}
-          Approve & Generate Video
-        </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1.5 rounded-lg bg-black/60 text-white/70 hover:text-white hover:bg-black/80 transition-colors">
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onClick={() => router.push("/create")}
+                className="cursor-pointer"
+              >
+                <Pencil className="w-4 h-4 mr-2" /> Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => alert("Duplicate coming soon")}
+                className="cursor-pointer"
+              >
+                <Copy className="w-4 h-4 mr-2" /> Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {isArchived ? (
+                <DropdownMenuItem
+                  onClick={() => onUnarchive(project.project_id)}
+                  className="cursor-pointer"
+                >
+                  <Archive className="w-4 h-4 mr-2" /> Unarchive
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() => onArchive(project.project_id)}
+                  className="cursor-pointer"
+                >
+                  <Archive className="w-4 h-4 mr-2" /> Archive
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={() => onDelete(project.project_id)}
+                className="cursor-pointer text-red-500 focus:text-red-500"
+              >
+                <Trash2 className="w-4 h-4 mr-2" /> Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Progress bar at bottom */}
+        {isActive && typeof project.progress_pct === "number" && project.progress_pct > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+            <div
+              className="h-full bg-[#5a9ab5] transition-all duration-500"
+              style={{ width: `${project.progress_pct}%` }}
+            />
+          </div>
+        )}
       </div>
-    </div>
-  );
-}
 
-function VideoReadyPanel({ project }: { project: Project }) {
-  const videoUrl =
-    project.video_urls?.master ??
-    project.video_urls?.instagram_reels ??
-    Object.values(project.video_urls ?? {})[0];
-
-  return (
-    <div className="flex flex-col gap-6">
-      {videoUrl && (
-        <div className="rounded-2xl overflow-hidden bg-black aspect-[9/16] max-h-[480px] mx-auto w-full max-w-[270px]">
-          <video src={videoUrl} controls className="w-full h-full object-contain" />
-        </div>
-      )}
-      {project.hook && (
-        <div className="bg-[#2a2a2a] rounded-xl px-4 py-3 text-sm text-white/80 italic border border-white/10">
-          "{project.hook}"
-        </div>
-      )}
-      {videoUrl && (
-        <a
-          href={videoUrl}
-          download
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white text-sm font-medium transition-colors"
-        >
-          <Play className="w-4 h-4" /> Download / View
-        </a>
-      )}
-    </div>
-  );
-}
-
-function InProgressPanel({ project }: { project: Project }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-6">
-      <div className="relative w-20 h-20">
-        <div className="absolute inset-0 rounded-full border-4 border-[#5a9ab5]/20" />
-        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#5a9ab5] animate-spin" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Clock className="w-7 h-7 text-[#5a9ab5]" />
-        </div>
+      {/* Below-card info */}
+      <div className="mt-2 px-1">
+        <p className="text-sm text-white font-medium truncate">
+          {project.hook ?? project.project_id.slice(0, 20) + "..."}
+        </p>
+        <p className="text-xs text-white/40 mt-0.5">
+          {timeAgo(project.queued_at ?? project.created_at)}
+        </p>
       </div>
-      <div className="text-center">
-        <p className="text-white font-medium mb-1">{project.current_stage ?? "Processing..."}</p>
-        <p className="text-white/40 text-sm">This may take a minute or two</p>
-      </div>
-      {typeof project.progress_pct === "number" && project.progress_pct > 0 && (
-        <div className="w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
-          <div
-            className="h-full bg-[#5a9ab5] rounded-full transition-all duration-500"
-            style={{ width: `${project.progress_pct}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FailedPanel({ project }: { project: Project }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
-      <AlertCircle className="w-12 h-12 text-red-400 opacity-70" />
-      <p className="text-white font-medium">Generation Failed</p>
-      {project.error && (
-        <p className="text-red-400/80 text-sm max-w-sm">{project.error}</p>
-      )}
-    </div>
+    </motion.div>
   );
 }
 
 function ProjectsContent() {
   const { isCollapsed } = useSidebar();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const newProjectId = searchParams.get("new");
-  const selectedFromUrl = searchParams.get("id");
 
+  const [tab, setTab] = useState<"active" | "archive">("active");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(newProjectId ?? selectedFromUrl);
-
-  function selectProject(id: string | null) {
-    setSelectedId(id);
-    const params = new URLSearchParams(searchParams.toString());
-    if (id) {
-      params.set("id", id);
-      params.delete("new");
-    } else {
-      params.delete("id");
+  const [archived, setArchived] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(localStorage.getItem("archivedProjects") ?? "[]");
+    } catch {
+      return [];
     }
-    router.replace(`/projects?${params.toString()}`, { scroll: false });
-  }
+  });
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchProjects = useCallback(async () => {
@@ -368,7 +293,6 @@ function ProjectsContent() {
     fetchProjects();
   }, [fetchProjects]);
 
-  // Poll while any project is active
   useEffect(() => {
     const hasActive = projects.some((p) => ACTIVE_STATUSES.includes(p.status));
     if (hasActive) {
@@ -376,38 +300,47 @@ function ProjectsContent() {
     } else {
       if (pollRef.current) clearInterval(pollRef.current);
     }
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, [projects, fetchProjects]);
 
-  const selectedProject = projects.find((p) => p.project_id === selectedId) ?? null;
-
-  async function handleRegenerate(project: Project) {
-    const cfg = project.pipeline_config ?? {};
-    const body: Record<string, unknown> = { ...cfg };
+  async function handleDelete(id: string) {
     try {
-      const res = await fetch(`${API}/api/v1/projects/${project.project_id}/queue-script`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await fetchProjects();
-    } catch (e) {
-      alert("Failed to regenerate: " + (e instanceof Error ? e.message : e));
+      await fetch(`${API}/api/v1/projects/${id}`, { method: "DELETE" });
+      setProjects((prev) => prev.filter((p) => p.project_id !== id));
+    } catch {
+      alert("Failed to delete project");
     }
   }
 
-  async function handleApprove(project: Project) {
-    try {
-      const res = await fetch(`${API}/api/v1/projects/${project.project_id}/approve-script`, {
-        method: "POST",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await fetchProjects();
-    } catch (e) {
-      alert("Failed to approve: " + (e instanceof Error ? e.message : e));
-    }
+  function handleArchive(id: string) {
+    const updated = [...archived, id];
+    setArchived(updated);
+    localStorage.setItem("archivedProjects", JSON.stringify(updated));
   }
+
+  function handleUnarchive(id: string) {
+    const updated = archived.filter((a) => a !== id);
+    setArchived(updated);
+    localStorage.setItem("archivedProjects", JSON.stringify(updated));
+  }
+
+  const visibleProjects = (
+    tab === "active"
+      ? projects.filter((p) => !archived.includes(p.project_id))
+      : projects.filter((p) => archived.includes(p.project_id))
+  )
+    .filter((p) => statusFilter === "all" || p.status === statusFilter)
+    .filter((p) => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        p.hook?.toLowerCase().includes(q) ||
+        p.project_id.toLowerCase().includes(q) ||
+        p.current_stage?.toLowerCase().includes(q)
+      );
+    });
 
   return (
     <div className="flex min-h-screen bg-[#2B2B2B]">
@@ -422,7 +355,10 @@ function ProjectsContent() {
         <header className="flex items-center justify-between px-8 h-[80px] border-b border-white/10">
           <div />
           <div className="flex items-center gap-4">
-            <Button onClick={() => router.push("/create")} className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white">
+            <Button
+              onClick={() => router.push("/create")}
+              className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+            >
               Create New
             </Button>
             <DropdownMenu>
@@ -463,15 +399,75 @@ function ProjectsContent() {
           </div>
         </header>
 
-        <main className="flex-1 flex flex-col px-8 py-8">
+        <main className="px-8 py-8 flex-1">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-8"
+            className="flex items-start justify-between mb-8"
           >
-            <h1 className="text-3xl font-medium text-white mb-2">Projects</h1>
-            <p className="text-white/50">Track script and video generation progress</p>
+            <div>
+              <h1 className="text-3xl font-medium text-white mb-2">Projects</h1>
+              <p className="text-white/50">Track script and video generation progress</p>
+            </div>
+            <div className="flex items-center gap-1 bg-white/5 rounded-full p-1 border border-white/10 mt-1">
+              <button
+                onClick={() => setTab("active")}
+                className={cn(
+                  "px-5 py-1.5 rounded-full text-sm font-medium transition-colors",
+                  tab === "active" ? "bg-white/15 text-white" : "text-white/40 hover:text-white"
+                )}
+              >
+                Active
+              </button>
+              <button
+                onClick={() => setTab("archive")}
+                className={cn(
+                  "px-5 py-1.5 rounded-full text-sm font-medium transition-colors",
+                  tab === "archive" ? "bg-white/15 text-white" : "text-white/40 hover:text-white"
+                )}
+              >
+                Archive
+              </button>
+            </div>
           </motion.div>
+
+          {/* Search + Filter bar */}
+          <div className="flex items-center gap-4 mb-6">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search projects..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-full pl-9 pr-9 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#5a9ab5]/50 transition-colors"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {STATUS_FILTERS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setStatusFilter(key === statusFilter ? "all" : key)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap",
+                    statusFilter === key
+                      ? "bg-[#5a9ab5]/20 border-[#5a9ab5]/50 text-[#5a9ab5]"
+                      : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {loading && (
             <div className="flex items-center justify-center py-24 text-white/40">
@@ -486,78 +482,47 @@ function ProjectsContent() {
             </div>
           )}
 
-          {!loading && !error && projects.length === 0 && (
+          {!loading && !error && visibleProjects.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-white/40">
               <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
-              <p className="text-lg">No projects yet</p>
-              <p className="text-sm mt-1">Complete the wizard to queue your first video</p>
+              {search.trim() || statusFilter !== "all" ? (
+                <>
+                  <p className="text-lg">No matching projects</p>
+                  <p className="text-sm mt-1">Try a different search or filter</p>
+                </>
+              ) : tab === "active" ? (
+                <>
+                  <p className="text-lg">No projects yet</p>
+                  <p className="text-sm mt-1">Complete the wizard to queue your first video</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg">No archived projects</p>
+                  <p className="text-sm mt-1">Archived projects will appear here</p>
+                </>
+              )}
             </div>
           )}
 
-          {!loading && projects.length > 0 && (
-            <div className="flex-1 flex gap-6">
-              {/* Left panel — project list */}
-              <div className="w-80 shrink-0 flex flex-col gap-3 overflow-y-auto">
-                {projects.map((project) => (
-                  <ProjectCard
-                    key={project.project_id}
-                    project={project}
-                    isSelected={selectedId === project.project_id}
-                    onClick={() => selectProject(project.project_id)}
-                  />
-                ))}
-              </div>
-
-              {/* Right panel — project detail */}
-              <AnimatePresence mode="wait">
-                {selectedProject ? (
-                  <motion.div
-                    key={selectedProject.project_id + selectedProject.status}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="flex-1 bg-[#333333] rounded-2xl border border-white/10 p-6 overflow-y-auto"
-                  >
-                    <div className="flex items-center gap-3 mb-6">
-                      <StatusPill status={selectedProject.status} />
-                      <span className="text-xs text-white/30 font-mono">
-                        {selectedProject.project_id}
-                      </span>
-                    </div>
-
-                    {/* Status-specific content */}
-                    {(selectedProject.status === "queued" || selectedProject.status === "generating_script" || selectedProject.status === "generating_video" || selectedProject.status === "in_progress") && (
-                      <InProgressPanel project={selectedProject} />
-                    )}
-
-                    {selectedProject.status === "script_ready" && (
-                      <ScriptReadyPanel
-                        project={selectedProject}
-                        onRegenerate={() => handleRegenerate(selectedProject)}
-                        onApprove={() => handleApprove(selectedProject)}
-                      />
-                    )}
-
-                    {selectedProject.status === "completed" && (
-                      <VideoReadyPanel project={selectedProject} />
-                    )}
-
-                    {selectedProject.status === "failed" && (
-                      <FailedPanel project={selectedProject} />
-                    )}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="empty"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex-1 flex items-center justify-center text-white/30"
-                  >
-                    <p>Select a project to view details</p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+          {!loading && visibleProjects.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+            >
+              {visibleProjects.map((project, index) => (
+                <ProjectCard
+                  key={project.project_id}
+                  project={project}
+                  index={index}
+                  isArchived={tab === "archive"}
+                  onDelete={handleDelete}
+                  onArchive={handleArchive}
+                  onUnarchive={handleUnarchive}
+                />
+              ))}
+            </motion.div>
           )}
         </main>
       </div>
