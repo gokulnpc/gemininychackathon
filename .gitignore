@@ -9,3 +9,4 @@ __pycache__/
 /backend/mlruns/
 /backend/mlflow.db
 PROJECT_STRUCTURE.md
+.claude/
