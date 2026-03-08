@@ -125,6 +125,16 @@
   }
 }
 
+/* ── Override browser autofill light background on dark inputs ── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #1a1a1a inset !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.9) !important;
+  caret-color: white;
+}
+
 /* ── Scroll-reveal utility ── */
 .reveal {
   opacity: 0;
