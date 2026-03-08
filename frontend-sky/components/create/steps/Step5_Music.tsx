@@ -116,23 +116,29 @@ export function Step5_Music() {
                     <p className="text-sm text-white/50 mt-0.5">{track.description}</p>
                   </div>
                 </div>
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => handlePlayToggle(e, track.id, track.audioFile)}
-                  className={cn(
-                    'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-                    isPlaying
-                      ? 'bg-[#5a9ab5] text-white'
-                      : 'bg-white/10 border border-white/20 hover:bg-white/20 text-white/60'
-                  )}
-                >
-                  {isPlaying ? (
-                    <Square className="w-3.5 h-3.5 fill-current" />
-                  ) : (
-                    <Play className="w-4 h-4 ml-0.5" />
-                  )}
-                </motion.div>
+                {track.audioFile ? (
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={(e) => handlePlayToggle(e, track.id, track.audioFile!)}
+                    className={cn(
+                      'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+                      isPlaying
+                        ? 'bg-[#5a9ab5] text-white'
+                        : 'bg-white/10 border border-white/20 hover:bg-white/20 text-white/60'
+                    )}
+                  >
+                    {isPlaying ? (
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                    ) : (
+                      <Play className="w-4 h-4 ml-0.5" />
+                    )}
+                  </motion.div>
+                ) : (
+                  <span className="text-xs font-medium text-[#5a9ab5] bg-[#5a9ab5]/20 px-2 py-1 rounded-full border border-[#5a9ab5]/30">
+                    ✨ AI
+                  </span>
+                )}
               </motion.button>
             );
           })}

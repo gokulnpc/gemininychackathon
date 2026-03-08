@@ -172,9 +172,9 @@ export default function DashboardPage() {
     if (selected?.project_id === id) setSelected(null);
   }
 
-  const filtered = projects.filter((p) =>
-    title(p).toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = projects
+    .filter((p) => p.status === "completed")
+    .filter((p) => title(p).toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="flex min-h-screen bg-[#2B2B2B]">
@@ -315,7 +315,7 @@ export default function DashboardPage() {
             >
               {filtered.map((project, index) => {
                 const t = title(project);
-                const platform = project.platforms[0] ?? "master";
+                const platform = (project.platforms ?? [])[0] ?? "master";
                 const ready = project.status === "completed";
 
                 return (

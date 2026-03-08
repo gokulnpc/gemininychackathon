@@ -95,6 +95,12 @@ export const voices: VoiceData[] = [
 
 export const musicTracks: MusicData[] = [
   {
+    id: "lyria",
+    title: "AI Generated",
+    description: "Music composed by AI to match your video's style and mood",
+    iconColor: "#5a9ab5",
+  },
+  {
     id: "happy-rhythm",
     title: "Happy rhythm",
     description: "Upbeat and energetic, perfect for positive content",

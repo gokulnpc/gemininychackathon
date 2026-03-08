@@ -1,9 +1,7 @@
 """Internal worker endpoints — called by Cloud Tasks, not by end users.
 
 POST /internal/worker/generate-video
-
-Receives a Cloud Tasks HTTP callback containing the GenerateVideoRequest payload
-and runs the full video generation pipeline via worker_runner.run_generation().
+POST /internal/worker/generate-script
 
 Security:
   - Validates the X-CloudTasks-QueueName header to reject spoofed requests
@@ -14,6 +12,11 @@ Cloud Tasks retry behaviour:
   - Returns 200 on success (task deleted from queue)
   - Returns 500 on failure (Cloud Tasks will retry up to MAX_ATTEMPTS)
   - Returns 400 for malformed payloads (no retry — bad tasks)
+
+Local dev:
+  - _run_script_generation() and _run_video_generation() are called directly
+    in-process via asyncio.create_task() from services/task_queue.py when
+    WORKER_URL is not set.
 """
 
 from __future__ import annotations
@@ -32,92 +35,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/internal", tags=["worker"], include_in_schema=False)
 
 
-@router.post("/worker/generate-video", status_code=200)
-async def worker_generate_video(
-    request: Request,
-    x_cloudtasks_queuename: str | None = Header(default=None),
-) -> dict:
-    """Cloud Tasks callback: run the full video generation pipeline.
+# ── Core logic functions (reused by HTTP handlers and local in-process mode) ──
 
-    The task body must be a JSON object containing:
-      - project_id: str (UUID)
-      - All fields of GenerateVideoRequest
 
-    Returns {"status": "completed"} on success.
-    Raises 500 on pipeline failure (triggers Cloud Tasks retry).
-    """
-    settings = get_settings()
-
-    # ── Security: verify this came from our Cloud Tasks queue ─────────────────
-    # On Cloud Run, OIDC is already verified at the platform level.
-    # The header check provides a secondary guard against direct HTTP calls.
-    if settings.cloud_tasks_queue and x_cloudtasks_queuename:
-        if x_cloudtasks_queuename != settings.cloud_tasks_queue:
-            logger.warning(
-                "Worker received request from unexpected queue: %s", x_cloudtasks_queuename
-            )
-            raise HTTPException(status_code=403, detail="Forbidden: unexpected queue name")
-
-    # ── Parse payload ─────────────────────────────────────────────────────────
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-
-    try:
-        project_id = UUID(body.pop("project_id"))
-    except (KeyError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid or missing project_id: {e}")
-
-    try:
-        gen_request = GenerateVideoRequest(**body)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid GenerateVideoRequest payload: {e}")
-
-    # ── Execute pipeline ───────────────────────────────────────────────────────
+async def _run_video_generation(project_id: UUID, gen_request: GenerateVideoRequest) -> None:
+    """Core video generation pipeline. Called by HTTP handler and local fallback."""
     from services import worker_runner
-    try:
-        await worker_runner.run_generation(project_id=project_id, request=gen_request)
-    except Exception as exc:
-        logger.exception("Worker pipeline failed for project %s", project_id)
-        # Return 500 so Cloud Tasks retries the task
-        raise HTTPException(status_code=500, detail=f"Pipeline failed: {exc}")
-
-    return {"status": "completed", "project_id": str(project_id)}
+    await worker_runner.run_generation(project_id=project_id, request=gen_request)
 
 
-@router.post("/worker/generate-script", status_code=200)
-async def worker_generate_script(
-    request: Request,
-    x_cloudtasks_queuename: str | None = Header(default=None),
-) -> dict:
-    """Cloud Tasks callback: generate script only, then set status=script_ready.
-
-    Body: {"project_id": "<uuid>"}
-    Full pipeline config is loaded from Firestore by project_id.
-    """
-    settings = get_settings()
-
-    if settings.cloud_tasks_queue and x_cloudtasks_queuename:
-        if x_cloudtasks_queuename != settings.cloud_tasks_queue:
-            logger.warning("Script worker received request from unexpected queue: %s", x_cloudtasks_queuename)
-            raise HTTPException(status_code=403, detail="Forbidden: unexpected queue name")
-
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-
-    project_id = body.get("project_id")
-    if not project_id:
-        raise HTTPException(status_code=400, detail="Missing project_id")
-
-    # ── Load config from Firestore ────────────────────────────────────────────
+async def _run_script_generation(project_id: str) -> None:
+    """Core script generation logic. Called by HTTP handler and local in-process fallback."""
     doc = await firestore_db.get_project(project_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+        raise ValueError(f"Project {project_id} not found")
 
     cfg = doc.get("pipeline_config", {})
+    reddit_ctx: dict = {}
 
     async def _update(stage: str, pct: int) -> None:
         await firestore_db.save_project(project_id, {
@@ -168,14 +102,11 @@ async def worker_generate_script(
             if cfg.get("topic_hint"):
                 transcript = f"{transcript}\n\nSpecific angle: {cfg['topic_hint']}"
             detected_tone = "storytelling"
-
-            # Reddit context for preset flow
             try:
                 from services import reddit
                 reddit_ctx = await reddit.fetch_trending(niche=preset_def["niche"], transcript=transcript)
             except Exception as reddit_err:
                 logger.warning("Reddit context failed (non-fatal): %s", reddit_err)
-                reddit_ctx = {}
 
         # ── Step 2: Inject context preambles ─────────────────────────────────
         if cfg.get("plot_summary"):
@@ -191,17 +122,26 @@ async def worker_generate_script(
                 f"{transcript}"
             )
 
-        # ── Step 3: Generate script via ADK agent ────────────────────────────
+        # ── Step 3: Generate script via ADK agent (with live Firestore progress) ─
         await _update("Generating script", 15)
 
-        from services.gemini_agent import generate_script_with_agent
+        from services.gemini_agent import stream_script_agent
         from routers.script import _TONE_TO_STYLE
 
         style = _TONE_TO_STYLE.get(detected_tone, "modern_energetic")
         art_style = cfg.get("art_style_override") or "realism"
         reddit_context = reddit_ctx if source == "preset" else None
 
-        script_data = await generate_script_with_agent(
+        _STEP_PROGRESS = {
+            "search_trending_hooks":   25,
+            "analyze_brand_voice":     40,
+            "optimize_for_platform":   55,
+            "validate_script_quality": 70,
+            "finalize_script":         85,
+        }
+
+        script_data = None
+        async for event in stream_script_agent(
             transcript=transcript,
             target_platforms=cfg.get("target_platforms", ["instagram_reels"]),
             style=style,
@@ -210,7 +150,23 @@ async def worker_generate_script(
             art_style=art_style,
             video_format="storytelling",
             reddit_context=reddit_context,
-        )
+        ):
+            if event["type"] == "agent_step":
+                tool = event.get("tool", "")
+                pct = _STEP_PROGRESS.get(tool, 50)
+                await firestore_db.save_project(project_id, {
+                    **doc,
+                    "status": "generating_script",
+                    "current_stage": event["message"],
+                    "progress_pct": pct,
+                })
+            elif event["type"] == "complete":
+                script_data = event["script"]
+            elif event["type"] == "error":
+                raise RuntimeError(event["message"])
+
+        if script_data is None:
+            raise RuntimeError("Script agent completed without producing a script")
 
         # ── Step 4: Save script + mark script_ready ──────────────────────────
         await firestore_db.save_project(project_id, {
@@ -223,16 +179,88 @@ async def worker_generate_script(
             "scenes_count": len(script_data.get("scenes", [])),
             "voiceover_full_script": script_data.get("voiceover_full_script", ""),
         })
-
         logger.info("Script generation complete for project %s", project_id)
-        return {"status": "script_ready", "project_id": project_id}
 
     except Exception as exc:
-        logger.exception("Script worker failed for project %s", project_id)
+        logger.exception("Script generation failed for project %s", project_id)
         await firestore_db.save_project(project_id, {
             **doc,
             "status": "failed",
             "current_stage": "Script generation failed",
             "error": str(exc),
         })
+        raise
+
+
+# ── HTTP handlers (thin wrappers used by Cloud Tasks) ─────────────────────────
+
+
+@router.post("/worker/generate-video", status_code=200)
+async def worker_generate_video(
+    request: Request,
+    x_cloudtasks_queuename: str | None = Header(default=None),
+) -> dict:
+    """Cloud Tasks callback: run the full video generation pipeline."""
+    settings = get_settings()
+
+    if settings.cloud_tasks_queue and x_cloudtasks_queuename:
+        if x_cloudtasks_queuename != settings.cloud_tasks_queue:
+            logger.warning(
+                "Worker received request from unexpected queue: %s", x_cloudtasks_queuename
+            )
+            raise HTTPException(status_code=403, detail="Forbidden: unexpected queue name")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    try:
+        project_id = UUID(body.pop("project_id"))
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid or missing project_id: {e}")
+
+    try:
+        gen_request = GenerateVideoRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid GenerateVideoRequest payload: {e}")
+
+    try:
+        await _run_video_generation(project_id=project_id, gen_request=gen_request)
+    except Exception as exc:
+        logger.exception("Worker pipeline failed for project %s", project_id)
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {exc}")
+
+    return {"status": "completed", "project_id": str(project_id)}
+
+
+@router.post("/worker/generate-script", status_code=200)
+async def worker_generate_script(
+    request: Request,
+    x_cloudtasks_queuename: str | None = Header(default=None),
+) -> dict:
+    """Cloud Tasks callback: generate script only, then set status=script_ready."""
+    settings = get_settings()
+
+    if settings.cloud_tasks_queue and x_cloudtasks_queuename:
+        if x_cloudtasks_queuename != settings.cloud_tasks_queue:
+            logger.warning("Script worker received request from unexpected queue: %s", x_cloudtasks_queuename)
+            raise HTTPException(status_code=403, detail="Forbidden: unexpected queue name")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    project_id = body.get("project_id")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Missing project_id")
+
+    try:
+        await _run_script_generation(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Script generation failed: {exc}")
+
+    return {"status": "script_ready", "project_id": project_id}

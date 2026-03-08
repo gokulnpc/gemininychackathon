@@ -55,7 +55,7 @@ export interface MusicData {
   title: string;
   description: string;
   iconColor: string;
-  audioFile: string;
+  audioFile?: string;
 }
 
 export interface ArtStyle {

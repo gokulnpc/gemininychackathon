@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from models.schemas import (
@@ -44,6 +45,7 @@ async def run_pipeline_stages(
     pre_generated_script: ScriptGenerationResponse | None = None,
     user_reference_path: str | None = None,
     user_character_role: str | None = None,
+    on_progress: Callable[[str, str, int], Awaitable[None]] | None = None,
 ) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None, str | None, list[dict]]:
     """Run pipeline stages 2–7: script → video → voiceover → captions → compose → upload.
 
@@ -91,6 +93,7 @@ async def run_pipeline_stages(
         pre_generated_script=pre_generated_script,
         user_reference_path=user_reference_path,
         user_character_role=user_character_role,
+        on_progress=on_progress,
     )
 
 
@@ -119,9 +122,17 @@ async def _run_stages(
     pre_generated_script: ScriptGenerationResponse | None = None,
     user_reference_path: str | None = None,
     user_character_role: str | None = None,
+    on_progress: Callable[[str, str, int], Awaitable[None]] | None = None,
 ) -> tuple[list[PipelineStageStatus], dict[str, str], ScriptGenerationResponse | None, str | None, list[dict]]:
     """Inner function containing the actual pipeline stage logic."""
     qa_report: list[dict] = []
+
+    async def _progress(stage: str, label: str, pct: int) -> None:
+        if on_progress:
+            try:
+                await on_progress(stage, label, pct)
+            except Exception as _e:
+                logger.debug("Progress callback error: %s", _e)
 
     # ── Stage 2: Claude Agent Script Generation ───────────────────────────────
     if pre_generated_script is not None:
@@ -158,6 +169,7 @@ async def _run_stages(
         stages[-1].detail = f"{len(script.scenes)} scenes planned, quality={quality_score}/100"
 
     # ── Stage 3: TTS Voiceover ───────────────────────────────────────────────
+    await _progress("voiceover", "Generating voiceover", 15)
     stages.append(PipelineStageStatus(stage="voiceover", status="running", detail=f"Gemini TTS: voice={voice_id}"))
     voiceover_path: str | None = None
     try:
@@ -190,6 +202,7 @@ async def _run_stages(
         )
 
     # ── Stage 4: Image Generation — one Gemini image per scene ──────────────
+    await _progress("video_generation", "Creating scene images", 25)
     stages.append(PipelineStageStatus(
         stage="video_generation",
         status="running",
@@ -247,6 +260,12 @@ async def _run_stages(
         prev_image_path = img_path
         all_image_paths.append(img_path)
         logger.info("Scene %d/%d generated → %s", scene_idx + 1, len(script.scenes), img_path)
+        n_scenes = len(script.scenes)
+        await _progress(
+            "video_generation",
+            f"Creating scene image ({scene_idx + 1}/{n_scenes})",
+            25 + int(40 * (scene_idx + 1) / n_scenes),
+        )
 
     stages[-1].status = "completed"
     stages[-1].detail = (
@@ -256,6 +275,7 @@ async def _run_stages(
 
     # ── Stage 4c: Visual Quality Director — review and fix low-quality images ─
     qa_report: list[dict] = []
+    await _progress("visual_qa", "Reviewing visual quality", 65)
     stages.append(PipelineStageStatus(
         stage="visual_qa",
         status="running",
@@ -322,6 +342,7 @@ async def _run_stages(
 
     # ── Stage 4b: Thumbnail Generation ───────────────────────────────────────
     thumbnail_url: str | None = None
+    await _progress("thumbnail", "Creating thumbnail", 70)
     stages.append(PipelineStageStatus(
         stage="thumbnail",
         status="running",
@@ -353,6 +374,7 @@ async def _run_stages(
         stages[-1].detail = str(_thumb_exc)
 
     # ── Stage 5: Caption Generation ──────────────────────────────────────────
+    await _progress("captions", "Generating captions", 75)
     stages.append(PipelineStageStatus(stage="captions", status="running"))
 
     srt_path = captions.generate_srt(
@@ -365,6 +387,7 @@ async def _run_stages(
     stages[-1].detail = f"Generated {caption_style} captions"
 
     # ── Stage 6: Video Composition ───────────────────────────────────────────
+    await _progress("composition", "Composing video", 85)
     stages.append(PipelineStageStatus(stage="composition", status="running"))
 
     with_audio_dest = os.path.join(work_dir, "with_audio.mp4")
@@ -429,6 +452,7 @@ async def _run_stages(
     stages[-1].status = "completed"
 
     # ── Stage 7: Platform Export & S3 Upload ─────────────────────────────────
+    await _progress("export_upload", "Uploading final video", 95)
     stages.append(PipelineStageStatus(stage="export_upload", status="running"))
 
     video_urls: dict[str, str] = {}

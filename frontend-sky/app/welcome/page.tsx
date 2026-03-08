@@ -137,7 +137,7 @@ export default function WelcomePage() {
     fetch(`${API}/api/v1/projects`)
       .then((r) => r.json())
       .then((d) => {
-        setRecents((d.projects ?? []).slice(0, 3));
+        setRecents((d.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 3));
         setTotalVideos(d.total ?? 0);
       })
       .catch(() => setRecents([]))
@@ -407,7 +407,7 @@ export default function WelcomePage() {
               <div className="grid grid-cols-3 gap-6">
                 {filteredRecents.map((project, index) => {
                   const t = projectTitle(project);
-                  const platform = project.platforms[0] ?? "master";
+                  const platform = (project.platforms ?? [])[0] ?? "master";
                   return (
                     <motion.button
                       key={project.project_id}

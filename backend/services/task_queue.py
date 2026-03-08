@@ -53,25 +53,24 @@ async def enqueue_video_generation(
     settings = get_settings()
 
     if not settings.worker_url:
-        # Local dev — no Cloud Tasks, caller should run synchronously
-        logger.info("No WORKER_URL set — skipping Cloud Tasks enqueue (local mode)")
-        return "local"
+        # Local dev — run in-process as a background task
+        import asyncio
+        from routers.worker import _run_video_generation
+        from models.schemas import GenerateVideoRequest as _GVR
+        gen_request = _GVR(**request_payload)
+        asyncio.create_task(_run_video_generation(project_id=project_id, gen_request=gen_request))
+        logger.info("Local mode — running video gen in-process for %s", project_id)
+        return "local-inprocess"
 
     if not _tasks_available():
-        # Local dev with WORKER_URL set — direct HTTP call (no Cloud Tasks needed)
+        # Cloud Tasks library not installed — fall back to in-process background task
         import asyncio
-        import httpx
-
-        async def _call_video() -> None:
-            async with httpx.AsyncClient(timeout=600) as client:
-                await client.post(
-                    f"{settings.worker_url.rstrip('/')}/internal/worker/generate-video",
-                    json={"project_id": str(project_id), **request_payload},
-                )
-
-        asyncio.create_task(_call_video())
-        logger.info("Local mode — direct HTTP video gen task fired for %s", project_id)
-        return "local-http"
+        from routers.worker import _run_video_generation
+        from models.schemas import GenerateVideoRequest as _GVR
+        gen_request = _GVR(**request_payload)
+        asyncio.create_task(_run_video_generation(project_id=project_id, gen_request=gen_request))
+        logger.info("Cloud Tasks unavailable — running video gen in-process for %s", project_id)
+        return "local-inprocess"
 
     import asyncio
     from google.cloud import tasks_v2
@@ -133,24 +132,20 @@ async def enqueue_script_generation(project_id: str) -> str:
     settings = get_settings()
 
     if not settings.worker_url:
-        logger.info("No WORKER_URL set — skipping Cloud Tasks enqueue for script gen (local mode)")
-        return "local"
+        # Local dev — run in-process as a background task
+        import asyncio
+        from routers.worker import _run_script_generation
+        asyncio.create_task(_run_script_generation(project_id))
+        logger.info("Local mode — running script gen in-process for %s", project_id)
+        return "local-inprocess"
 
     if not _tasks_available():
-        # Local dev with WORKER_URL set — direct HTTP call (no Cloud Tasks needed)
+        # Cloud Tasks library not installed — fall back to in-process background task
         import asyncio
-        import httpx
-
-        async def _call_script() -> None:
-            async with httpx.AsyncClient(timeout=600) as client:
-                await client.post(
-                    f"{settings.worker_url.rstrip('/')}/internal/worker/generate-script",
-                    json={"project_id": project_id},
-                )
-
-        asyncio.create_task(_call_script())
-        logger.info("Local mode — direct HTTP script gen task fired for %s", project_id)
-        return "local-http"
+        from routers.worker import _run_script_generation
+        asyncio.create_task(_run_script_generation(project_id))
+        logger.info("Cloud Tasks unavailable — running script gen in-process for %s", project_id)
+        return "local-inprocess"
 
     import asyncio
     from google.cloud import tasks_v2

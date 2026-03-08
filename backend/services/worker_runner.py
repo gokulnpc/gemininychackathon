@@ -70,7 +70,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
     started_at = datetime.now(timezone.utc).isoformat()
     await _update_status(
         pid,
-        status="in_progress",
+        status="generating_video",
         started_at=started_at,
         current_stage="initialising",
         progress_pct=1,
@@ -126,6 +126,14 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
         # ── Run pipeline (pipeline_runner writes per-stage Firestore updates) ─
         await _update_status(pid, current_stage="pipeline", progress_pct=5)
 
+        async def _on_progress(stage: str, label: str, pct: int) -> None:
+            await _update_status(
+                pid,
+                status="generating_video",
+                current_stage=label,
+                progress_pct=pct,
+            )
+
         pipeline_stages, video_urls, script, thumbnail_url, visual_qa_report = await run_pipeline_stages(
             project_id=project_id,
             transcript=request.script.voiceover_full_script,
@@ -141,6 +149,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
             pre_generated_script=request.script,
             user_reference_path=user_ref_path,
             user_character_role=request.user_character_role.value if request.user_character_role else None,
+            on_progress=_on_progress,
         )
 
         # ── Save completion state ─────────────────────────────────────────────

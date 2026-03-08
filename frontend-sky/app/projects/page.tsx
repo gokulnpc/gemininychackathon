@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
@@ -26,6 +26,7 @@ type ProjectStatus =
   | "generating_script"
   | "script_ready"
   | "generating_video"
+  | "in_progress"
   | "completed"
   | "failed";
 
@@ -46,7 +47,7 @@ interface Project {
   error?: string;
 }
 
-const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video"];
+const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
 
 function timeAgo(iso?: string): string {
   if (!iso) return "";
@@ -65,6 +66,7 @@ function StatusPill({ status }: { status: ProjectStatus }) {
     generating_script: { label: "Generating Script", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
     script_ready: { label: "Script Ready", className: "bg-green-500/20 text-green-300 border-green-500/30" },
     generating_video: { label: "Generating Video", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    in_progress: { label: "Generating Video", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
     completed: { label: "Completed", className: "bg-green-500/20 text-green-300 border-green-500/30" },
     failed: { label: "Failed", className: "bg-red-500/20 text-red-300 border-red-500/30" },
   };
@@ -312,13 +314,27 @@ function FailedPanel({ project }: { project: Project }) {
 
 export default function ProjectsPage() {
   const { isCollapsed } = useSidebar();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const newProjectId = searchParams.get("new");
+  const selectedFromUrl = searchParams.get("id");
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(newProjectId);
+  const [selectedId, setSelectedId] = useState<string | null>(newProjectId ?? selectedFromUrl);
+
+  function selectProject(id: string | null) {
+    setSelectedId(id);
+    const params = new URLSearchParams(searchParams.toString());
+    if (id) {
+      params.set("id", id);
+      params.delete("new");
+    } else {
+      params.delete("id");
+    }
+    router.replace(`/projects?${params.toString()}`, { scroll: false });
+  }
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchProjects = useCallback(async () => {
@@ -431,7 +447,7 @@ export default function ProjectsPage() {
                     key={project.project_id}
                     project={project}
                     isSelected={selectedId === project.project_id}
-                    onClick={() => setSelectedId(project.project_id)}
+                    onClick={() => selectProject(project.project_id)}
                   />
                 ))}
               </div>
@@ -454,7 +470,7 @@ export default function ProjectsPage() {
                     </div>
 
                     {/* Status-specific content */}
-                    {(selectedProject.status === "queued" || selectedProject.status === "generating_script" || selectedProject.status === "generating_video") && (
+                    {(selectedProject.status === "queued" || selectedProject.status === "generating_script" || selectedProject.status === "generating_video" || selectedProject.status === "in_progress") && (
                       <InProgressPanel project={selectedProject} />
                     )}
 
