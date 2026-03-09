@@ -51,7 +51,7 @@ from models.schemas import (
     VideoFormat,
     VideoDurationRange,
 )
-from routers.catalog import DURATION_MAP
+from routers.projects.catalog import DURATION_MAP
 from services.storage import firestore_db, gcs
 from services.integrations import reddit
 from services.infra import task_queue

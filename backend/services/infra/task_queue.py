@@ -55,7 +55,7 @@ async def enqueue_video_generation(
     if not settings.worker_url:
         # Local dev — run in-process as a background task
         import asyncio
-        from routers.worker import _run_video_generation
+        from routers.internal.worker import _run_video_generation
         from models.schemas import GenerateVideoRequest as _GVR
         gen_request = _GVR(**request_payload)
         asyncio.create_task(_run_video_generation(project_id=project_id, gen_request=gen_request))
@@ -65,7 +65,7 @@ async def enqueue_video_generation(
     if not _tasks_available():
         # Cloud Tasks library not installed — fall back to in-process background task
         import asyncio
-        from routers.worker import _run_video_generation
+        from routers.internal.worker import _run_video_generation
         from models.schemas import GenerateVideoRequest as _GVR
         gen_request = _GVR(**request_payload)
         asyncio.create_task(_run_video_generation(project_id=project_id, gen_request=gen_request))
@@ -134,7 +134,7 @@ async def enqueue_script_generation(project_id: str) -> str:
     if not settings.worker_url:
         # Local dev — run in-process as a background task
         import asyncio
-        from routers.worker import _run_script_generation
+        from routers.internal.worker import _run_script_generation
         asyncio.create_task(_run_script_generation(project_id))
         logger.info("Local mode — running script gen in-process for %s", project_id)
         return "local-inprocess"
@@ -142,7 +142,7 @@ async def enqueue_script_generation(project_id: str) -> str:
     if not _tasks_available():
         # Cloud Tasks library not installed — fall back to in-process background task
         import asyncio
-        from routers.worker import _run_script_generation
+        from routers.internal.worker import _run_script_generation
         asyncio.create_task(_run_script_generation(project_id))
         logger.info("Cloud Tasks unavailable — running script gen in-process for %s", project_id)
         return "local-inprocess"

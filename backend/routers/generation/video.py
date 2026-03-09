@@ -107,7 +107,7 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
     stages: list[PipelineStageStatus] = []
     import base64, os, tempfile
     from models.schemas import (ArtStyle, MusicPreset, SeriesConfig, VideoFormat, VideoDurationRange)
-    from routers.catalog import DURATION_MAP
+    from routers.projects.catalog import DURATION_MAP
     from services.storage import gcs
     from services.pipeline_runner import run_pipeline_stages
 

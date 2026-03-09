@@ -94,7 +94,7 @@ async def _run_script_generation(project_id: str) -> None:
             transcript = cfg.get("transcript") or ""
             detected_tone = "conversational"
         else:  # preset
-            from routers.script import _PRESETS
+            from routers.generation.script import _PRESETS
             from models.schemas import PresetKey
             preset_key = PresetKey(cfg["preset"])
             preset_def = _PRESETS[preset_key]
@@ -126,7 +126,7 @@ async def _run_script_generation(project_id: str) -> None:
         await _update("Generating script", 15)
 
         from services.gemini.agent import stream_script_agent
-        from routers.script import _TONE_TO_STYLE
+        from routers.generation.script import _TONE_TO_STYLE
 
         style = _TONE_TO_STYLE.get(detected_tone, "modern_energetic")
         art_style = cfg.get("art_style_override") or "realism"

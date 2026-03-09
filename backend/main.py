@@ -6,7 +6,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
-from routers import assets, auth, catalog, creative_director, edit_voice, ocr, projects, publish, recompose, script, transcribe, video, voice_agent, voice_live, worker
+from routers.auth.auth import router as auth_router
+from routers.projects.projects import router as projects_router
+from routers.projects.catalog import router as catalog_router
+from routers.generation.script import router as script_router
+from routers.generation.video import router as video_router
+from routers.generation.recompose import router as recompose_router
+from routers.generation.creative_director import router as creative_director_router
+from routers.publishing.publish import router as publish_router
+from routers.voice.transcribe import router as transcribe_router
+from routers.voice.live import router as live_router
+from routers.voice.agent import router as voice_agent_router
+from routers.voice.edit import router as edit_voice_router
+from routers.media.assets import router as assets_router
+from routers.media.ocr import router as ocr_router
+from routers.internal.worker import router as worker_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,21 +43,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(projects.router)
-app.include_router(catalog.router)
-app.include_router(script.router)
-app.include_router(video.router)
-app.include_router(publish.router)
-app.include_router(creative_director.router)
-app.include_router(recompose.router)
-app.include_router(voice_live.router)
-app.include_router(voice_agent.router)
-app.include_router(edit_voice.router)
-app.include_router(transcribe.router)
-app.include_router(ocr.router)
-app.include_router(worker.router)   # internal Cloud Tasks callbacks (not in public docs)
-app.include_router(assets.router)
+app.include_router(auth_router)
+app.include_router(projects_router)
+app.include_router(catalog_router)
+app.include_router(script_router)
+app.include_router(video_router)
+app.include_router(publish_router)
+app.include_router(creative_director_router)
+app.include_router(recompose_router)
+app.include_router(live_router)
+app.include_router(voice_agent_router)
+app.include_router(edit_voice_router)
+app.include_router(transcribe_router)
+app.include_router(ocr_router)
+app.include_router(worker_router)   # internal Cloud Tasks callbacks (not in public docs)
+app.include_router(assets_router)
 
 # Serve locally generated videos when GCS is not configured
 _outputs_dir = os.path.join(os.path.dirname(__file__), "outputs")

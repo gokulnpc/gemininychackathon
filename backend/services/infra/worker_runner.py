@@ -29,7 +29,7 @@ from models.schemas import (
     VideoFormat,
     VideoDurationRange,
 )
-from routers.catalog import DURATION_MAP
+from routers.projects.catalog import DURATION_MAP
 from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
