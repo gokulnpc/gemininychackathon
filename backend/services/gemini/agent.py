@@ -160,14 +160,13 @@ def _tool_validate_script_quality(hook: str, scenes: list, cta: str,
     critique: list[str] = []
     if len(hook.split()) < 4:
         score -= 20; critique.append("Hook too short")
-    if not any(c in hook for c in ("?", "!", "...")):
-        score -= 8; critique.append("Hook lacks emotional punctuation")
     if not scenes:
         score -= 40; critique.append("No scenes generated")
     total_words = sum(len(s.get("voiceover_text", "").split()) for s in scenes)
     estimated = total_words / 2.5
-    if abs(estimated - target_duration) > 10:
-        score -= 8; critique.append(f"Estimated {estimated:.0f}s vs target {target_duration}s")
+    tolerance = max(4, int(target_duration * 0.15))  # 15% of target, min 4s
+    if abs(estimated - target_duration) > tolerance:
+        score -= 8; critique.append(f"Estimated {estimated:.0f}s vs target {target_duration}s (tolerance ±{tolerance}s)")
     final = max(0, min(100, score))
     return {
         "score": final, "passed": final >= 70,
@@ -437,6 +436,7 @@ async def generate_script_with_agent(
     inferred_niche = niche or _infer_niche(transcript)
     scene_count = _recommended_scene_count(video_duration)
     target_words = int(video_duration * 2.5)
+    scene_words = max(3, int(target_words / scene_count))
 
     system = (
         f"You are Scout, Content Factory's expert script director. Transform the creator's voice memo "
@@ -449,7 +449,14 @@ async def generate_script_with_agent(
         f"5. Call validate_script_quality — if score < 70, revise and re-validate\n"
         f"6. Call finalize_script ONLY when score ≥ 70\n\n"
         f"HARD CONSTRAINTS:\n"
-        f"• Total voiceover ≈ {target_words} words across {scene_count} scenes\n"
+        f"• Total voiceover \u2248 {target_words} words across {scene_count} scenes\n"
+        f"• Each scene voiceover_text: \u2248{scene_words} words (2-second scene at 2.5 words/sec)\n"
+        f"• Video duration breakdown: \u223c3s hook + {scene_count}\u00d72s scenes + \u223c3s CTA = {video_duration}s total\n"
+        f"• voiceover_text MUST be TTS-ready plain speech:\n"
+        f"  \u2013 Use only letters, spaces, apostrophes, and commas/periods at natural pauses\n"
+        f"  \u2013 No dashes (- or \u2014), ellipses (...), repeated punctuation (!!!), brackets, emoji, or hashtags\n"
+        f"  \u2013 Spell out numbers and abbreviations (\"ten thousand\" not \"10,000\"; \"call to action\" not \"CTA\")\n"
+        f"  \u2013 No ALL-CAPS words; convey emphasis through word choice, not formatting\n"
         f"• Each scene = exactly 2 seconds of screen time\n"
         f"• Each visual_prompt must be 60+ words using this cinematic template:\n"
         f"  'A [shot type] of [subject + detailed appearance], [action/expression], "
@@ -457,20 +464,20 @@ async def generate_script_with_agent(
         f"a [mood/atmosphere]. [Camera/lens details]. [Key textures and details]. "
         f"{art_style} art style.'\n"
         f"• character_description: write ONE consistent physical description of the "
-        f"main character/subject (appearance, clothing, features) — used to keep all "
+        f"main character/subject (appearance, clothing, features) \u2014 used to keep all "
         f"images visually consistent.\n"
-        f"• Hook must land within the platform's hook window — punchy and specific\n"
+        f"• Hook must land within the platform's hook window \u2014 punchy and specific\n"
         f"• CTA: {cta_preference or 'choose the highest-converting CTA for ' + platform}\n"
         f"• Format: {video_format}\n"
         f"• Never call finalize_script with quality score < 70\n"
-        f"• validate_script_quality and finalize_script take scenes_json — a JSON array string:\n"
+        f"• validate_script_quality and finalize_script take scenes_json \u2014 a JSON array string:\n"
         f'  \'[{{"scene_id":1,"duration_seconds":5,"visual_prompt":"...","voiceover_text":"...","emotion":"excited"}}]\'\n'
         f"• finalize_script also takes hook_text, hook_duration (int), cta_text, cta_type separately\n"
         f'• social_copy_json is a JSON string: \'{{\"instagram_reels\":{{\"caption\":\"...\",\"hashtags\":[\"#tag\"]}}}}\''
     )
 
     if reddit_context and reddit_context.get("top_topics"):
-        topics = "\n".join(f"  • {t}" for t in reddit_context["top_topics"][:6])
+        topics = "\n".join(f"  \u2022 {t}" for t in reddit_context["top_topics"][:6])
         subreddits = ", ".join(f"r/{s}" for s in reddit_context.get("subreddits_searched", []))
         system += (
             f"\n\nTRENDING ON REDDIT RIGHT NOW ({subreddits}):\n{topics}\n"
@@ -622,6 +629,7 @@ async def stream_script_agent(
     inferred_niche = niche or _infer_niche(transcript)
     scene_count = _recommended_scene_count(video_duration)
     target_words = int(video_duration * 2.5)
+    scene_words = max(3, int(target_words / scene_count))
 
     system = (
         f"You are Scout, Content Factory's expert script director. Transform the creator's voice memo "
@@ -634,7 +642,14 @@ async def stream_script_agent(
         f"5. Call validate_script_quality — if score < 70, revise and re-validate\n"
         f"6. Call finalize_script ONLY when score ≥ 70\n\n"
         f"HARD CONSTRAINTS:\n"
-        f"• Total voiceover ≈ {target_words} words across {scene_count} scenes\n"
+        f"• Total voiceover \u2248 {target_words} words across {scene_count} scenes\n"
+        f"• Each scene voiceover_text: \u2248{scene_words} words (2-second scene at 2.5 words/sec)\n"
+        f"• Video duration breakdown: \u223c3s hook + {scene_count}\u00d72s scenes + \u223c3s CTA = {video_duration}s total\n"
+        f"• voiceover_text MUST be TTS-ready plain speech:\n"
+        f"  \u2013 Use only letters, spaces, apostrophes, and commas/periods at natural pauses\n"
+        f"  \u2013 No dashes (- or \u2014), ellipses (...), repeated punctuation (!!!), brackets, emoji, or hashtags\n"
+        f"  \u2013 Spell out numbers and abbreviations (\"ten thousand\" not \"10,000\"; \"call to action\" not \"CTA\")\n"
+        f"  \u2013 No ALL-CAPS words; convey emphasis through word choice, not formatting\n"
         f"• Each scene = exactly 2 seconds of screen time\n"
         f"• Each visual_prompt must be 60+ words using this cinematic template:\n"
         f"  'A [shot type] of [subject + detailed appearance], [action/expression], "
@@ -642,20 +657,20 @@ async def stream_script_agent(
         f"a [mood/atmosphere]. [Camera/lens details]. [Key textures and details]. "
         f"{art_style} art style.'\n"
         f"• character_description: write ONE consistent physical description of the "
-        f"main character/subject (appearance, clothing, features) — used to keep all "
+        f"main character/subject (appearance, clothing, features) \u2014 used to keep all "
         f"images visually consistent.\n"
-        f"• Hook must land within the platform's hook window — punchy and specific\n"
+        f"• Hook must land within the platform's hook window \u2014 punchy and specific\n"
         f"• CTA: {cta_preference or 'choose the highest-converting CTA for ' + platform}\n"
         f"• Format: {video_format}\n"
         f"• Never call finalize_script with quality score < 70\n"
-        f"• validate_script_quality and finalize_script take scenes_json — a JSON array string:\n"
+        f"• validate_script_quality and finalize_script take scenes_json \u2014 a JSON array string:\n"
         f'  \'[{{"scene_id":1,"duration_seconds":5,"visual_prompt":"...","voiceover_text":"...","emotion":"excited"}}]\'\n'
         f"• finalize_script also takes hook_text, hook_duration (int), cta_text, cta_type separately\n"
         f'• social_copy_json is a JSON string: \'{{\"instagram_reels\":{{\"caption\":\"...\",\"hashtags\":[\"#tag\"]}}}}\''
     )
 
     if reddit_context and reddit_context.get("top_topics"):
-        topics = "\n".join(f"  • {t}" for t in reddit_context["top_topics"][:6])
+        topics = "\n".join(f"  \u2022 {t}" for t in reddit_context["top_topics"][:6])
         subreddits = ", ".join(f"r/{s}" for s in reddit_context.get("subreddits_searched", []))
         system += (
             f"\n\nTRENDING ON REDDIT RIGHT NOW ({subreddits}):\n{topics}\n"

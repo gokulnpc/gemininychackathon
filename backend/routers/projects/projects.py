@@ -12,10 +12,11 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from config import get_settings
+from deps.auth import get_current_user
 from models.schemas import JobStatusResponse, ProjectListResponse, ProjectMetadata, ScriptEditRequest
 from services.storage import firestore_db, gcs
 
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/api/v1", tags=["projects"])
 
 
 @router.get("/projects")
-async def list_projects():
+async def list_projects(current_user: dict = Depends(get_current_user)):
     """List all projects for the Projects tab, newest first.
 
     Returns ALL projects regardless of status (queued, generating_script,
@@ -40,7 +41,7 @@ async def list_projects():
 
 
 @router.get("/projects/{project_id}", response_model=ProjectMetadata)
-async def get_project(project_id: UUID):
+async def get_project(project_id: UUID, current_user: dict = Depends(get_current_user)):
     """Get metadata and video URLs for a single project."""
     data = await firestore_db.get_project(str(project_id))
     if data is None:
@@ -55,7 +56,7 @@ async def get_project(project_id: UUID):
 
 
 @router.get("/projects/{project_id}/status", response_model=JobStatusResponse)
-async def get_project_status(project_id: UUID):
+async def get_project_status(project_id: UUID, current_user: dict = Depends(get_current_user)):
     """Lightweight job status endpoint for async polling during video generation.
 
     Returns current status, active pipeline stage, % progress, and video URLs once done.
@@ -150,7 +151,7 @@ async def get_project_thumbnail(project_id: UUID, platform: str = "instagram_ree
 
 
 @router.put("/projects/{project_id}/script")
-async def update_project_script(project_id: UUID, req: ScriptEditRequest):
+async def update_project_script(project_id: UUID, req: ScriptEditRequest, current_user: dict = Depends(get_current_user)):
     """Save user edits to a generated script.
 
     Only allowed when status == 'script_ready'.
@@ -177,7 +178,7 @@ async def update_project_script(project_id: UUID, req: ScriptEditRequest):
 
 
 @router.post("/projects/{project_id}/approve-script", status_code=202)
-async def approve_script(project_id: UUID):
+async def approve_script(project_id: UUID, current_user: dict = Depends(get_current_user)):
     """Approve the generated script and kick off video generation.
 
     Reconstructs GenerateVideoRequest from stored script + pipeline_config,
@@ -262,7 +263,7 @@ async def save_project_timeline(project_id: UUID, body: dict):
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(project_id: UUID):
+async def delete_project(project_id: UUID, current_user: dict = Depends(get_current_user)):
     """Remove a project's metadata from the dashboard.
 
     Only deletes the metadata record — video files in GCS are retained.
