@@ -183,7 +183,7 @@ def _invoke(contents: list, api_key: str) -> object:
     """Synchronous Gemini call — run via asyncio.to_thread."""
     from google.genai import types
 
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
     client = get_client(force_api_key=True)
     return client.models.generate_content(
         model=MODEL,

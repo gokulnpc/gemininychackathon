@@ -50,7 +50,7 @@ async def transcribe_with_tone(audio_b64: str, audio_format: str = "webm") -> di
     """
     from google.genai import types
 
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
     client = get_client(force_api_key=True)
     mime_type = _MIME_MAP.get(audio_format.lower(), "audio/webm")
     audio_bytes = base64.b64decode(audio_b64)

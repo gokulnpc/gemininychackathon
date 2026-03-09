@@ -30,7 +30,7 @@ from models.schemas import (
     PipelineResponse,
     PipelineStageStatus,
 )
-from services import firestore_db
+from services.storage import firestore_db
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
     # ── ASYNC MODE: enqueue Cloud Task and return 202 ─────────────────────────
     if settings.worker_url:
         try:
-            from services import task_queue
+            from services.infra import task_queue
             task_payload = json.loads(request.model_dump_json())
             await task_queue.enqueue_video_generation(
                 project_id=project_id,
@@ -108,7 +108,7 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
     import base64, os, tempfile
     from models.schemas import (ArtStyle, MusicPreset, SeriesConfig, VideoFormat, VideoDurationRange)
     from routers.catalog import DURATION_MAP
-    from services import gcs
+    from services.storage import gcs
     from services.pipeline_runner import run_pipeline_stages
 
     try:
@@ -182,7 +182,7 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
         # Email notification (sync mode)
         if request.user_email and script and script.hook:
             try:
-                from services import email_notifier
+                from services.integrations import email_notifier
                 await email_notifier.send_video_ready(
                     to_email=request.user_email, project_id=pid,
                     video_urls=video_urls, thumbnail_url=thumbnail_url,
@@ -192,7 +192,7 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
         # Feedback store
         if script and script.hook:
             try:
-                from services import feedback_store
+                from services.storage import feedback_store
                 await feedback_store.record_project_outcome(
                     project_id=pid, hook_text=script.hook.text,
                     niche=series.niche if series and series.niche else "default",

@@ -19,8 +19,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 
 from models.schemas import RecomposeRequest, RecomposeResponse
-from services import firestore_db
-from services.recompose import recompose_video
+from services.storage import firestore_db
+from services.infra.recompose import recompose_video
 
 logger = logging.getLogger(__name__)
 

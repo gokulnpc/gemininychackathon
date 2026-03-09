@@ -17,7 +17,7 @@ export const formats = [
 
 export const presets = [
   {
-    id: "horror-story",
+    id: "scary_stories",
     title: "Horror story",
     description: "Horror story that gives you goosebumps",
     image: "/presets/Scary_Story.png",
@@ -30,25 +30,25 @@ export const presets = [
     image: "/presets/History.png",
   },
   {
-    id: "true-crime",
+    id: "true_crime",
     title: "True Crime",
     description: "Viral videos about true crime stories",
     image: "/presets/True_Crime.png",
   },
   {
-    id: "stoic-motivation",
+    id: "stoic_motivation",
     title: "Stoic Motivation",
     description: "Viral videos about stoic philosophy and life lessons",
     image: "/presets/Stoic_Motivation.png",
   },
   {
-    id: "marketing-business",
+    id: "marketing_business",
     title: "Marketing & Business",
     description: "Product launches, business tips, and growth strategies",
     image: "/presets/Marketing_Business.png",
   },
   {
-    id: "tech-innovation",
+    id: "tech_innovation",
     title: "Tech & Innovation",
     description: "Latest tech news, gadget reviews, and innovations",
     image: "/presets/Tech.png",

@@ -74,7 +74,7 @@ def _quick_preview_prompt(brief: str, art_style: str | None) -> str:
 def _invoke_quick_preview(prompt: str) -> list[dict]:
     """Synchronous single-image Gemini call — run via asyncio.to_thread."""
     from google.genai import types
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     client = get_client(force_api_key=True)
     response = client.models.generate_content(
@@ -147,7 +147,7 @@ async def _apply_recompose(
 ) -> dict:
     """Run the recompose pipeline with queued edits. Single-platform for speed."""
     from models.schemas import CaptionStyleEnum, MusicPreset, Platform
-    from services.recompose import recompose_video
+    from services.infra.recompose import recompose_video
 
     caption_style = pending_edits.get("caption_style") or project_data.get("caption_style", "beast")
     background_music = pending_edits.get("background_music") or project_data.get("background_music", "none")
@@ -311,7 +311,7 @@ async def run_edit_voice_agent(
     for transcripts, tool calls, creative blocks, and edit_complete notifications.
     """
     from google.genai import types
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     client = get_client(force_api_key=True)
     live_config = _build_voice_config(project_data)
@@ -380,17 +380,48 @@ async def run_edit_voice_agent(
     logger.info("Scout edit voice session ended: project=%s", project_id)
 
 
+# ── Timeline JSON patcher ────────────────────────────────────────────────────────
+
+def _patch_project_json(project_json: dict, changes: dict) -> dict:
+    """Patch caption style and music settings in a Twick project_json without re-rendering.
+
+    Updates:
+    - Caption track props.capStyle when caption_style changes
+    - Music element props.musicPreset / props.volume when background_music / music_volume changes
+    """
+    import copy
+    from services.content.timeline_builder import _CAP_STYLE_MAP
+
+    patched = copy.deepcopy(project_json)
+    for track in patched.get("tracks", []):
+        # Caption track: update capStyle
+        if track.get("type") == "caption" and "caption_style" in changes:
+            track.setdefault("props", {})["capStyle"] = _CAP_STYLE_MAP.get(
+                changes["caption_style"], "text_bg"
+            )
+        # Music element: update musicPreset / volume
+        for elem in track.get("elements", []):
+            if "musicPreset" in elem.get("props", {}):
+                if "background_music" in changes:
+                    elem["props"]["musicPreset"] = changes["background_music"]
+                if "music_volume" in changes:
+                    elem["props"]["volume"] = changes["music_volume"]
+    return patched
+
+
 # ── Text / SSE mode (ADK) ───────────────────────────────────────────────────────
 
 async def run_edit_text_agent(
     project_id: str,
     project_data: dict,
     instruction: str,
+    current_project_json: dict | None = None,
 ):
     """Async generator — yields SSE-ready dicts for the text-based quick-action editor.
 
     Uses ADK (Agent + Runner) with gemini-2.5-flash for fast reasoning.
-    Yields agent_step progress events then a complete or error event.
+    Yields agent_step progress events, then a complete event with the patched
+    project_json (no video re-render — export triggers recompose separately).
     """
     from google.adk.agents import Agent
     from google.adk.runners import Runner
@@ -422,7 +453,11 @@ async def run_edit_text_agent(
         music_volume: float | None = None,
         tool_context: ToolContext = None,
     ) -> dict:
-        """Queue caption style and/or background music change. Does NOT apply yet."""
+        """Queue caption style and/or background music change.
+
+        Changes are saved to project metadata immediately.
+        The actual video re-render only happens when the user exports.
+        """
         edits: dict = {}
         if caption_style and caption_style in _VALID_CAPTION_STYLES:
             edits["caption_style"] = caption_style
@@ -439,18 +474,7 @@ async def run_edit_text_agent(
                 **tool_context.state.get("pending_edits", {}),
                 **edits,
             }
-        return {"queued": edits}
-
-    async def apply_recompose(tool_context: ToolContext) -> dict:  # noqa: F841
-        """Apply all queued edits via the recompose pipeline."""
-        pending = tool_context.state.get("pending_edits", {})
-        if not pending:
-            return {"error": "No edits queued. Call queue_edit first."}
-        data = tool_context.state.get("project_data", {})
-        pid = tool_context.state.get("project_id", "")
-        result = await _apply_recompose(pid, data, pending)
-        tool_context.state["result"] = result
-        return result
+        return {"queued": edits, "note": "Changes will be applied to the editor instantly. Export to render a new video."}
 
     # ── ADK agent ────────────────────────────────────────────────────────────────
 
@@ -464,20 +488,26 @@ async def run_edit_text_agent(
         f"  Hook: \"{hook}\"\n"
         f"  Caption style: {caption_style}\n"
         f"  Background music: {background_music}\n\n"
-        "Workflow: call get_project_info → queue_edit → apply_recompose."
+        "Workflow: call get_project_info → queue_edit.\n"
+        "Do NOT try to render or export — the user will export when ready."
     )
 
     session_service = InMemorySessionService()
     await session_service.create_session(
         app_name=app_name, user_id=user_id, session_id=session_id,
-        state={"project_id": project_id, "project_data": project_data, "pending_edits": {}},
+        state={
+            "project_id": project_id,
+            "project_data": project_data,
+            "pending_edits": {},
+            "current_project_json": current_project_json or {},
+        },
     )
 
     agent = Agent(
         name="video_edit_agent",
         model=_TEXT_MODEL,
         instruction=system,
-        tools=[get_project_info, queue_edit, apply_recompose],
+        tools=[get_project_info, queue_edit],
     )
 
     runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
@@ -488,8 +518,7 @@ async def run_edit_text_agent(
 
     _LABELS: dict[str, str] = {
         "get_project_info": "Checking your current video settings…",
-        "queue_edit":        "Selecting edit options…",
-        "apply_recompose":   "Applying your changes (~30 seconds)…",
+        "queue_edit":        "Applying edit to timeline…",
     }
 
     logger.info("ADK edit agent starting: project=%s instruction=%.60s", project_id, instruction)
@@ -508,12 +537,39 @@ async def run_edit_text_agent(
         session = await session_service.get_session(
             app_name=app_name, user_id=user_id, session_id=session_id
         )
-        result = (session.state or {}).get("result")
-        if result:
-            logger.info("ADK edit agent completed: project=%s changes=%s", project_id, result.get("changes"))
-            yield {"type": "complete", **result}
-        else:
-            yield {"type": "error", "message": "Agent did not apply any changes — try rephrasing your request."}
+        pending = (session.state or {}).get("pending_edits", {})
+
+        if not pending:
+            yield {"type": "error", "message": "Agent did not queue any changes — try rephrasing your request."}
+            return
+
+        # Patch timeline JSON and save metadata to Firestore (no video re-render)
+        patched_json: dict | None = None
+        try:
+            from services.storage import firestore_db as _fdb
+            doc = await _fdb.get_project(project_id) or {}
+            updates = {**doc}
+            if "caption_style" in pending:
+                updates["caption_style"] = pending["caption_style"]
+            if "background_music" in pending:
+                updates["background_music"] = pending["background_music"]
+            if "music_volume" in pending:
+                updates["music_volume"] = pending["music_volume"]
+            if current_project_json:
+                patched_json = _patch_project_json(current_project_json, pending)
+                updates["project_json"] = patched_json
+            await _fdb.save_project(project_id, updates)
+        except Exception as _save_exc:
+            logger.warning("Failed to save project edits to Firestore: %s", _save_exc)
+
+        change_summary = ", ".join(f"{k}={v}" for k, v in pending.items() if k != "music_volume")
+        logger.info("ADK edit agent completed: project=%s changes=%s", project_id, pending)
+        yield {
+            "type": "complete",
+            "message": f"Done! Applied: {change_summary}. Click Export to render the updated video.",
+            "changes": pending,
+            "project_json": patched_json,
+        }
 
     except Exception as exc:
         logger.exception("ADK edit agent failed: project=%s", project_id)

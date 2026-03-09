@@ -57,7 +57,7 @@ async def save_project(project_id: str, metadata: dict) -> None:
         return
 
     # GCS fallback
-    from services import gcs
+    from services.storage import gcs
     await gcs.store_json(metadata, f"projects/{project_id}/metadata.json")
 
 
@@ -76,7 +76,7 @@ async def get_project(project_id: str) -> dict | None:
         return result
 
     # GCS fallback
-    from services import gcs
+    from services.storage import gcs
     try:
         return await gcs.load_json(f"projects/{project_id}/metadata.json")
     except Exception:
@@ -104,7 +104,7 @@ async def list_projects(limit: int = 50) -> list[dict]:
         return results
 
     # GCS fallback — list all metadata keys and load each
-    from services import gcs
+    from services.storage import gcs
     all_keys = await gcs.list_keys("projects/")
     meta_keys = [
         k for k in all_keys
@@ -134,5 +134,5 @@ async def delete_project(project_id: str) -> None:
         logger.info("Firestore: deleted project %s", project_id)
         return
 
-    from services import gcs
+    from services.storage import gcs
     await gcs.delete_object(f"projects/{project_id}/metadata.json")

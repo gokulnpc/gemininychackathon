@@ -28,7 +28,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from config import get_settings
 from models.schemas import GenerateVideoRequest
-from services import firestore_db, gcs
+from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/internal", tags=["worker"], include_in_schema=False)
 
 async def _run_video_generation(project_id: UUID, gen_request: GenerateVideoRequest) -> None:
     """Core video generation pipeline. Called by HTTP handler and local fallback."""
-    from services import worker_runner
+    from services.infra import worker_runner
     await worker_runner.run_generation(project_id=project_id, request=gen_request)
 
 
@@ -83,7 +83,7 @@ async def _run_script_generation(project_id: str) -> None:
             finally:
                 if _os.path.exists(tmp_audio_path):
                     _os.unlink(tmp_audio_path)
-            from services import gemini_audio
+            from services.gemini import audio as gemini_audio
             result = await gemini_audio.transcribe_with_tone(
                 audio_b64=audio_b64,
                 audio_format=audio_format,
@@ -103,7 +103,7 @@ async def _run_script_generation(project_id: str) -> None:
                 transcript = f"{transcript}\n\nSpecific angle: {cfg['topic_hint']}"
             detected_tone = "storytelling"
             try:
-                from services import reddit
+                from services.integrations import reddit
                 reddit_ctx = await reddit.fetch_trending(niche=preset_def["niche"], transcript=transcript)
             except Exception as reddit_err:
                 logger.warning("Reddit context failed (non-fatal): %s", reddit_err)
@@ -125,7 +125,7 @@ async def _run_script_generation(project_id: str) -> None:
         # ── Step 3: Generate script via ADK agent (with live Firestore progress) ─
         await _update("Generating script", 15)
 
-        from services.gemini_agent import stream_script_agent
+        from services.gemini.agent import stream_script_agent
         from routers.script import _TONE_TO_STYLE
 
         style = _TONE_TO_STYLE.get(detected_tone, "modern_energetic")

@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from config import get_settings
 from models.schemas import JobStatusResponse, ProjectListResponse, ProjectMetadata, ScriptEditRequest
-from services import firestore_db, gcs
+from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ async def approve_script(project_id: UUID):
     })
 
     # Enqueue video generation Cloud Task
-    from services import task_queue
+    from services.infra import task_queue
     task_payload = json.loads(gen_request.model_dump_json())
     try:
         await task_queue.enqueue_video_generation(
@@ -242,6 +242,23 @@ async def approve_script(project_id: UUID):
         "status": "queued",
         "poll_url": f"/api/v1/projects/{project_id}/status",
     })
+
+
+@router.put("/projects/{project_id}/timeline")
+async def save_project_timeline(project_id: UUID, body: dict):
+    """Persist a user-edited Twick timeline JSON back to Firestore.
+
+    Called by the frontend TwickStudio exportVideo callback after the user
+    makes edits in the editor (rearranges clips, adjusts captions, etc.).
+    """
+    doc = await firestore_db.get_project(str(project_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    try:
+        await firestore_db.save_project(str(project_id), {**doc, "project_json": body})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save timeline: {e}")
+    return {"status": "ok"}
 
 
 @router.delete("/projects/{project_id}", status_code=204)

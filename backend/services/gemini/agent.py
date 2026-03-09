@@ -22,7 +22,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools import ToolContext
 
-from services import gemini_reasoning
+from services.gemini import reasoning as gemini_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +191,7 @@ async def search_trending_hooks(
     """
     base = _tool_search_trending_hooks(niche=niche, platform=platform, style=style)
     try:
-        from services import feedback_store
+        from services.storage import feedback_store
         top_hooks = await feedback_store.get_top_hooks(niche=niche)
         if top_hooks:
             base["proven_hooks_from_history"] = [

@@ -18,7 +18,7 @@ from pathlib import Path
 import httpx
 
 from config import get_settings
-from services import gcs as gcs_service
+from services.storage import gcs as gcs_service
 
 logger = logging.getLogger(__name__)
 

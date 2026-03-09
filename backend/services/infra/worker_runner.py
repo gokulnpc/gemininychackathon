@@ -30,7 +30,7 @@ from models.schemas import (
     VideoDurationRange,
 )
 from routers.catalog import DURATION_MAP
-from services import firestore_db, gcs
+from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
                 progress_pct=pct,
             )
 
-        pipeline_stages, video_urls, script, thumbnail_url, visual_qa_report = await run_pipeline_stages(
+        pipeline_stages, video_urls, script, thumbnail_url, visual_qa_report, project_json = await run_pipeline_stages(
             project_id=project_id,
             transcript=request.script.voiceover_full_script,
             series=series,
@@ -172,6 +172,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
             video_duration=video_duration,
             series_id=request.series_id,
             series_name=series.series_name if series else None,
+            project_json=project_json if project_json else None,
         )
 
         logger.info("Worker: project %s completed. video_urls=%s", pid, list(video_urls.keys()))
@@ -179,7 +180,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
         # ── Send success email ────────────────────────────────────────────────
         if request.user_email:
             try:
-                from services import email_notifier
+                from services.integrations import email_notifier
                 await email_notifier.send_video_ready(
                     to_email=request.user_email,
                     project_id=pid,
@@ -192,7 +193,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
         # ── Record feedback ───────────────────────────────────────────────────
         if script and script.hook:
             try:
-                from services import feedback_store
+                from services.storage import feedback_store
                 await feedback_store.record_project_outcome(
                     project_id=pid,
                     hook_text=script.hook.text,
@@ -219,7 +220,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
 
         if request.user_email:
             try:
-                from services import email_notifier
+                from services.integrations import email_notifier
                 await email_notifier.send_generation_failed(
                     to_email=request.user_email,
                     project_id=pid,

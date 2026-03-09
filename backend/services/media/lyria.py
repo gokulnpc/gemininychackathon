@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import tempfile
+import urllib.error
 import urllib.request
 
 logger = logging.getLogger(__name__)
@@ -34,15 +35,15 @@ _PRESET_PROMPTS: dict[str, str] = {
 
 # Style / niche → Lyria prompt (used when music_preset == "lyria")
 _STYLE_PROMPTS: dict[str, str] = {
-    "dramatic":         "cinematic orchestral swell, epic emotional score, Hans Zimmer style, sweeping",
-    "modern_energetic": "upbeat electronic pop, driving rhythm, energetic and motivational, bright",
+    "dramatic":         "cinematic orchestral swell, epic emotional score, sweeping and grand",
+    "modern_energetic": "upbeat energetic background music, driving rhythm, motivational and bright",
     "cinematic":        "epic cinematic ambient, sweeping orchestral underscore, atmospheric tension",
     "realism":          "subtle documentary underscore, quiet and understated, natural and organic",
     "scary_stories":    "dark horror ambient, eerie drones, tense suspense, unsettling, no melody",
-    "gothic_clay":      "dark gothic orchestral, haunting strings, eerie chamber music, Victorian",
+    "gothic_clay":      "dark gothic orchestral, haunting strings, eerie chamber music, mysterious",
     "surreal":          "dreamlike ambient soundscape, floating ethereal tones, surreal and otherworldly",
-    "oil_painting":     "classical chamber music, elegant and refined, baroque-inspired, sophisticated",
-    "steampunk":        "industrial orchestral, percussive metallic rhythms, Victorian adventure score",
+    "oil_painting":     "classical chamber music, elegant and refined, sophisticated and graceful",
+    "steampunk":        "industrial orchestral, percussive metallic rhythms, adventurous and dramatic",
     "sunrise":          "warm uplifting ambient, hopeful and expansive, gentle acoustic, golden-hour",
 }
 
@@ -75,7 +76,7 @@ def _invoke_lyria(prompt: str, project_id: str, location: str) -> bytes:
     )
     body = json.dumps({
         "instances": [{"prompt": prompt}],
-        "parameters": {"sampleCount": 1},
+        "parameters": {"sample_count": 1},
     }).encode()
 
     req = urllib.request.Request(
@@ -86,10 +87,14 @@ def _invoke_lyria(prompt: str, project_id: str, location: str) -> bytes:
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        result = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Lyria HTTP {exc.code}: {body}") from exc
 
-    b64_wav = result["predictions"][0]["bytesBase64Encoded"]
+    b64_wav = result["predictions"][0]["audioContent"]
     return base64.b64decode(b64_wav)
 
 
@@ -122,7 +127,14 @@ async def generate_music(
 
     logger.info("Lyria: generating music (preset=%s, prompt=%.80s…)", music_preset, prompt)
 
-    wav_bytes = await asyncio.to_thread(_invoke_lyria, prompt, project_id, location)
+    try:
+        wav_bytes = await asyncio.to_thread(_invoke_lyria, prompt, project_id, location)
+    except RuntimeError as exc:
+        if "recitation" in str(exc).lower():
+            logger.warning("Lyria recitation block on original prompt — retrying with fallback")
+            wav_bytes = await asyncio.to_thread(_invoke_lyria, _FALLBACK_PROMPT, project_id, location)
+        else:
+            raise
 
     tmp_path = tempfile.mktemp(suffix=".wav", prefix="lyria_music_")
     with open(tmp_path, "wb") as f:

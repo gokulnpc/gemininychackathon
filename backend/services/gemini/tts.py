@@ -4,7 +4,7 @@ Same GEMINI_API_KEY already in .env — no extra credentials needed.
 
 Available voices:
   Narrative / dramatic : Aoede, Charon, Fenrir, Kore
-  Calm / warm          : Orbit, Autonoe, Zephyr
+  Calm / warm          : Orus, Autonoe, Zephyr
   Upbeat / bright      : Puck, Laomedeia
 
 Output: WAV file (24kHz, 16-bit mono PCM wrapped in WAV container)
@@ -30,7 +30,7 @@ VOICE_CATALOGUE: dict[str, str] = {
     "Charon":    "Deep dramatic male — authoritative and cinematic",
     "Fenrir":    "Bold intense male — high energy and commanding",
     "Kore":      "Soft female — gentle, conversational, friendly",
-    "Orbit":     "Smooth calm male — soothing and measured",
+    "Orus":      "Smooth calm male — soothing and measured",
     "Autonoe":   "Natural female — relaxed, down-to-earth",
     "Zephyr":    "Breezy upbeat female — light and enthusiastic",
     "Puck":      "Playful animated male — fun and expressive",
@@ -57,7 +57,7 @@ def _invoke_tts(text: str, voice_name: str, api_key: str) -> bytes:
 
     from google.genai import types
 
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
     client = get_client(force_api_key=True)
     response = client.models.generate_content(
         model=MODEL,

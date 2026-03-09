@@ -49,7 +49,7 @@ async def transcribe_live(
         Exception: Propagates Gemini Live API errors to the caller.
     """
     from google.genai import types
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     client = get_client(force_api_key=True)
 

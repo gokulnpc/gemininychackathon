@@ -9,7 +9,7 @@ from models.schemas import (
     PublishRequest,
     PublishResponse,
 )
-from services import social_publish
+from services.integrations import social_publish
 
 logger = logging.getLogger(__name__)
 

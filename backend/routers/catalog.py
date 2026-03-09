@@ -23,7 +23,7 @@ from models.schemas import (
     SeriesListResponse,
     ToneOption,
 )
-from services import gcs
+from services.storage import gcs
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ _VOICE_TAGS: dict[str, list[str]] = {
     "Charon":    ["male", "dramatic", "deep", "cinematic"],
     "Fenrir":    ["male", "bold", "intense", "commanding"],
     "Kore":      ["female", "soft", "gentle", "conversational"],
-    "Orbit":     ["male", "calm", "smooth", "measured"],
+    "Orus":      ["male", "calm", "smooth", "measured"],
     "Autonoe":   ["female", "natural", "relaxed", "casual"],
     "Zephyr":    ["female", "upbeat", "light", "enthusiastic"],
     "Puck":      ["male", "playful", "animated", "expressive"],
@@ -189,7 +189,7 @@ async def list_voices():
     Returns a list of voice options with name, description, and tags.
     Pass the voice name as voice_id in /generate-video or series config.
     """
-    from services.gemini_tts import VOICE_CATALOGUE, DEFAULT_VOICE
+    from services.gemini.tts import VOICE_CATALOGUE, DEFAULT_VOICE
     return [
         {"id": name, "description": desc, "default": name == DEFAULT_VOICE,
          "tags": _VOICE_TAGS.get(name, [])}
@@ -203,7 +203,7 @@ async def preview_voice(voice_id: str):
     
     Returns the audio as a base64 encoded WAV string.
     """
-    from services.gemini_tts import generate_voiceover, VOICE_CATALOGUE
+    from services.gemini.tts import generate_voiceover, VOICE_CATALOGUE
     import base64
     import os
     

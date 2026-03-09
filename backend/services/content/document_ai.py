@@ -42,7 +42,7 @@ async def extract_text_from_pdf(pdf_base64: str) -> str:
 async def _extract_with_gemini(pdf_base64: str) -> str:
     """Extract text using Gemini's native PDF understanding."""
     from google.genai import types
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     client = get_client(force_api_key=True)
     pdf_bytes = base64.b64decode(pdf_base64)

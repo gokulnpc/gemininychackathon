@@ -98,7 +98,7 @@ def _invoke_interleaved(prompt: str) -> list[dict]:
     """
     from google.genai import types
 
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
     client = get_client(force_api_key=True)
     response = client.models.generate_content(
         model=MODEL,
@@ -164,7 +164,7 @@ async def generate_creative_package(
 
     narration_b64: str | None = None
     if include_narration and n_text > 0:
-        from services import gemini_tts
+        from services.gemini import tts as gemini_tts
         full_text = " ".join(b["content"] for b in blocks if b["type"] == "text")
         try:
             wav_path = await gemini_tts.generate_voiceover(full_text, voice_id)

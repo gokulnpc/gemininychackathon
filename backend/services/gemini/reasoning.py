@@ -16,7 +16,7 @@ import os
 import re
 from uuid import uuid4
 
-from services.retry import call_with_retry
+from services.infra.retry import call_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ MODEL = "gemini-2.5-pro"
 
 def _get_client():
     """Return a configured Gemini client (Vertex AI on GCP, API key locally)."""
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
     return get_client()
 
 

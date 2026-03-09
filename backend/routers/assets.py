@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
 
-from services import gcs
+from services.storage import gcs
 
 logger = logging.getLogger(__name__)
 

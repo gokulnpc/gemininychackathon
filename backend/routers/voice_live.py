@@ -82,7 +82,7 @@ async def live_voice(websocket: WebSocket, project_id: UUID):
             await audio_queue.put(None)
 
     try:
-        from services import gemini_live as gemini_live_svc
+        from services.gemini import live as gemini_live_svc
 
         receive_task = asyncio.create_task(_receive_loop())
 

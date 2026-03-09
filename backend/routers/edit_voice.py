@@ -28,7 +28,7 @@ from fastapi.responses import StreamingResponse
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from models.schemas import EditAgentRequest
-from services import firestore_db
+from services.storage import firestore_db
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket):
     receive_task = asyncio.create_task(_receive_loop())
 
     try:
-        from services import gemini_edit_voice as svc
+        from services.gemini import edit_voice as svc
 
         async for audio_chunk in svc.run_edit_voice_agent(
             project_id=project_id,
@@ -163,11 +163,12 @@ async def edit_agent_sse(project_id: str, req: EditAgentRequest):
 
     async def event_gen():
         try:
-            from services import gemini_edit_voice as svc
+            from services.gemini import edit_voice as svc
             async for event in svc.run_edit_text_agent(
                 project_id=project_id,
                 project_data=project_data,
                 instruction=req.instruction,
+                current_project_json=req.current_project_json,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:

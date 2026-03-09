@@ -4,7 +4,7 @@ On GCP (USE_VERTEX_AI=true): uses Vertex AI ADC for stable models (2.5 Pro).
 Locally / for preview models: uses GEMINI_API_KEY.
 
 Usage:
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     # Vertex AI on GCP, API key locally:
     client = get_client()

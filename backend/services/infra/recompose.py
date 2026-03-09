@@ -18,7 +18,8 @@ import tempfile
 from uuid import UUID
 
 from models.schemas import Platform, PipelineStageStatus
-from services import captions, ffmpeg, gcs
+from services.media import captions, ffmpeg
+from services.storage import gcs
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ async def recompose_video(
             _cfg = get_settings()
             if _cfg.google_cloud_project:
                 try:
-                    from services import lyria as lyria_svc
+                    from services.media import lyria as lyria_svc
                     lyria_tmp = await lyria_svc.generate_music(
                         music_preset="lyria",
                         project_id=_cfg.google_cloud_project,

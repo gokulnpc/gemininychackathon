@@ -167,7 +167,7 @@ def _build_live_config():
 
 async def _tool_get_past_videos(limit: int = 5) -> dict:
     """Fetch recent projects from Firestore for Scout's context."""
-    from services import firestore_db
+    from services.storage import firestore_db
 
     try:
         projects = await firestore_db.list_projects(limit=limit)
@@ -197,7 +197,7 @@ async def _tool_generate_visual_preview(
 ) -> dict:
     """Invoke Maya (Creative Director) and stream each block to the browser."""
     try:
-        from services import gemini_interleaved
+        from services.gemini import interleaved as gemini_interleaved
 
         logger.info("Visual preview starting (mode=%s, art_style=%s)", mode, art_style)
         raw_blocks, _ = await gemini_interleaved.generate_creative_package(
@@ -235,7 +235,7 @@ async def _tool_generate_visual_preview(
 
 async def _tool_suggest_next_content(project_id: str) -> dict:
     """Analyse a past project and suggest a follow-up video."""
-    from services import firestore_db
+    from services.storage import firestore_db
 
     try:
         project = await firestore_db.get_project(project_id)
@@ -276,8 +276,8 @@ async def _tool_start_video_generation(
     otherwise sends a Sendgrid email if user_email was provided.
     """
     from uuid import uuid4
-    from services import firestore_db
-    from services.gemini_agent import generate_script_with_agent
+    from services.storage import firestore_db
+    from services.gemini.agent import generate_script_with_agent
 
     # Validate and normalise platform
     _valid_platforms = {"instagram_reels", "tiktok", "youtube_shorts"}
@@ -463,7 +463,7 @@ async def run_voice_agent(
         on_event:      Async callback; called with JSON-serialisable dicts for the browser.
     """
     from google.genai import types
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     client = get_client(force_api_key=True)
     live_config = _build_live_config()

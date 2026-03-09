@@ -417,6 +417,8 @@ class ProjectMetadata(BaseModel):
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     user_email: Optional[str] = None
+    # Twick-compatible editable timeline JSON (built by timeline_builder after pipeline)
+    project_json: Optional[dict] = None
 
 
 class JobStatusResponse(BaseModel):
@@ -561,4 +563,8 @@ class EditAgentRequest(BaseModel):
     instruction: str = Field(
         ...,
         description="Natural-language edit request, e.g. 'make the captions more aggressive and add dark music'",
+    )
+    current_project_json: Optional[dict] = Field(
+        None,
+        description="Current Twick timeline JSON from the editor — used to patch and return updated state.",
     )

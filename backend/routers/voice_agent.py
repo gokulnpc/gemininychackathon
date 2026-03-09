@@ -91,7 +91,7 @@ async def voice_agent_ws(websocket: WebSocket):
     receive_task = asyncio.create_task(_receive_loop())
 
     try:
-        from services import gemini_voice_agent as svc
+        from services.gemini import voice_agent as svc
 
         async for audio_chunk in svc.run_voice_agent(
             audio_chunks=_audio_stream(),

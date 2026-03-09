@@ -52,8 +52,10 @@ from models.schemas import (
     VideoDurationRange,
 )
 from routers.catalog import DURATION_MAP
-from services import firestore_db, gcs, reddit, task_queue
-from services.gemini_agent import generate_script_with_agent
+from services.storage import firestore_db, gcs
+from services.integrations import reddit
+from services.infra import task_queue
+from services.gemini.agent import generate_script_with_agent
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +146,7 @@ async def generate_plot_options(project_id: UUID, request: GenerateScriptRequest
     """
     import asyncio
     from google.genai import types
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     # Resolve transcript (same logic as generate_script)
     transcript: str
@@ -152,7 +154,7 @@ async def generate_plot_options(project_id: UUID, request: GenerateScriptRequest
     if request.source == ScriptSource.voice:
         if not request.audio_base64:
             raise HTTPException(status_code=422, detail="audio_base64 is required when source=voice")
-        from services import gemini_audio
+        from services.gemini import audio as gemini_audio
         try:
             result = await gemini_audio.transcribe_with_tone(
                 audio_b64=request.audio_base64,
@@ -230,7 +232,7 @@ async def generate_script(project_id: UUID, request: GenerateScriptRequest):
         if not request.audio_base64:
             raise HTTPException(status_code=422, detail="audio_base64 is required when source=voice")
 
-        from services import gemini_audio
+        from services.gemini import audio as gemini_audio
         try:
             result = await gemini_audio.transcribe_with_tone(
                 audio_b64=request.audio_base64,
@@ -334,7 +336,7 @@ async def generate_script_stream(project_id: UUID, request: GenerateScriptReques
     if request.source == ScriptSource.voice:
         if not request.audio_base64:
             raise HTTPException(status_code=422, detail="audio_base64 is required when source=voice")
-        from services import gemini_audio
+        from services.gemini import audio as gemini_audio
         try:
             result = await gemini_audio.transcribe_with_tone(
                 audio_b64=request.audio_base64,
@@ -401,7 +403,7 @@ async def generate_script_stream(project_id: UUID, request: GenerateScriptReques
     )
 
     # ── Step 3: Stream ADK agent events ────────────────────────────────────────
-    from services.gemini_agent import stream_script_agent
+    from services.gemini.agent import stream_script_agent
 
     async def event_gen():
         try:

@@ -32,7 +32,7 @@ async def ocr_pdf(request: OcrPdfRequest) -> OcrPdfResponse:
         raise HTTPException(status_code=400, detail="pdf_base64 is required")
 
     try:
-        from services.document_ai import extract_text_from_pdf
+        from services.content.document_ai import extract_text_from_pdf
         text = await extract_text_from_pdf(request.pdf_base64)
     except Exception as exc:
         logger.exception("PDF text extraction failed")

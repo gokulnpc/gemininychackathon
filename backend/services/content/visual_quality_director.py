@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 
 from models.schemas import Scene
 
@@ -53,7 +52,7 @@ def _invoke_review(image_path: str, prompt: str) -> dict:
     from google.genai import types
     from PIL import Image as PILImage
 
-    from services.gemini_client import get_client
+    from services.gemini.client import get_client
 
     client = get_client()  # Vertex AI on GCP, API key locally
     img = PILImage.open(image_path).convert("RGB")
@@ -63,16 +62,12 @@ def _invoke_review(image_path: str, prompt: str) -> dict:
         contents=[prompt, img],
         config=types.GenerateContentConfig(
             temperature=0.1,
-            max_output_tokens=512,
+            max_output_tokens=1024,
+            response_mime_type="application/json",
         ),
     )
 
-    text = response.text or ""
-    # Extract JSON from response
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        return json.loads(match.group())
-    raise ValueError(f"VQD response was not valid JSON: {text[:200]}")
+    return json.loads(response.text or "{}")
 
 
 async def review_and_fix_scenes(
@@ -105,7 +100,7 @@ async def review_and_fix_scenes(
         - reviewed_paths: final image paths (originals or replacements)
         - quality_report: list of dicts with per-scene scores + regenerated flag
     """
-    from services import gemini_image as gemini_image_svc
+    from services.gemini import image as gemini_image_svc
 
     reviewed_paths: list[str] = list(scene_images)  # copy, we may replace entries
     quality_report: list[dict] = []

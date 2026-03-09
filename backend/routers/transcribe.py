@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from services.gemini_audio import transcribe_with_tone
+from services.gemini.audio import transcribe_with_tone
 
 router = APIRouter(prefix="/api/v1", tags=["transcribe"])
 

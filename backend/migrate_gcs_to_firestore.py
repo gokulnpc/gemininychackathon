@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 async def migrate():
     from config import get_settings
-    from services import gcs
+    from services.storage import gcs
     from google.cloud import firestore
 
     settings = get_settings()

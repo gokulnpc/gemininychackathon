@@ -33,7 +33,7 @@ from models.schemas import (
     CreativePackageResponse,
     InterleavedBlock,
 )
-from services import gemini_interleaved
+from services.gemini import interleaved as gemini_interleaved
 
 logger = logging.getLogger(__name__)
 
