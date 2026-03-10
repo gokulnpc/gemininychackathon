@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 import { apiFetch } from "@/lib/api";
+import { auth } from "@/lib/firebase";
 import TwickStudio from "@twick/studio";
 import type { Result } from "@twick/studio";
 import type { ProjectJSON } from "@twick/timeline";
@@ -242,7 +243,8 @@ export default function EditorPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
-      const ws = new WebSocket(`${WS_API}/api/v1/projects/${projectId}/edit-voice`);
+      const token = await auth.currentUser?.getIdToken();
+      const ws = new WebSocket(`${WS_API}/api/v1/projects/${projectId}/edit-voice${token ? `?token=${token}` : ""}`);
       wsRef.current = ws;
 
       const voiceMsgId = Date.now().toString() + "-v";

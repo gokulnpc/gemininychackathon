@@ -23,10 +23,12 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from firebase_admin import auth as firebase_auth
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from deps.auth import get_current_user
 from models.schemas import EditAgentRequest
 from services.storage import firestore_db
 
@@ -60,12 +62,36 @@ async def _load_project(project_id: str) -> dict:
 # ── WebSocket — Voice Edit ──────────────────────────────────────────────────────
 
 @router.websocket("/projects/{project_id}/edit-voice")
-async def edit_voice_ws(project_id: str, websocket: WebSocket):
+async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None = Query(default=None)):
     """Scout voice edit session for a completed project."""
     await websocket.accept()
 
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    if not token:
+        await websocket.send_text(json.dumps({"type": "error", "message": "Unauthorized: token required"}))
+        await websocket.close(code=4001)
+        return
     try:
-        project_data = await _load_project(project_id)
+        claims = firebase_auth.verify_id_token(token)
+        uid = claims["uid"]
+    except Exception:
+        await websocket.send_text(json.dumps({"type": "error", "message": "Unauthorized: invalid token"}))
+        await websocket.close(code=4001)
+        return
+
+    # ── Ownership + project validation ────────────────────────────────────────
+    try:
+        project_data = await firestore_db.get_project_for_user(project_id, uid)
+        if project_data.get("status") != "completed":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Project must be completed before editing (current status: {project_data.get('status')})",
+            )
+        if not project_data.get("voiceover_full_script"):
+            raise HTTPException(
+                status_code=422,
+                detail="voiceover_full_script is missing — re-run generate-video for this project",
+            )
     except HTTPException as exc:
         await websocket.send_text(json.dumps({"type": "error", "message": exc.detail}))
         await websocket.close()
@@ -148,7 +174,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket):
 # ── SSE — Text Edit (Quick Actions) ────────────────────────────────────────────
 
 @router.post("/projects/{project_id}/edit-agent")
-async def edit_agent_sse(project_id: str, req: EditAgentRequest):
+async def edit_agent_sse(project_id: str, req: EditAgentRequest, current_user: dict = Depends(get_current_user)):
     """Stream AI video edit agent progress as SSE.
 
     Send a natural-language instruction; Scout interprets it, queues the
@@ -159,7 +185,11 @@ async def edit_agent_sse(project_id: str, req: EditAgentRequest):
       {"instruction": "change the music to something dark and atmospheric"}
       {"instruction": "switch to karaoke captions and quiet_before_storm music"}
     """
-    project_data = await _load_project(project_id)
+    project_data = await firestore_db.get_project_for_user(project_id, current_user["uid"])
+    if project_data.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="Project must be completed to edit")
+    if not project_data.get("voiceover_full_script"):
+        raise HTTPException(status_code=422, detail="voiceover_full_script missing — re-run generate-video first")
 
     async def event_gen():
         try:

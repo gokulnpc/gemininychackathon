@@ -36,8 +36,9 @@ from uuid import UUID
 
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
+from deps.auth import get_current_user
 
 from models.schemas import (
     ArtStyle,
@@ -432,7 +433,7 @@ async def generate_script_stream(project_id: UUID, request: GenerateScriptReques
 
 
 @router.post("/projects/{project_id}/queue-script", status_code=202)
-async def queue_script(project_id: UUID, request: QueueScriptRequest):
+async def queue_script(project_id: UUID, request: QueueScriptRequest, current_user: dict = Depends(get_current_user)):
     """Queue async script generation for a project.
 
     Saves all config to Firestore, offloads voice audio to GCS if needed,
@@ -463,6 +464,7 @@ async def queue_script(project_id: UUID, request: QueueScriptRequest):
     config = request.model_dump(exclude={"audio_base64"})
     doc: dict = {
         "project_id": pid,
+        "uid": current_user["uid"],
         "created_at": now,
         "queued_at": now,
         "status": "queued",

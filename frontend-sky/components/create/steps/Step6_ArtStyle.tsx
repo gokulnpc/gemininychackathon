@@ -5,8 +5,7 @@ import { useWizard } from "@/context/WizardContext";
 import { motion } from "framer-motion";
 import { Loader2, Check } from "lucide-react";
 import { useState, useEffect } from "react";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import apiClient from "@/lib/apiClient";
 
 interface ArtStyle {
   key: string;
@@ -20,9 +19,9 @@ export function Step6_ArtStyle() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/api/v1/art-styles?base_url=${encodeURIComponent(API)}`)
-      .then((r) => r.json())
-      .then((data) => setStyles(data.art_styles ?? []))
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    apiClient.get(`/api/v1/art-styles?base_url=${encodeURIComponent(baseUrl)}`)
+      .then(r => setStyles(r.data.art_styles ?? []))
       .catch(() => setStyles([]))
       .finally(() => setLoading(false));
   }, []);

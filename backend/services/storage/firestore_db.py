@@ -26,6 +26,9 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 COLLECTION = "projects"
+USERS_COLLECTION = "users"
+DEFAULT_CREDITS = 1000
+CREDIT_CHARGE = 100
 
 
 @functools.lru_cache(maxsize=None)
@@ -145,3 +148,187 @@ async def delete_project(project_id: str) -> None:
 
     from services.storage import gcs
     await gcs.delete_object(f"projects/{project_id}/metadata.json")
+
+
+# ── User profile ───────────────────────────────────────────────────────────────
+
+
+async def get_or_create_user(
+    uid: str,
+    email: str | None = None,
+    display_name: str | None = None,
+    photo_url: str | None = None,
+) -> dict:
+    """Upsert a user profile in users/{uid}. Creates with default credits on first call."""
+    settings = get_settings()
+    if not (_firestore_available() and settings.google_cloud_project):
+        # No Firestore — return a minimal in-memory profile
+        return {"uid": uid, "email": email, "display_name": display_name, "photo_url": photo_url, "credits": DEFAULT_CREDITS}
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+
+    def _upsert():
+        db = _get_db(settings)
+        ref = db.collection(USERS_COLLECTION).document(uid)
+        doc = ref.get()
+        if doc.exists:
+            # Update mutable fields; never overwrite credits
+            updates: dict = {"last_seen_at": now}
+            if email:
+                updates["email"] = email
+            if display_name:
+                updates["display_name"] = display_name
+            if photo_url:
+                updates["photo_url"] = photo_url
+            ref.update(updates)
+            return {**doc.to_dict(), **updates}
+        else:
+            profile = {
+                "uid": uid,
+                "email": email or "",
+                "display_name": display_name or "",
+                "photo_url": photo_url or "",
+                "credits": DEFAULT_CREDITS,
+                "created_at": now,
+                "last_seen_at": now,
+            }
+            ref.set(profile)
+            logger.info("Firestore: created new user profile %s", uid)
+            return profile
+
+    return await asyncio.to_thread(_upsert)
+
+
+async def get_user(uid: str) -> dict | None:
+    """Load user profile from users/{uid}. Returns None if not found."""
+    settings = get_settings()
+    if not (_firestore_available() and settings.google_cloud_project):
+        return None
+
+    def _get():
+        db = _get_db(settings)
+        doc = db.collection(USERS_COLLECTION).document(uid).get()
+        return doc.to_dict() if doc.exists else None
+
+    return await asyncio.to_thread(_get)
+
+
+async def update_user(uid: str, fields: dict) -> dict:
+    """Update allowed user profile fields. Returns updated profile."""
+    settings = get_settings()
+    if not (_firestore_available() and settings.google_cloud_project):
+        return {**fields, "uid": uid}
+
+    # Only allow safe fields to be updated via this function
+    allowed = {k: v for k, v in fields.items() if k in ("display_name", "photo_url")}
+
+    def _update():
+        db = _get_db(settings)
+        ref = db.collection(USERS_COLLECTION).document(uid)
+        ref.update(allowed)
+        return ref.get().to_dict()
+
+    return await asyncio.to_thread(_update)
+
+
+# ── User-scoped project queries ────────────────────────────────────────────────
+
+
+async def list_projects_for_user(uid: str, limit: int = 100) -> list[dict]:
+    """List projects belonging to uid, newest first."""
+    settings = get_settings()
+
+    if _firestore_available() and settings.google_cloud_project:
+        def _list():
+            from google.cloud import firestore
+            db = _get_db(settings)
+            return [
+                doc.to_dict()
+                for doc in db.collection(COLLECTION)
+                .where("uid", "==", uid)
+                .order_by("created_at", direction=firestore.Query.DESCENDING)
+                .limit(limit)
+                .stream()
+            ]
+
+        results = await asyncio.to_thread(_list)
+        logger.debug("Firestore: listed %d projects for uid=%s", len(results), uid)
+        return results
+
+    # GCS fallback — filter by uid field in metadata
+    all_projects = await list_projects(limit=limit * 5)
+    return [p for p in all_projects if p.get("uid") == uid][:limit]
+
+
+async def get_project_for_user(project_id: str, uid: str) -> dict:
+    """Load a project and verify ownership. Raises 404/403 via HTTPException."""
+    from fastapi import HTTPException
+    data = await get_project(project_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    if data.get("uid") != uid:
+        raise HTTPException(status_code=403, detail="Access denied. This project is unassigned or belongs to another user.")
+    return data
+
+
+# ── Credits (transactional) ────────────────────────────────────────────────────
+
+
+async def deduct_credits(uid: str, project_id: str, amount: int = CREDIT_CHARGE) -> int:
+    """Deduct credits for a project. Idempotent — won't charge twice for same project.
+
+    Returns remaining credits after deduction.
+    Raises HTTPException 402 if credits are insufficient.
+    Raises HTTPException 409 if project was already charged.
+    """
+    from fastapi import HTTPException
+
+    settings = get_settings()
+    if not (_firestore_available() and settings.google_cloud_project):
+        logger.warning("Firestore unavailable — skipping credit deduction for project %s", project_id)
+        return DEFAULT_CREDITS
+
+    def _transact():
+        from google.cloud import firestore
+        db = _get_db(settings)
+        user_ref = db.collection(USERS_COLLECTION).document(uid)
+        project_ref = db.collection(COLLECTION).document(project_id)
+
+        @firestore.transactional
+        def _run(transaction):
+            user_snap = user_ref.get(transaction=transaction)
+            project_snap = project_ref.get(transaction=transaction)
+
+            if not user_snap.exists:
+                raise ValueError("User not found")
+
+            user_data = user_snap.to_dict()
+            project_data = project_snap.to_dict() if project_snap.exists else {}
+
+            if project_data.get("charged"):
+                return user_data.get("credits", 0)  # already charged — idempotent
+
+            current_credits = user_data.get("credits", 0)
+            if current_credits < amount:
+                raise PermissionError(f"Insufficient credits: {current_credits} < {amount}")
+
+            new_credits = current_credits - amount
+            transaction.update(user_ref, {"credits": new_credits})
+            transaction.update(project_ref, {"charged": True})
+            return new_credits
+
+        txn = db.transaction()
+        return _run(txn)
+
+    try:
+        remaining = await asyncio.to_thread(_transact)
+        logger.info("Credits deducted: uid=%s project=%s amount=%d remaining=%d", uid, project_id, amount, remaining)
+        return remaining
+    except PermissionError as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=402, detail=str(e))
+    except Exception as e:
+        logger.exception("Credit deduction failed for uid=%s project=%s", uid, project_id)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Credit deduction failed: {e}")

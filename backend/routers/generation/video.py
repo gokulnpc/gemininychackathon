@@ -21,10 +21,11 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import JSONResponse
 
 from config import get_settings
+from deps.auth import get_current_user
 from models.schemas import (
     GenerateVideoRequest,
     PipelineResponse,
@@ -38,7 +39,7 @@ router = APIRouter(prefix="/api/v1", tags=["video"])
 
 
 @router.post("/projects/{project_id}/generate-video")
-async def generate_video(project_id: UUID, request: GenerateVideoRequest):
+async def generate_video(project_id: UUID, request: GenerateVideoRequest, current_user: dict = Depends(get_current_user)):
     """Generate video from a user-confirmed script.
 
     When WORKER_URL is configured (production): returns 202 immediately and
@@ -49,12 +50,21 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest):
     """
     settings = get_settings()
     pid = str(project_id)
+    uid = current_user["uid"]
     queued_at = datetime.now(timezone.utc).isoformat()
+
+    # ── Ownership check — carry forward existing project if present ───────────
+    existing = await firestore_db.get_project(pid)
+    if existing:
+        # Raises 403 if uid doesn't match
+        await firestore_db.get_project_for_user(pid, uid)
 
     # ── Write initial Firestore record ────────────────────────────────────────
     initial_metadata = {
+        **(existing or {}),
         "project_id":   pid,
-        "created_at":   queued_at,
+        "uid":          uid,
+        "created_at":   existing.get("created_at", queued_at) if existing else queued_at,
         "queued_at":    queued_at,
         "status":       "queued",
         "platforms":    [p.value for p in request.target_platforms],

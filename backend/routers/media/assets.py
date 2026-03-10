@@ -2,9 +2,9 @@
 
 Supports three categories: images, music, voice_memos.
 
-GCS layout:
-  user_assets/{category}/{asset_id}/{original_filename}   ← the file
-  user_assets/{category}/{asset_id}/meta.json             ← metadata
+GCS layout (uid-scoped):
+  user_assets/{uid}/{category}/{asset_id}/{original_filename}   ← the file
+  user_assets/{uid}/{category}/{asset_id}/meta.json             ← metadata
 """
 
 from __future__ import annotations
@@ -33,19 +33,24 @@ def _validate_category(category: str) -> None:
         raise HTTPException(status_code=400, detail=f"Invalid category '{category}'. Must be one of: {', '.join(VALID_CATEGORIES)}")
 
 
+def _meta_key(uid: str, category: str, asset_id: str) -> str:
+    return f"user_assets/{uid}/{category}/{asset_id}/meta.json"
+
+
 # ── List ───────────────────────────────────────────────────────────────────────
 
 
 @router.get("/assets")
 async def list_assets(category: str = Query(..., description="images | music | voice_memos"), current_user: dict = Depends(get_current_user)):
-    """Return all assets in the given category, newest first."""
+    """Return user's assets in the given category, newest first."""
     _validate_category(category)
+    uid = current_user["uid"]
 
-    prefix = f"user_assets/{category}/"
+    prefix = f"user_assets/{uid}/{category}/"
     try:
         keys = await gcs.list_keys(prefix)
     except Exception as e:
-        logger.exception("Failed to list asset keys for category=%s", category)
+        logger.exception("Failed to list asset keys for category=%s uid=%s", category, uid)
         raise HTTPException(status_code=500, detail=f"Failed to list assets: {e}")
 
     meta_keys = [k for k in keys if k.endswith("/meta.json")]
@@ -59,9 +64,8 @@ async def list_assets(category: str = Query(..., description="images | music | v
 
     tasks = [_safe_load_json(mk) for mk in meta_keys]
     loaded_assets = await asyncio.gather(*tasks)
-    
-    assets = [a for a in loaded_assets if a is not None]
 
+    assets = [a for a in loaded_assets if a is not None]
     assets.sort(key=lambda a: a.get("uploaded_at", ""), reverse=True)
     return {"assets": assets}
 
@@ -75,18 +79,18 @@ async def upload_asset(
     category: str = Form(..., description="images | music | voice_memos"),
     current_user: dict = Depends(get_current_user),
 ):
-    """Upload a file and return its asset metadata."""
+    """Upload a file under the current user's asset namespace."""
     _validate_category(category)
+    uid = current_user["uid"]
 
     asset_id = str(uuid4())
     content = await file.read()
     filename = file.filename or f"asset_{asset_id}"
     content_type = file.content_type or "application/octet-stream"
 
-    gcs_key = f"user_assets/{category}/{asset_id}/{filename}"
-    meta_key = f"user_assets/{category}/{asset_id}/meta.json"
+    gcs_key = f"user_assets/{uid}/{category}/{asset_id}/{filename}"
+    meta_key = _meta_key(uid, category, asset_id)
 
-    # Write to temp file then upload (gcs.upload_file expects a local path)
     tmp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
@@ -95,7 +99,7 @@ async def upload_asset(
 
         await gcs.upload_file(tmp_path, gcs_key, content_type)
     except Exception as e:
-        logger.exception("Failed to upload asset for category=%s", category)
+        logger.exception("Failed to upload asset for category=%s uid=%s", category, uid)
         raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -103,6 +107,7 @@ async def upload_asset(
 
     meta = {
         "id": asset_id,
+        "uid": uid,
         "filename": filename,
         "content_type": content_type,
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
@@ -128,14 +133,18 @@ async def get_asset_url(
     category: str = Query(..., description="images | music | voice_memos"),
     current_user: dict = Depends(get_current_user),
 ):
-    """Return a presigned (or public) URL for the asset file."""
+    """Return a presigned (or public) URL for the asset file (ownership enforced)."""
     _validate_category(category)
+    uid = current_user["uid"]
 
-    meta_key = f"user_assets/{category}/{asset_id}/meta.json"
+    meta_key = _meta_key(uid, category, asset_id)
     try:
         meta = await gcs.load_json(meta_key)
     except Exception:
         raise HTTPException(status_code=404, detail="Asset not found")
+
+    if meta.get("uid") and meta["uid"] != uid:
+        raise HTTPException(status_code=403, detail="Access denied.")
 
     try:
         url = await gcs.generate_presigned_url(meta["gcs_key"])
@@ -154,14 +163,18 @@ async def delete_asset(
     category: str = Query(..., description="images | music | voice_memos"),
     current_user: dict = Depends(get_current_user),
 ):
-    """Delete an asset and its metadata."""
+    """Delete a user's asset (ownership enforced)."""
     _validate_category(category)
+    uid = current_user["uid"]
 
-    meta_key = f"user_assets/{category}/{asset_id}/meta.json"
+    meta_key = _meta_key(uid, category, asset_id)
     try:
         meta = await gcs.load_json(meta_key)
     except Exception:
         raise HTTPException(status_code=404, detail="Asset not found")
+
+    if meta.get("uid") and meta["uid"] != uid:
+        raise HTTPException(status_code=403, detail="Access denied.")
 
     try:
         await gcs.delete_object(meta["gcs_key"])

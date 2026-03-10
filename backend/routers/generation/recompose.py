@@ -16,8 +16,9 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from deps.auth import get_current_user
 from models.schemas import RecomposeRequest, RecomposeResponse
 from services.storage import firestore_db
 from services.infra.recompose import recompose_video
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/api/v1", tags=["video"])
 
 
 @router.post("/projects/{project_id}/recompose", response_model=RecomposeResponse)
-async def recompose_project_video(project_id: UUID, request: RecomposeRequest):
+async def recompose_project_video(project_id: UUID, request: RecomposeRequest, current_user: dict = Depends(get_current_user)):
     """Recompose a completed project with a new caption style and/or background music.
 
     Skips TTS, Gemini image generation, and FFmpeg animation — starts directly
@@ -44,12 +45,7 @@ async def recompose_project_video(project_id: UUID, request: RecomposeRequest):
     """
     # ── Load project metadata ─────────────────────────────────────────────────
 
-    metadata = await firestore_db.get_project(str(project_id))
-    if metadata is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Project '{project_id}' not found.",
-        )
+    metadata = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
 
     if metadata.get("status") != "completed":
         raise HTTPException(

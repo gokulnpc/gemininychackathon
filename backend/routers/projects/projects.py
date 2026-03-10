@@ -1,6 +1,6 @@
 """Project management endpoints — powers the frontend dashboard.
 
-GET    /api/v1/projects              — list all projects (newest first)
+GET    /api/v1/projects              — list user's projects (newest first)
 GET    /api/v1/projects/{id}         — get a single project's metadata + video URLs
 GET    /api/v1/projects/{id}/status  — lightweight job status for async polling
 GET    /api/v1/projects/{id}/stream  — 302 redirect to a signed GCS video URL
@@ -27,13 +27,9 @@ router = APIRouter(prefix="/api/v1", tags=["projects"])
 
 @router.get("/projects")
 async def list_projects(current_user: dict = Depends(get_current_user)):
-    """List all projects for the Projects tab, newest first.
-
-    Returns ALL projects regardless of status (queued, generating_script,
-    script_ready, generating_video, completed, failed).
-    """
+    """List projects belonging to the current user, newest first."""
     try:
-        items = await firestore_db.list_projects(limit=100)
+        items = await firestore_db.list_projects_for_user(uid=current_user["uid"], limit=100)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list projects: {e}")
 
@@ -42,13 +38,8 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
 
 @router.get("/projects/{project_id}", response_model=ProjectMetadata)
 async def get_project(project_id: UUID, current_user: dict = Depends(get_current_user)):
-    """Get metadata and video URLs for a single project."""
-    data = await firestore_db.get_project(str(project_id))
-    if data is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Project '{project_id}' not found. Run the pipeline first.",
-        )
+    """Get metadata and video URLs for a single project (ownership enforced)."""
+    data = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     try:
         return ProjectMetadata(**data)
     except Exception as e:
@@ -57,19 +48,9 @@ async def get_project(project_id: UUID, current_user: dict = Depends(get_current
 
 @router.get("/projects/{project_id}/status", response_model=JobStatusResponse)
 async def get_project_status(project_id: UUID, current_user: dict = Depends(get_current_user)):
-    """Lightweight job status endpoint for async polling during video generation.
+    """Lightweight job status endpoint for async polling during video generation."""
+    data = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
 
-    Returns current status, active pipeline stage, % progress, and video URLs once done.
-    Poll this endpoint every 5–10 seconds until status is "completed" or "failed".
-    """
-    data = await firestore_db.get_project(str(project_id))
-    if data is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Project '{project_id}' not found.",
-        )
-
-    # Reconstruct stages list from stored data (stored as list of dicts)
     stages_raw = data.get("stages", [])
     from models.schemas import PipelineStageStatus
     stages = []
@@ -95,12 +76,10 @@ async def get_project_status(project_id: UUID, current_user: dict = Depends(get_
 
 
 @router.get("/projects/{project_id}/stream/{platform}")
-async def stream_project_video(project_id: UUID, platform: str):
-    """Redirect to the public GCS video URL (bucket is publicly readable).
-
-    platform: instagram_reels | tiktok | master
-    """
+async def stream_project_video(project_id: UUID, platform: str, current_user: dict = Depends(get_current_user)):
+    """Redirect to the public GCS video URL (ownership enforced)."""
     from fastapi.responses import RedirectResponse
+    await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     settings = get_settings()
     gcs_key = (
         f"projects/{project_id}/master/composed.mp4"
@@ -120,30 +99,20 @@ def _gcs_key_from_url(url: str) -> str | None:
     return url[len(prefix):] if url.startswith(prefix) else None
 
 
-
 @router.get("/projects/{project_id}/thumbnail")
-async def get_project_thumbnail(project_id: UUID, platform: str = "instagram_reels"):
-    """Redirect to the public GCS thumbnail URL (bucket is publicly readable).
-
-    Priority:
-      1. Pre-generated thumbnail URL stored in project metadata → redirect.
-      2. Cached thumbnail.jpg in GCS → redirect.
-      3. 404 (lazy ffmpeg extraction removed; thumbnails are generated during pipeline).
-    """
+async def get_project_thumbnail(project_id: UUID, platform: str = "instagram_reels", current_user: dict = Depends(get_current_user)):
+    """Redirect to the public GCS thumbnail URL (ownership enforced)."""
     from fastapi.responses import RedirectResponse
     settings = get_settings()
     base = f"https://storage.googleapis.com/{settings.gcs_bucket}"
     thumb_key = f"projects/{project_id}/thumbnail.jpg"
 
-    # Priority 1: thumbnail_url in Firestore metadata
-    data = await firestore_db.get_project(str(project_id))
+    data = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     if data and data.get("thumbnail_url"):
         url = data["thumbnail_url"]
-        # If already a public GCS URL return it directly; otherwise build one from the key
         key = _gcs_key_from_url(url)
         return RedirectResponse(url=f"{base}/{key}" if key else url, status_code=302)
 
-    # Priority 2: cached thumbnail.jpg
     if await gcs.key_exists(thumb_key):
         return RedirectResponse(url=f"{base}/{thumb_key}", status_code=302)
 
@@ -152,13 +121,8 @@ async def get_project_thumbnail(project_id: UUID, platform: str = "instagram_ree
 
 @router.put("/projects/{project_id}/script")
 async def update_project_script(project_id: UUID, req: ScriptEditRequest, current_user: dict = Depends(get_current_user)):
-    """Save user edits to a generated script.
-
-    Only allowed when status == 'script_ready'.
-    """
-    doc = await firestore_db.get_project(str(project_id))
-    if doc is None:
-        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    """Save user edits to a generated script. Only allowed when status == 'script_ready'."""
+    doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     if doc.get("status") != "script_ready":
         raise HTTPException(status_code=409, detail="Script can only be edited when status is script_ready")
 
@@ -181,13 +145,10 @@ async def update_project_script(project_id: UUID, req: ScriptEditRequest, curren
 async def approve_script(project_id: UUID, current_user: dict = Depends(get_current_user)):
     """Approve the generated script and kick off video generation.
 
-    Reconstructs GenerateVideoRequest from stored script + pipeline_config,
-    then enqueues the existing video generation Cloud Task.
+    Deducts 100 credits (idempotent — retries won't double-charge).
     Only allowed when status == 'script_ready'.
     """
-    doc = await firestore_db.get_project(str(project_id))
-    if doc is None:
-        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+    doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     if doc.get("status") != "script_ready":
         raise HTTPException(status_code=409, detail="Project must be in script_ready status to approve")
 
@@ -196,7 +157,13 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
     if not script_data:
         raise HTTPException(status_code=422, detail="No script found in project — regenerate first")
 
-    # Reconstruct GenerateVideoRequest from stored data
+    # Deduct credits before queuing (idempotent — won't charge twice)
+    await firestore_db.deduct_credits(
+        uid=current_user["uid"],
+        project_id=str(project_id),
+        amount=100,
+    )
+
     from models.schemas import GenerateVideoRequest, ScriptGenerationResponse, Platform, CaptionStyleEnum
     try:
         script = ScriptGenerationResponse(**script_data)
@@ -217,7 +184,6 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not build video request: {e}")
 
-    # Update Firestore status to queued
     now = datetime.now(timezone.utc).isoformat()
     await firestore_db.save_project(str(project_id), {
         **doc,
@@ -227,7 +193,6 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
         "queued_at": now,
     })
 
-    # Enqueue video generation Cloud Task
     from services.infra import task_queue
     task_payload = json.loads(gen_request.model_dump_json())
     try:
@@ -246,15 +211,9 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
 
 
 @router.put("/projects/{project_id}/timeline")
-async def save_project_timeline(project_id: UUID, body: dict):
-    """Persist a user-edited Twick timeline JSON back to Firestore.
-
-    Called by the frontend TwickStudio exportVideo callback after the user
-    makes edits in the editor (rearranges clips, adjusts captions, etc.).
-    """
-    doc = await firestore_db.get_project(str(project_id))
-    if doc is None:
-        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
+async def save_project_timeline(project_id: UUID, body: dict, current_user: dict = Depends(get_current_user)):
+    """Persist a user-edited Twick timeline JSON back to Firestore (ownership enforced)."""
+    doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     try:
         await firestore_db.save_project(str(project_id), {**doc, "project_json": body})
     except Exception as e:
@@ -264,14 +223,8 @@ async def save_project_timeline(project_id: UUID, body: dict):
 
 @router.delete("/projects/{project_id}", status_code=204)
 async def delete_project(project_id: UUID, current_user: dict = Depends(get_current_user)):
-    """Remove a project's metadata from the dashboard.
-
-    Only deletes the metadata record — video files in GCS are retained.
-    """
-    existing = await firestore_db.get_project(str(project_id))
-    if existing is None:
-        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found.")
-
+    """Remove a project's metadata from the dashboard (ownership enforced)."""
+    await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     try:
         await firestore_db.delete_project(str(project_id))
     except Exception as e:

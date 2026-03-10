@@ -20,8 +20,7 @@ import { presets } from "@/data/staticData";
 import { motion, AnimatePresence } from "framer-motion";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { Play, RotateCcw, Pause } from "lucide-react";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import apiClient from "@/lib/apiClient";
 
 export function Step1_Message() {
   const { state, dispatch } = useWizard();
@@ -68,17 +67,11 @@ export function Step1_Message() {
     setTranscribing(true);
     setTranscript(null);
     try {
-      const res = await fetch(`${API}/api/v1/transcribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audio_base64: b64,
-          audio_format: format,
-          language: "en",
-        }),
-      });
-      if (!res.ok) throw new Error("Transcription failed");
-      const data = await res.json();
+      const data = await apiClient.post("/api/v1/transcribe", {
+        audio_base64: b64,
+        audio_format: format,
+        language: "en",
+      }).then(r => r.data);
       setTranscript(data.transcript ?? null);
     } catch {
       // fallback strictly if it errors out
@@ -326,14 +319,8 @@ export function Step1_Message() {
         try {
           setOcrProgress(30);
           const b64 = (reader.result as string).split(",")[1];
-          const res = await fetch(`${API}/api/v1/ocr-pdf`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pdf_base64: b64 }),
-          });
+          const data = await apiClient.post("/api/v1/ocr-pdf", { pdf_base64: b64 }).then(r => r.data);
           setOcrProgress(80);
-          if (!res.ok) throw new Error("OCR request failed");
-          const data = await res.json();
           dispatch({ type: "SET_MESSAGE_TEXT", payload: data.text ?? "" });
           setOcrProgress(100);
         } catch {

@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
 from routers.auth.auth import router as auth_router
+from routers.users.users import router as users_router
 from routers.projects.projects import router as projects_router
 from routers.projects.catalog import router as catalog_router
 from routers.generation.script import router as script_router
@@ -44,6 +45,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(projects_router)
 app.include_router(catalog_router)
 app.include_router(script_router)

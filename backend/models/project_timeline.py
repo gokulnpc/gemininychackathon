@@ -52,5 +52,6 @@ class TimelineProject(BaseModel):
     """Root object representing the full editable project timeline."""
 
     tracks: list[TimelineTrack]
-    version: int = 1
+    version: int = 2
     metadata: dict = Field(default_factory=dict)  # project_id, pipeline_version, created_at
+    assets: dict = Field(default_factory=dict)     # image/overlay asset URLs by scene index

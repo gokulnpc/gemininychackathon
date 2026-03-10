@@ -13,15 +13,29 @@ import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
 import { Bell, Key, User, MonitorSmartphone } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import apiClient from "@/lib/apiClient";
 
 export default function SettingsPage() {
   const router = useRouter();
   const { isCollapsed } = useSidebar();
-  
-  const [activeTab, setActiveTab] = useState("profile");
+  const { userProfile, refreshProfile } = useAuth();
 
-  const handleSave = () => {
-    toast.success("Settings saved successfully!");
+  const [activeTab, setActiveTab] = useState("profile");
+  const [displayName, setDisplayName] = useState(userProfile?.display_name ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiClient.patch("/api/v1/users/me", { display_name: displayName });
+      await refreshProfile();
+      toast.success("Settings saved successfully!");
+    } catch {
+      toast.error("Failed to save settings.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -115,17 +129,28 @@ export default function SettingsPage() {
                   <div className="space-y-4 max-w-md">
                     <div className="space-y-2">
                       <Label htmlFor="name" className="text-white/80">Full Name</Label>
-                      <Input id="name" defaultValue="Goku" className="bg-[#2B2B2B] border-white/10 text-white focus:border-[#5a9ab5]" />
+                      <Input
+                        id="name"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        className="bg-[#2B2B2B] border-white/10 text-white focus:border-[#5a9ab5]"
+                      />
                     </div>
-                    
+
                     <div className="space-y-2">
                       <Label htmlFor="email" className="text-white/80">Email Address</Label>
-                      <Input id="email" type="email" defaultValue="goku@example.com" className="bg-[#2B2B2B] border-white/10 text-white focus:border-[#5a9ab5]" />
+                      <Input
+                        id="email"
+                        type="email"
+                        value={userProfile?.email ?? ""}
+                        readOnly
+                        className="bg-[#2B2B2B] border-white/10 text-white/50 focus:border-[#5a9ab5] cursor-not-allowed"
+                      />
                     </div>
-                    
+
                     <div className="pt-4">
-                      <Button onClick={handleSave} className="bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white px-6 rounded-xl">
-                        Save Changes
+                      <Button onClick={handleSave} disabled={saving} className="bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white px-6 rounded-xl">
+                        {saving ? "Saving..." : "Save Changes"}
                       </Button>
                     </div>
                   </div>

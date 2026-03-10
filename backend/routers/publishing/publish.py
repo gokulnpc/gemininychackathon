@@ -2,14 +2,16 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from deps.auth import get_current_user
 from models.schemas import (
     PlatformPostResult,
     PublishRequest,
     PublishResponse,
 )
 from services.integrations import social_publish
+from services.storage import firestore_db
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,7 @@ router = APIRouter(prefix="/api/v1", tags=["publish"])
 
 
 @router.post("/projects/{project_id}/publish", response_model=PublishResponse)
-async def publish_project(project_id: UUID, request: PublishRequest):
+async def publish_project(project_id: UUID, request: PublishRequest, current_user: dict = Depends(get_current_user)):
     """Publish generated videos to social media platforms.
 
     Uses official platform APIs: YouTube Data API v3, Meta Graph API (Instagram),
@@ -27,6 +29,9 @@ async def publish_project(project_id: UUID, request: PublishRequest):
     Requires that the pipeline has already been run for this project
     (videos must exist in S3 at projects/{id}/{platform}/final.mp4).
     """
+    # Verify ownership before publishing
+    await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
+
     # Build social_copy dict from request or use empty defaults
     social_copy: dict[str, dict] = {}
     if request.social_copy:

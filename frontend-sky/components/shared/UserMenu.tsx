@@ -22,7 +22,7 @@ function getInitials(name: string): string {
 
 export function UserMenu() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, signOut, credits } = useAuth();
 
   const displayName = user?.displayName ?? user?.email ?? "User";
   const initials = getInitials(displayName);
@@ -50,8 +50,8 @@ export function UserMenu() {
             <Coins className="w-4 h-4 text-[#5a9ab5]" />
             <span className="text-sm font-medium text-[#1A1A1A]">Credits</span>
           </div>
-          <p className="text-2xl font-semibold text-[#1A1A1A]">1,250</p>
-          <p className="text-xs text-[#9B9B9B] mt-0.5">~25 videos remaining</p>
+          <p className="text-2xl font-semibold text-[#1A1A1A]">{credits.toLocaleString()}</p>
+          <p className="text-xs text-[#9B9B9B] mt-0.5">~{Math.floor(credits / 100)} videos remaining</p>
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => router.push("/welcome")} className="cursor-pointer">
