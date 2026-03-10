@@ -22,6 +22,7 @@ async def run_script_stage(
     niche: str | None,
     art_style: str,
     video_format: str,
+    subject_description: str | None = None,
 ) -> ScriptGenerationResponse:
     if pre_generated_script is not None:
         script = pre_generated_script
@@ -48,6 +49,7 @@ async def run_script_stage(
         niche=niche,
         art_style=art_style,
         video_format=video_format,
+        subject_description=subject_description,
     )
 
     script = ScriptGenerationResponse(**script_data)

@@ -25,6 +25,7 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-3.1-flash-image-preview"
+_TEXT_MODEL = "gemini-2.0-flash"  # text-only inference — cheaper than image gen
 
 # Art style reference images live here — one PNG per style
 _STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "styles")
@@ -196,6 +197,41 @@ def _invoke(contents: list, api_key: str) -> object:
             ),
         ),
     )
+
+
+def _describe_subject_sync(image_path: str) -> str:
+    """Synchronous Gemini Vision call — run via asyncio.to_thread."""
+    img = Image.open(image_path).convert("RGB")
+    prompt = (
+        "Describe the person in this photo for use as context in a short-form video script. "
+        "Provide a single sentence covering: apparent gender, approximate age range, "
+        "clothing or style context, and expression or mood. "
+        "Example: 'A woman in her early 30s, professional business attire, warm confident smile.' "
+        "Do not identify or name the person — only describe visible visual attributes. "
+        "Respond with only the descriptive sentence, no preamble."
+    )
+    from services.gemini.client import get_client
+    client = get_client()
+    response = client.models.generate_content(model=_TEXT_MODEL, contents=[prompt, img])
+    return (response.text or "").strip()
+
+
+async def describe_reference_subject(image_path: str) -> str:
+    """Use Gemini Vision to extract brief subject context from a reference photo.
+
+    Returns a short descriptor like:
+      "A man in his 50s, casual outdoor attire, relaxed confident expression"
+    Returns "" on any failure — inference is advisory, never blocks the pipeline.
+    """
+    if not image_path or not os.path.exists(image_path):
+        return ""
+    try:
+        result = await asyncio.to_thread(_describe_subject_sync, image_path)
+        logger.info("Reference subject inferred: %s", result)
+        return result
+    except Exception as exc:
+        logger.warning("Reference subject inference failed — skipping: %s", exc)
+        return ""
 
 
 async def generate_image(

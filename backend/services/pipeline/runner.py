@@ -54,6 +54,12 @@ async def run_pipeline_stages(
 
     stages: list[PipelineStageStatus] = []
 
+    # Stage 1.5: Infer subject context from reference image (non-blocking)
+    subject_description: str | None = None
+    if user_reference_path:
+        from services.gemini.image import describe_reference_subject
+        subject_description = await describe_reference_subject(user_reference_path) or None
+
     # Stage 2: Script generation
     generated_script = await script.run_script_stage(
         stages=stages,
@@ -67,6 +73,7 @@ async def run_pipeline_stages(
         niche=settings["niche"],
         art_style=settings["art_style"],
         video_format=settings["video_format"],
+        subject_description=subject_description,
     )
 
     # Stage 3: TTS voiceover + STT word timestamps

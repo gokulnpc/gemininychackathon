@@ -414,6 +414,7 @@ async def generate_script_with_agent(
     art_style: str = "realism",
     video_format: str = "storytelling",
     reddit_context: dict | None = None,
+    subject_description: str | None = None,
 ) -> dict:
     """Run a Google ADK agent loop to generate a high-quality video script.
 
@@ -482,6 +483,14 @@ async def generate_script_with_agent(
         system += (
             f"\n\nTRENDING ON REDDIT RIGHT NOW ({subreddits}):\n{topics}\n"
             "Use these live trends to sharpen your hook angle and script perspective."
+        )
+
+    if subject_description:
+        system += (
+            f"\n\nMAIN SUBJECT (inferred from uploaded reference photo):\n"
+            f"{subject_description}\n"
+            f"Tailor the script character, pronouns, and narrative arc to match this person. "
+            f"Your character_description must be visually consistent with this description."
         )
 
     app_name = "content-factory"
@@ -606,6 +615,7 @@ async def stream_script_agent(
     art_style: str = "realism",
     video_format: str = "storytelling",
     reddit_context: dict | None = None,
+    subject_description: str | None = None,
 ):
     """Async generator — same logic as generate_script_with_agent but yields SSE dicts.
 
@@ -675,6 +685,14 @@ async def stream_script_agent(
         system += (
             f"\n\nTRENDING ON REDDIT RIGHT NOW ({subreddits}):\n{topics}\n"
             "Use these live trends to sharpen your hook angle and script perspective."
+        )
+
+    if subject_description:
+        system += (
+            f"\n\nMAIN SUBJECT (inferred from uploaded reference photo):\n"
+            f"{subject_description}\n"
+            f"Tailor the script character, pronouns, and narrative arc to match this person. "
+            f"Your character_description must be visually consistent with this description."
         )
 
     app_name = "content-factory"
