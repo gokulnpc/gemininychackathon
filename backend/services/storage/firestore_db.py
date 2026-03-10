@@ -111,13 +111,16 @@ async def list_projects(limit: int = 50) -> list[dict]:
         if k.endswith("/metadata.json") and len(k.split("/")) == 3
     ]
     project_ids = [k.split("/")[1] for k in meta_keys]
-    results: list[dict] = []
-    for pid in project_ids:
+    async def _safe_load_json(pid: str) -> dict | None:
         try:
-            data = await gcs.load_json(f"projects/{pid}/metadata.json")
-            results.append(data)
+            return await gcs.load_json(f"projects/{pid}/metadata.json")
         except Exception:
-            pass
+            return None
+
+    tasks = [_safe_load_json(pid) for pid in project_ids]
+    loaded_data = await asyncio.gather(*tasks)
+
+    results = [data for data in loaded_data if data is not None]
     results.sort(key=lambda d: d.get("created_at", ""), reverse=True)
     return results[:limit]
 

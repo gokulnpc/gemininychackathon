@@ -9,6 +9,7 @@ GCS layout:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -49,12 +50,17 @@ async def list_assets(category: str = Query(..., description="images | music | v
 
     meta_keys = [k for k in keys if k.endswith("/meta.json")]
 
-    assets = []
-    for mk in meta_keys:
+    async def _safe_load_json(mk: str):
         try:
-            assets.append(await gcs.load_json(mk))
+            return await gcs.load_json(mk)
         except Exception:
             logger.warning("Could not load asset metadata at %s — skipping", mk)
+            return None
+
+    tasks = [_safe_load_json(mk) for mk in meta_keys]
+    loaded_assets = await asyncio.gather(*tasks)
+    
+    assets = [a for a in loaded_assets if a is not None]
 
     assets.sort(key=lambda a: a.get("uploaded_at", ""), reverse=True)
     return {"assets": assets}

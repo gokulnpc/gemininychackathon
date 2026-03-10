@@ -12,6 +12,7 @@ from uuid import UUID
 
 from models.project_timeline import ElementFrame, TimelineElement, TimelineProject, TimelineTrack
 from models.schemas import ScriptGenerationResponse
+from services.media.captions import words_to_cues
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -19,18 +20,6 @@ from models.schemas import ScriptGenerationResponse
 SCENE_WIDTH = 576
 SCENE_HEIGHT = 1024
 
-# How many words to group per caption element, keyed by caption style
-_WORDS_PER_GROUP: dict[str, int] = {
-    "beast": 1,
-    "karaoke": 1,
-    "bold_stroke": 2,
-    "red_highlight": 2,
-    "clean": 2,
-    "sleek": 2,
-    "majestic": 2,
-    "elegant": 2,
-    "clarity": 7,
-}
 
 # Map pipeline caption_style → Twick capStyle
 _CAP_STYLE_MAP: dict[str, str] = {
@@ -98,28 +87,6 @@ def _uid() -> str:
     return uuid.uuid4().hex[:12]
 
 
-def _group_word_timestamps(
-    word_timestamps: list[dict],
-    words_per_group: int,
-) -> list[dict]:
-    """Group word-level timestamps into caption segments.
-
-    Returns list of dicts: {"text": str, "start": float, "end": float}
-    """
-    groups: list[dict] = []
-    for i in range(0, len(word_timestamps), words_per_group):
-        chunk = word_timestamps[i : i + words_per_group]
-        if not chunk:
-            continue
-        text = " ".join(w.get("word", "") for w in chunk).strip()
-        if not text:
-            continue
-        groups.append({
-            "text": text,
-            "start": chunk[0].get("start", 0.0),
-            "end": chunk[-1].get("end", chunk[0].get("start", 0.0) + 0.5),
-        })
-    return groups
 
 
 # ── Main builder ──────────────────────────────────────────────────────────────
@@ -218,8 +185,7 @@ def build_project_timeline(
 
     # ── 4. Caption track ──────────────────────────────────────────────────────
     if word_timestamps:
-        words_per_group = _WORDS_PER_GROUP.get(caption_style, 2)
-        groups = _group_word_timestamps(word_timestamps, words_per_group)
+        cues = words_to_cues(word_timestamps, caption_style)
 
         cap_style_key = _CAP_STYLE_MAP.get(caption_style, "text_bg")
         cap_props_template = _CAP_PROPS.get(caption_style, _DEFAULT_CAP_PROPS)
@@ -227,15 +193,15 @@ def build_project_timeline(
         cap_track_id = f"t-captions-{_uid()}"
         caption_elements: list[TimelineElement] = []
 
-        for group in groups:
+        for cue in cues:
             caption_elements.append(TimelineElement(
                 id=f"e-cap-{_uid()}",
                 trackId=cap_track_id,
                 type="caption",
-                s=round(group["start"], 3),
-                e=round(group["end"], 3),
+                s=round(cue.start, 3),
+                e=round(cue.end, 3),
                 props={},
-                t=group["text"],
+                t=cue.text,
             ))
 
         tracks.append(TimelineTrack(
