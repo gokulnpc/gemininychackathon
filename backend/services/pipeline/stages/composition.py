@@ -102,7 +102,7 @@ async def _mix_music(
 
     if music_file:
         music_out = os.path.join(work_dir, "composed_music.mp4")
-        composed_path = ffmpeg.mix_background_music(
+        composed_path = await ffmpeg.mix_background_music(
             video_path=composed_path,
             music_path=music_file,
             music_volume=music_volume,

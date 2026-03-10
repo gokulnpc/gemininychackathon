@@ -193,7 +193,7 @@ async def transcribe_base64_audio_live(audio_b64: str, audio_format: str = "webm
         # -f s16le: 16-bit signed little-endian PCM
         # -ac 1: mono
         # -ar 16000: 16kHz
-        _run_ffmpeg(
+        await _run_ffmpeg(
             ["ffmpeg", "-y", "-i", path_in, "-f", "s16le", "-ac", "1", "-ar", "16000", path_out],
             "convert to PCM16 for Live API",
         )

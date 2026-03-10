@@ -101,7 +101,7 @@ async def run_image_generation_stage(
     return all_image_paths, character_ref_path, char_sheet_path
 
 
-def animate_scenes(
+async def animate_scenes(
     reviewed_image_paths: list[str],
     script: ScriptGenerationResponse,
     work_dir: str,
@@ -118,7 +118,7 @@ def animate_scenes(
         clip_duration = getattr(scene, "duration_seconds", 2) or 2
         clip_path = os.path.join(work_dir, f"scene_{scene_idx + 1}.mp4")
 
-        ffmpeg.animate_image(
+        await ffmpeg.animate_image(
             image_path=img_path,
             effect=effect,
             duration=clip_duration,

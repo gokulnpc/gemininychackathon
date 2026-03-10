@@ -9,6 +9,8 @@ Requires:
   - ffmpeg installed and on PATH
 
 Usage:
+    cd backend && RUN_LIVE_INTEGRATION_TESTS=1 .venv/bin/python -m pytest tests/integration/test_captions.py -v
+    # or as a standalone script:
     cd backend && .venv/bin/python tests/integration/test_captions.py
 """
 
@@ -38,8 +40,8 @@ SAMPLE_M4A = os.path.abspath(
 )
 
 pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_LIVE_STT_TESTS", "").lower() not in {"1", "true", "yes"},
-    reason="Live STT integration test. Set RUN_LIVE_STT_TESTS=1 to run.",
+    os.getenv("RUN_LIVE_INTEGRATION_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live integration test. Set RUN_LIVE_INTEGRATION_TESTS=1 to run.",
 )
 
 

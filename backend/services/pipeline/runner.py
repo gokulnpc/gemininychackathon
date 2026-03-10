@@ -110,7 +110,7 @@ async def run_pipeline_stages(
     )
 
     # Animate reviewed images → video clips, then clean up images
-    chunk_clips, scene_transitions = images.animate_scenes(
+    chunk_clips, scene_transitions = await images.animate_scenes(
         reviewed_image_paths=reviewed_image_paths,
         script=generated_script,
         work_dir=work_dir,

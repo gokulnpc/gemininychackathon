@@ -1,168 +1,52 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
-import shlex
 import shutil
-import subprocess
+import tempfile
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-FPS = 25  # output framerate for animated image clips
+FPS = 25
+FFMPEG_TIMEOUT_SECONDS = 600
+FFPROBE_TIMEOUT_SECONDS = 30
 
-# Maps scene emotion → zoompan camera effect
-# Four effects available: shaky | zoom_in_left | zoom_in_right | slide_left | slide_right | zoom_out
 EMOTION_TO_EFFECT: dict[str, str] = {
-    "confident":  "zoom_in_right",
-    "energetic":  "slide_right",
-    "excited":    "zoom_in_right",
-    "dramatic":   "shaky",
+    "confident": "zoom_in_right",
+    "energetic": "slide_right",
+    "excited": "zoom_in_right",
+    "dramatic": "shaky",
     "mysterious": "slide_left",
-    "tense":      "shaky",
-    "scared":     "shaky",
-    "horror":     "shaky",
-    "suspense":   "slide_left",
-    "calm":       "zoom_out",
-    "neutral":    "zoom_in_left",
-    "happy":      "slide_right",
-    "uplifting":  "slide_right",
-    "sad":        "zoom_out",
+    "tense": "shaky",
+    "scared": "shaky",
+    "horror": "shaky",
+    "suspense": "slide_left",
+    "calm": "zoom_out",
+    "neutral": "zoom_in_left",
+    "happy": "slide_right",
+    "uplifting": "slide_right",
+    "sad": "zoom_out",
     "reflective": "zoom_out",
-    # Horror / suspense emotions
     "apprehension": "slide_left",
-    "unease":       "slide_left",
-    "dread":        "shaky",
-    "terror":       "shaky",
-    "anxiety":      "shaky",
-    "paranoia":     "slide_left",
-    "alarm":        "shaky",
-    "desperation":  "shaky",
+    "unease": "slide_left",
+    "dread": "shaky",
+    "terror": "shaky",
+    "anxiety": "shaky",
+    "paranoia": "slide_left",
+    "alarm": "shaky",
+    "desperation": "shaky",
     "hopelessness": "zoom_out",
-    "shock":        "shaky",
-    "revelation":   "zoom_in_right",
-    "haunting":     "slide_left",
-    "isolation":    "zoom_out",
-    "curiosity":    "zoom_in_left",
+    "shock": "shaky",
+    "revelation": "zoom_in_right",
+    "haunting": "slide_left",
+    "isolation": "zoom_out",
+    "curiosity": "zoom_in_left",
 }
 
 
-def emotion_to_effect(emotion: str) -> str:
-    """Map a scene emotion string to a zoompan camera effect name."""
-    return EMOTION_TO_EFFECT.get(emotion.lower(), "dolly_in")
-
-
-def animate_image(
-    image_path: str,
-    effect: str = "dolly_in",
-    duration: int = 5,
-    width: int = 576,
-    height: int = 1024,
-    output_path: str | None = None,
-) -> str:
-    """Animate a still image with a cinematic camera move using FFmpeg zoompan.
-
-    Args:
-        image_path: Path to the source PNG/JPEG image (from Nova Canvas).
-        effect: Camera move — dolly_in, dolly_out, crash_zoom,
-                pan_left, pan_right, crane_up, crane_down.
-        duration: Clip duration in seconds.
-        width: Output width in pixels (default 576, must match Nova Canvas output).
-        height: Output height in pixels (default 1024, must match Nova Canvas output).
-        output_path: Where to write the output MP4. Defaults to /tmp.
-
-    Returns:
-        Path to the animated video clip.
-    """
-    if output_path is None:
-        output_path = f"/tmp/voicevid_anim_{os.getpid()}.mp4"
-
-    zoompan_filter = _build_zoompan(effect, duration, width, height)
-
-    _run_ffmpeg(
-        [
-            "ffmpeg", "-y",
-            "-loop", "1",
-            "-i", image_path,
-            "-vf", zoompan_filter,
-            "-t", str(duration),
-            "-r", str(FPS),
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-preset", "fast",
-            output_path,
-        ],
-        f"animate image ({effect}, {duration}s)",
-    )
-
-    logger.info("Animated image → %s (%s, %ds)", output_path, effect, duration)
-    return output_path
-
-
-def _build_zoompan(effect: str, duration: float, width: int, height: int) -> str:
-    """Build the FFmpeg -vf zoompan filter string for a given camera move.
-
-    Effects:
-      shaky        — handheld shake with slight zoom in
-      zoom_in_left — slow zoom into the left side of the frame
-      zoom_in_right— slow zoom into the right side of the frame
-      slide_left   — slow slide from right → left  (viewport pans left)
-      slide_right  — slow slide from left → right  (viewport pans right)
-      zoom_out     — slow zoom out from 1.5× → 1.0×, centered
-    """
-    frames = max(1, int(duration * FPS))
-    pz = 1.3                              # zoom level used for slide effects
-    size = f"s={width}x{height}:d={frames}"
-    cy = "ih/2-(ih/zoom/2)"               # keep centered vertically
-
-    if effect == "zoom_out":
-        # Start at 1.5×, drift back to 1.0×, stay centered
-        rate = round(0.5 / frames, 6)
-        z = f"if(eq(on,0),1.5,max(1.0,zoom-{rate}))"
-        cx = "iw/2-(iw/zoom/2)"
-        return f"zoompan=z='{z}':x='{cx}':y='{cy}':{size}"
-
-    elif effect == "zoom_in_left":
-        # Slow zoom 1.0→1.5×, x stays at 0 so focus drifts to the left portion
-        rate = round(0.5 / frames, 6)
-        z = f"min(zoom+{rate},1.5)"
-        return f"zoompan=z='{z}':x='0':y='{cy}':{size}"
-
-    elif effect == "zoom_in_right":
-        # Slow zoom 1.0→1.5×, x tracks the right edge so focus drifts right
-        rate = round(0.5 / frames, 6)
-        z = f"min(zoom+{rate},1.5)"
-        x = "iw-iw/zoom"                 # rightmost valid x = iw*(1-1/zoom)
-        return f"zoompan=z='{z}':x='{x}':y='{cy}':{size}"
-
-    elif effect == "slide_right":
-        # Fixed zoom pz, viewport slides left→right across the full travel distance
-        step = round(width * (1 - 1 / pz) / frames, 4)
-        x = f"min(iw*(1-1/{pz}),x+{step})"
-        return f"zoompan=z='{pz}':x='{x}':y='{cy}':{size}"
-
-    elif effect == "slide_left":
-        # Fixed zoom pz, viewport slides right→left; initialize x to max on frame 0
-        step = round(width * (1 - 1 / pz) / frames, 4)
-        x = f"if(eq(on,0),iw*(1-1/{pz}),max(0,x-{step}))"
-        return f"zoompan=z='{pz}':x='{x}':y='{cy}':{size}"
-
-    elif effect == "shaky":
-        # Slight zoom in 1.0→1.2× with sinusoidal handheld shake on x and y.
-        # Uses `on` (frame index 0…d-1) for stable, predictable oscillation.
-        rate = round(0.2 / frames, 6)
-        z = f"min(zoom+{rate},1.2)"
-        x = f"iw/2-(iw/zoom/2)+8*sin(on*0.5)"     # ~2 Hz horizontal shake
-        y = f"ih/2-(ih/zoom/2)+6*sin(on*0.37+1.0)" # ~1.5 Hz vertical shake
-        return f"zoompan=z='{z}':x='{x}':y='{y}':{size}"
-
-    else:
-        # Default: slow zoom in centered
-        rate = round(0.5 / frames, 6)
-        cx = "iw/2-(iw/zoom/2)"
-        return f"zoompan=z='min(zoom+{rate},1.5)':x='{cx}':y='{cy}':{size}"
-
-
-# Platform export presets: (width, height, video_bitrate, audio_bitrate)
 PLATFORM_PRESETS = {
     "instagram_reels": {
         "width": 1080,
@@ -191,110 +75,347 @@ PLATFORM_PRESETS = {
 }
 
 
-def _run_ffmpeg(cmd: list[str], description: str) -> str:
-    """Run an FFmpeg command via subprocess and return stdout."""
-    logger.info("FFmpeg [%s]: %s", description, " ".join(shlex.quote(c) for c in cmd))
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=600,  # 10 min max
-    )
-    if result.returncode != 0:
-        logger.error("FFmpeg failed [%s]: %s", description, result.stderr)
-        raise RuntimeError(f"FFmpeg {description} failed: {result.stderr[:500]}")
-    return result.stdout
-
-
-def _get_duration(file_path: str) -> float:
-    """Get media duration in seconds using ffprobe."""
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        file_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    return float(result.stdout.strip())
-
-
 _XFADE_TRANSITIONS: dict[str, str] = {
-    "fade":     "fade",
+    "fade": "fade",
     "dissolve": "dissolve",
-    "zoom":     "zoominout",
-    "slide":    "slideleft",
-    "wipe":     "wipeleft",
+    "zoom": "zoominout",
+    "slide": "slideleft",
+    "wipe": "wipeleft",
 }
 
 
-def _build_xfade_concat(
+class FFmpegError(RuntimeError):
+    """Raised when an ffmpeg subprocess fails."""
+
+
+class FFmpegTimeoutError(FFmpegError):
+    """Raised when ffmpeg exceeds the configured timeout."""
+
+
+class FFprobeError(RuntimeError):
+    """Raised when ffprobe fails or returns invalid output."""
+
+
+class MediaValidationError(ValueError):
+    """Raised when media inputs are invalid before invoking ffmpeg."""
+
+
+def emotion_to_effect(emotion: str) -> str:
+    return EMOTION_TO_EFFECT.get(emotion.lower(), "dolly_in")
+
+
+def _validate_existing_file(file_path: str, field_name: str) -> None:
+    if not file_path:
+        raise MediaValidationError(f"{field_name} must not be empty")
+    if not os.path.exists(file_path):
+        raise MediaValidationError(f"{field_name} does not exist: {file_path}")
+
+
+def _validate_positive_number(value: float, field_name: str) -> None:
+    if value <= 0:
+        raise MediaValidationError(f"{field_name} must be > 0, got {value}")
+
+
+def _validate_scene_videos(scene_videos: list[str]) -> None:
+    if not scene_videos:
+        raise MediaValidationError("scene_videos must contain at least one clip")
+    for clip in scene_videos:
+        _validate_existing_file(clip, "scene_video")
+
+
+def _normalize_music_volume(music_volume: float) -> float:
+    return max(0.0, min(1.0, float(music_volume)))
+
+
+def _generate_temp_output(prefix: str, suffix: str) -> str:
+    return os.path.join(tempfile.gettempdir(), f"{prefix}{uuid.uuid4().hex[:8]}{suffix}")
+
+
+def _escape_srt_path(path: str) -> str:
+    return path.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+
+def _concat_file_entry(path: str) -> str:
+    escaped = path.replace("'", "'\\''")
+    return f"file '{escaped}'\n"
+
+
+async def _run_subprocess(
+    binary: str,
+    args: list[str],
+    description: str,
+    *,
+    timeout: int,
+    error_cls: type[RuntimeError],
+) -> tuple[str, str]:
+    # ffmpeg supports -nostdin to prevent it from consuming stdin; ffprobe does not
+    extra_flags = ["-hide_banner", "-nostdin"] if binary == "ffmpeg" else ["-hide_banner"]
+    cmd = [binary, *extra_flags, *args]
+    logger.info("%s [%s]: %s", binary, description, " ".join(cmd))
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise error_cls(f"{binary} binary not found while running {description}") from exc
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        process.kill()
+        await process.communicate()
+        if error_cls is FFmpegError:
+            raise FFmpegTimeoutError(f"{binary} {description} timed out after {timeout}s") from exc
+        raise error_cls(f"{binary} {description} timed out after {timeout}s") from exc
+
+    stdout = stdout_bytes.decode(errors="replace")
+    stderr = stderr_bytes.decode(errors="replace")
+
+    if process.returncode != 0:
+        detail = stderr.strip() or stdout.strip() or f"exit code {process.returncode}"
+        logger.error("%s failed [%s]: %s", binary, description, detail)
+        raise error_cls(f"{binary} {description} failed: {detail[:500]}")
+
+    return stdout, stderr
+
+
+async def _run_ffmpeg(cmd: list[str], description: str) -> str:
+    stdout, _ = await _run_subprocess(
+        "ffmpeg",
+        cmd,
+        description,
+        timeout=FFMPEG_TIMEOUT_SECONDS,
+        error_cls=FFmpegError,
+    )
+    return stdout
+
+
+async def _run_ffprobe(cmd: list[str], description: str) -> str:
+    stdout, _ = await _run_subprocess(
+        "ffprobe",
+        cmd,
+        description,
+        timeout=FFPROBE_TIMEOUT_SECONDS,
+        error_cls=FFprobeError,
+    )
+    return stdout
+
+
+async def _get_duration(file_path: str) -> float:
+    _validate_existing_file(file_path, "file_path")
+    stdout = await _run_ffprobe(
+        [
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            file_path,
+        ],
+        f"probe duration for {Path(file_path).name}",
+    )
+    try:
+        duration = float(stdout.strip())
+    except ValueError as exc:
+        raise FFprobeError(f"Invalid ffprobe duration output for {file_path}: {stdout!r}") from exc
+    if duration <= 0:
+        raise FFprobeError(f"Non-positive duration for {file_path}: {duration}")
+    return duration
+
+
+async def _has_audio_stream(file_path: str) -> bool:
+    _validate_existing_file(file_path, "file_path")
+    stdout = await _run_ffprobe(
+        [
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+            file_path,
+        ],
+        f"probe audio stream for {Path(file_path).name}",
+    )
+    return bool(stdout.strip())
+
+
+async def animate_image(
+    image_path: str,
+    effect: str = "dolly_in",
+    duration: int = 5,
+    width: int = 576,
+    height: int = 1024,
+    output_path: str | None = None,
+) -> str:
+    _validate_existing_file(image_path, "image_path")
+    _validate_positive_number(duration, "duration")
+    _validate_positive_number(width, "width")
+    _validate_positive_number(height, "height")
+
+    if output_path is None:
+        output_path = _generate_temp_output("voicevid_anim_", ".mp4")
+
+    zoompan_filter = _build_zoompan(effect, duration, width, height)
+    await _run_ffmpeg(
+        [
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            image_path,
+            "-vf",
+            zoompan_filter,
+            "-t",
+            str(duration),
+            "-r",
+            str(FPS),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "fast",
+            output_path,
+        ],
+        f"animate image ({effect}, {duration}s)",
+    )
+    logger.info("Animated image -> %s (%s, %ss)", output_path, effect, duration)
+    return output_path
+
+
+def _build_zoompan(effect: str, duration: float, width: int, height: int) -> str:
+    frames = max(1, int(duration * FPS))
+    pz = 1.3
+    size = f"s={width}x{height}:d={frames}"
+    cy = "ih/2-(ih/zoom/2)"
+
+    if effect == "zoom_out":
+        rate = round(0.5 / frames, 6)
+        z = f"if(eq(on,0),1.5,max(1.0,zoom-{rate}))"
+        cx = "iw/2-(iw/zoom/2)"
+        return f"zoompan=z='{z}':x='{cx}':y='{cy}':{size}"
+    if effect == "zoom_in_left":
+        rate = round(0.5 / frames, 6)
+        z = f"min(zoom+{rate},1.5)"
+        return f"zoompan=z='{z}':x='0':y='{cy}':{size}"
+    if effect == "zoom_in_right":
+        rate = round(0.5 / frames, 6)
+        z = f"min(zoom+{rate},1.5)"
+        x = "iw-iw/zoom"
+        return f"zoompan=z='{z}':x='{x}':y='{cy}':{size}"
+    if effect == "slide_right":
+        step = round(width * (1 - 1 / pz) / frames, 4)
+        x = f"min(iw*(1-1/{pz}),x+{step})"
+        return f"zoompan=z='{pz}':x='{x}':y='{cy}':{size}"
+    if effect == "slide_left":
+        step = round(width * (1 - 1 / pz) / frames, 4)
+        x = f"if(eq(on,0),iw*(1-1/{pz}),max(0,x-{step}))"
+        return f"zoompan=z='{pz}':x='{x}':y='{cy}':{size}"
+    if effect == "shaky":
+        rate = round(0.2 / frames, 6)
+        z = f"min(zoom+{rate},1.2)"
+        x = "iw/2-(iw/zoom/2)+8*sin(on*0.5)"
+        y = "ih/2-(ih/zoom/2)+6*sin(on*0.37+1.0)"
+        return f"zoompan=z='{z}':x='{x}':y='{y}':{size}"
+
+    rate = round(0.5 / frames, 6)
+    cx = "iw/2-(iw/zoom/2)"
+    return f"zoompan=z='min(zoom+{rate},1.5)':x='{cx}':y='{cy}':{size}"
+
+
+async def _copy_video(video_path: str, output_path: str, description: str) -> str:
+    await _run_ffmpeg(["-y", "-i", video_path, "-c", "copy", output_path], description)
+    return output_path
+
+
+async def _build_xfade_concat(
     scene_videos: list[str],
     transitions: list[str | None],
     work_dir: str,
     output_path: str,
     xfade_duration: float = 0.3,
 ) -> str:
-    """Build an xfade-based concat command for clips with per-scene transitions.
+    _validate_scene_videos(scene_videos)
+    _validate_positive_number(xfade_duration, "xfade_duration")
 
-    Falls back to simple concat (via concat demuxer) if only hard-cuts are needed.
-    Returns the path to the concatenated video.
-    """
+    if len(scene_videos) == 1:
+        return await _copy_video(scene_videos[0], output_path, "copy single scene")
+
     has_xfade = any(t for t in transitions if t and t in _XFADE_TRANSITIONS)
     if not has_xfade:
-        # All hard cuts — use fast copy concat
         concat_list = os.path.join(work_dir, "concat.txt")
-        with open(concat_list, "w") as f:
-            for v in scene_videos:
-                f.write(f"file {shlex.quote(v)}\n")
-        _run_ffmpeg(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", output_path],
+        with open(concat_list, "w", encoding="utf-8") as handle:
+            for video in scene_videos:
+                handle.write(_concat_file_entry(video))
+        await _run_ffmpeg(
+            ["-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", output_path],
             "concatenate scenes (hard cut)",
         )
         return output_path
 
-    # Build xfade filter_complex chain
-    # Each clip must be re-encoded to have a consistent timebase first
     re_encoded: list[str] = []
     for i, clip in enumerate(scene_videos):
         out = os.path.join(work_dir, f"xf_clip_{i}.mp4")
-        _run_ffmpeg(
-            ["ffmpeg", "-y", "-i", clip, "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-an", out],
+        await _run_ffmpeg(
+            [
+                "-y",
+                "-i",
+                clip,
+                "-vf",
+                "fps=25,format=yuv420p,scale=576:1024:force_original_aspect_ratio=decrease,pad=576:1024:(ow-iw)/2:(oh-ih)/2",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "20",
+                "-an",
+                out,
+            ],
             f"re-encode clip {i} for xfade",
         )
         re_encoded.append(out)
 
-    # Build cumulative offset and filter chain
-    # offset_i = sum(durations[0..i-1]) - i * xfade_duration
-    durations = [_get_duration(c) for c in re_encoded]
+    durations = [await _get_duration(path) for path in re_encoded]
+    for duration in durations:
+        if duration <= xfade_duration:
+            raise MediaValidationError(
+                f"All clips used with xfade must be longer than {xfade_duration}s; got {duration:.3f}s"
+            )
 
-    inputs = []
-    for c in re_encoded:
-        inputs += ["-i", c]
+    inputs: list[str] = []
+    for clip in re_encoded:
+        inputs += ["-i", clip]
 
     filter_parts: list[str] = []
     last_label = "[0:v]"
     offset = durations[0]
+    current_timeline_duration = durations[0]
 
     for i in range(1, len(re_encoded)):
-        t = transitions[i - 1] if i - 1 < len(transitions) else None
-        xfade = _XFADE_TRANSITIONS.get(t or "", "dissolve") if t and t in _XFADE_TRANSITIONS else "dissolve"
+        transition_name = transitions[i - 1] if i - 1 < len(transitions) else None
+        xfade = _XFADE_TRANSITIONS.get(transition_name or "", "dissolve")
+        xfade_offset = offset - xfade_duration
+        if xfade_offset < 0 or xfade_offset >= current_timeline_duration:
+            raise MediaValidationError(
+                f"Invalid xfade offset {xfade_offset:.4f}s for clip {i}; durations={durations}"
+            )
         out_label = f"[xf{i}]" if i < len(re_encoded) - 1 else "[vout]"
         filter_parts.append(
-            f"{last_label}[{i}:v]xfade=transition={xfade}:duration={xfade_duration}:offset={offset - xfade_duration:.4f}{out_label}"
+            f"{last_label}[{i}:v]xfade=transition={xfade}:duration={xfade_duration}:offset={xfade_offset:.4f}{out_label}"
         )
         last_label = out_label
         offset += durations[i] - xfade_duration
+        current_timeline_duration += durations[i] - xfade_duration
 
-    filter_complex = ";".join(filter_parts)
-
-    _run_ffmpeg(
-        ["ffmpeg", "-y"] + inputs + [
-            "-filter_complex", filter_complex,
-            "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-an",
-            output_path,
-        ],
+    await _run_ffmpeg(
+        ["-y", *inputs, "-filter_complex", ";".join(filter_parts), "-map", "[vout]", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-an", output_path],
         "concatenate scenes with xfade transitions",
     )
     return output_path
@@ -309,329 +430,290 @@ async def compose_video(
     save_intermediate_to: str | None = None,
     scene_transitions: list[str | None] | None = None,
 ) -> str:
-    """Compose a final video from scene clips, voiceover, and captions.
+    _validate_scene_videos(scene_videos)
+    if voiceover_path:
+        _validate_existing_file(voiceover_path, "voiceover_path")
+    if srt_path:
+        _validate_existing_file(srt_path, "srt_path")
 
-    Args:
-        scene_videos: Ordered list of file paths to scene video clips.
-        voiceover_path: Path to the voiceover audio file (.wav/.mp3).
-        srt_path: Path to the .srt caption file.
-        caption_style: Style hint for caption rendering ("hormozi", "clean", "karaoke").
-        output_path: Where to write the final video. Defaults to /tmp.
-        save_intermediate_to: Optional path to copy the pre-caption video (scenes +
-            voiceover, no captions, no music). Used by the recompose endpoint to
-            allow caption/music changes without re-running TTS or image generation.
-
-    Returns:
-        Path to the composed video file.
-    """
     if output_path is None:
-        output_path = f"/tmp/voicevid_composed_{os.getpid()}.mp4"
+        output_path = _generate_temp_output("voicevid_composed_", ".mp4")
 
-    work_dir = f"/tmp/voicevid_work_{os.getpid()}"
-    os.makedirs(work_dir, exist_ok=True)
-
-    # Step 1: Concatenate scene videos (with optional xfade transitions)
-    concat_output = os.path.join(work_dir, "concat.mp4")
-    _build_xfade_concat(
-        scene_videos=scene_videos,
-        transitions=scene_transitions or [],
-        work_dir=work_dir,
-        output_path=concat_output,
-    )
-    current_video = concat_output
-
-    # Step 2: Mix in voiceover audio
-    if voiceover_path and os.path.exists(voiceover_path):
-        # Extend video to match the full voiceover duration (loops scene clips if needed)
-        vo_duration = _get_duration(voiceover_path)
-        extended = os.path.join(work_dir, "extended.mp4")
-        current_video = extend_video_to_duration(current_video, vo_duration, extended)
-
-        audio_mixed = os.path.join(work_dir, "with_audio.mp4")
-        _run_ffmpeg(
-            [
-                "ffmpeg", "-y",
-                "-i", current_video,
-                "-i", voiceover_path,
-                "-c:v", "copy",
-                "-c:a", "aac", "-b:a", "192k",
-                "-map", "0:v:0", "-map", "1:a:0",
-                audio_mixed,
-            ],
-            "mix voiceover",
+    work_dir = tempfile.mkdtemp(prefix="voicevid_compose_")
+    try:
+        concat_output = os.path.join(work_dir, "concat.mp4")
+        await _build_xfade_concat(
+            scene_videos=scene_videos,
+            transitions=scene_transitions or [],
+            work_dir=work_dir,
+            output_path=concat_output,
         )
-        current_video = audio_mixed
+        current_video = concat_output
 
-    # Preserve pre-caption video for recompose support
-    if save_intermediate_to:
-        shutil.copy2(current_video, save_intermediate_to)
-        logger.info("Saved intermediate with_audio → %s", save_intermediate_to)
+        if voiceover_path:
+            vo_duration = await _get_duration(voiceover_path)
+            extended = os.path.join(work_dir, "extended.mp4")
+            current_video = await extend_video_to_duration(current_video, vo_duration, extended)
 
-    # Step 3: Burn in captions
-    if srt_path and os.path.exists(srt_path):
-        current_video = add_captions(current_video, srt_path, caption_style, output_path)
-    else:
-        # Just copy to output
-        _run_ffmpeg(
-            ["ffmpeg", "-y", "-i", current_video, "-c", "copy", output_path],
-            "copy to output",
-        )
+            audio_mixed = os.path.join(work_dir, "with_audio.mp4")
+            await _run_ffmpeg(
+                [
+                    "-y",
+                    "-i",
+                    current_video,
+                    "-i",
+                    voiceover_path,
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "1:a:0",
+                    audio_mixed,
+                ],
+                "mix voiceover",
+            )
+            current_video = audio_mixed
 
-    logger.info("Composed video ready: %s", output_path)
-    return output_path
+        if save_intermediate_to:
+            shutil.copy2(current_video, save_intermediate_to)
+            logger.info("Saved intermediate with_audio -> %s", save_intermediate_to)
+
+        if srt_path:
+            current_video = await add_captions(current_video, srt_path, caption_style, output_path)
+        else:
+            await _copy_video(current_video, output_path, "copy to output")
+
+        logger.info("Composed video ready: %s", output_path)
+        return output_path
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
-def add_captions(
+async def add_captions(
     video_path: str,
     srt_path: str,
     style: str = "clean",
     output_path: str | None = None,
 ) -> str:
-    """Burn captions into a video using FFmpeg subtitles filter.
-
-    Args:
-        video_path: Path to the input video.
-        srt_path: Path to the .srt file.
-        style: Visual style for the captions.
-        output_path: Where to write the output. Defaults to /tmp.
-
-    Returns:
-        Path to the captioned video.
-    """
+    _validate_existing_file(video_path, "video_path")
+    _validate_existing_file(srt_path, "srt_path")
     if output_path is None:
-        output_path = f"/tmp/voicevid_captioned_{os.getpid()}.mp4"
+        output_path = _generate_temp_output("voicevid_captioned_", ".mp4")
 
-    style_options = _get_caption_style_options(style)
-
-    # Escape special characters in path for FFmpeg filter
-    escaped_srt = srt_path.replace("'", "'\\''").replace(":", "\\:")
-
-    _run_ffmpeg(
+    await _run_ffmpeg(
         [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", f"subtitles='{escaped_srt}':{style_options}",
-            "-c:a", "copy",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-y",
+            "-i",
+            video_path,
+            "-vf",
+            f"subtitles='{_escape_srt_path(srt_path)}':{_get_caption_style_options(style)}",
+            "-c:a",
+            "copy",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
             output_path,
         ],
         f"burn captions ({style})",
     )
-
     return output_path
 
 
 def _get_caption_style_options(style: str) -> str:
-    """Return FFmpeg subtitle filter force_style options for each caption style."""
-    # Bold Stroke — white bold text, heavy black outline, upper-center
-    if style in ("bold_stroke", "hormozi"):
-        return (
+    styles = {
+        "bold_stroke": (
             "force_style='FontName=Arial Black,FontSize=20,Bold=1,"
             "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
             "Outline=3,Shadow=0,Alignment=10,MarginV=60'"
-        )
-    # Red Highlight — white text on red background box
-    elif style == "red_highlight":
-        return (
+        ),
+        "hormozi": (
+            "force_style='FontName=Arial Black,FontSize=20,Bold=1,"
+            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "Outline=3,Shadow=0,Alignment=10,MarginV=60'"
+        ),
+        "red_highlight": (
             "force_style='FontName=Arial Black,FontSize=18,Bold=1,"
             "PrimaryColour=&H00FFFFFF,BackColour=&H000000FF,"
             "BorderStyle=4,Outline=0,Shadow=0,Alignment=10,MarginV=60'"
-        )
-    # Sleek — clean thin subtitle at bottom
-    elif style in ("sleek", "clean"):
-        return (
+        ),
+        "sleek": (
             "force_style='FontName=Arial,FontSize=14,Bold=0,"
             "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
             "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
-        )
-    # Karaoke — word highlight, bottom
-    elif style == "karaoke":
-        return (
+        ),
+        "clean": (
+            "force_style='FontName=Arial,FontSize=14,Bold=0,"
+            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
+        ),
+        "karaoke": (
             "force_style='FontName=Arial,FontSize=16,Bold=1,"
             "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
             "Outline=2,Shadow=1,Alignment=2,MarginV=40'"
-        )
-    # Majestic — centered, gold shadow
-    elif style == "majestic":
-        return (
+        ),
+        "majestic": (
             "force_style='FontName=Georgia,FontSize=22,Bold=1,Italic=0,"
             "PrimaryColour=&H00FFFFFF,OutlineColour=&H001C86EE,"
             "Outline=2,Shadow=2,Alignment=2,MarginV=50'"
-        )
-    # Beast — impact, single words, all caps, heavy stroke
-    elif style == "beast":
-        return (
+        ),
+        "beast": (
             "force_style='FontName=Impact,FontSize=26,Bold=1,"
             "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
             "Outline=4,Shadow=0,Alignment=10,MarginV=80'"
-        )
-    # Elegant — refined italic, thin outline, bottom
-    elif style == "elegant":
-        return (
+        ),
+        "elegant": (
             "force_style='FontName=Georgia,FontSize=16,Bold=0,Italic=1,"
             "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
             "Outline=1,Shadow=1,Alignment=2,MarginV=35'"
-        )
-    else:
-        return (
-            "force_style='FontName=Arial,FontSize=14,Bold=0,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
-        )
+        ),
+    }
+    return styles.get(
+        style,
+        "force_style='FontName=Arial,FontSize=14,Bold=0,"
+        "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+        "Outline=2,Shadow=1,Alignment=2,MarginV=30'",
+    )
 
 
-def extend_video_to_duration(
+async def extend_video_to_duration(
     video_path: str,
     target_duration: float,
     output_path: str | None = None,
 ) -> str:
-    """Loop a video clip until it reaches at least target_duration seconds.
-
-    Uses FFmpeg's -stream_loop to seamlessly repeat the clip. Useful when
-    a generated clip is shorter than the voiceover.
-
-    Args:
-        video_path: Path to the source video clip.
-        target_duration: Desired output duration in seconds.
-        output_path: Where to write the output. Defaults to /tmp.
-
-    Returns:
-        Path to the extended video file.
-    """
+    _validate_existing_file(video_path, "video_path")
+    _validate_positive_number(target_duration, "target_duration")
     if output_path is None:
-        output_path = f"/tmp/voicevid_extended_{os.getpid()}.mp4"
+        output_path = _generate_temp_output("voicevid_extended_", ".mp4")
 
-    clip_duration = _get_duration(video_path)
+    clip_duration = await _get_duration(video_path)
     if clip_duration >= target_duration:
-        # Already long enough — just copy
-        _run_ffmpeg(
-            ["ffmpeg", "-y", "-i", video_path, "-c", "copy", output_path],
-            "copy (no extension needed)",
-        )
-        return output_path
+        return await _copy_video(video_path, output_path, "copy (no extension needed)")
 
-    # -stream_loop -1 loops indefinitely; -t trims to exact target duration
-    _run_ffmpeg(
+    await _run_ffmpeg(
         [
-            "ffmpeg", "-y",
-            "-stream_loop", "-1",
-            "-i", video_path,
-            "-t", str(target_duration),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-an",  # strip audio (video-only clip; voiceover added separately)
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-i",
+            video_path,
+            "-t",
+            str(target_duration),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "20",
+            "-an",
             output_path,
         ],
-        f"extend video {clip_duration:.1f}s → {target_duration:.1f}s",
+        f"extend video {clip_duration:.1f}s -> {target_duration:.1f}s",
     )
     logger.info("Extended video from %.1fs to %.1fs: %s", clip_duration, target_duration, output_path)
     return output_path
 
 
-def mix_background_music(
+async def mix_background_music(
     video_path: str,
     music_path: str,
     music_volume: float = 0.15,
     output_path: str | None = None,
 ) -> str:
-    """Mix a background music track under the existing audio in a video.
-
-    Uses FFmpeg amix to blend the music at a reduced volume behind the voiceover.
-    The output duration matches the video (music loops if shorter, cuts if longer).
-
-    Args:
-        video_path: Path to video with voiceover audio already mixed in.
-        music_path: Path to the background music file (MP3/WAV).
-        music_volume: Relative volume for the music track (0.0–1.0). Default 0.15.
-        output_path: Where to write the output. Defaults to /tmp.
-
-    Returns:
-        Path to the video with background music mixed in.
-    """
+    _validate_existing_file(video_path, "video_path")
+    _validate_existing_file(music_path, "music_path")
     if output_path is None:
-        output_path = f"/tmp/voicevid_music_{os.getpid()}.mp4"
+        output_path = _generate_temp_output("voicevid_music_", ".mp4")
 
-    vol = max(0.0, min(1.0, music_volume))
-
-    # Probe whether the video has an audio stream
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a",
-         "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path],
-        capture_output=True, text=True,
-    )
-    has_audio = bool(probe.stdout.strip())
+    vol = _normalize_music_volume(music_volume)
+    has_audio = await _has_audio_stream(video_path)
 
     if has_audio:
-        # Mix music behind existing voiceover
         filter_complex = (
             f"[1:a]volume={vol}[bg];"
-            f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            "[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
         )
-        audio_map = "[aout]"
     else:
-        # No voiceover — use music as the only audio track, trimmed to video length
-        filter_complex = f"[1:a]volume={vol},atrim=duration={_get_duration(video_path)}[aout]"
-        audio_map = "[aout]"
+        video_duration = await _get_duration(video_path)
+        filter_complex = f"[1:a]volume={vol},atrim=duration={video_duration}[aout]"
 
-    _run_ffmpeg(
+    await _run_ffmpeg(
         [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-stream_loop", "-1", "-i", music_path,
-            "-filter_complex", filter_complex,
-            "-map", "0:v:0",
-            "-map", audio_map,
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-y",
+            "-i",
+            video_path,
+            "-stream_loop",
+            "-1",
+            "-i",
+            music_path,
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "0:v:0",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
             output_path,
         ],
         f"mix background music (vol={vol})",
     )
-
     logger.info("Mixed background music into: %s", output_path)
     return output_path
 
 
-def export_for_platform(
+async def export_for_platform(
     video_path: str,
     platform: str,
     output_path: str | None = None,
 ) -> str:
-    """Re-encode a video optimized for a specific social media platform.
-
-    Applies platform-specific resolution, bitrate, and codec settings.
-
-    Args:
-        video_path: Path to the source video.
-        platform: One of "instagram_reels", "youtube_shorts", "tiktok".
-        output_path: Where to write the output. Defaults to /tmp.
-
-    Returns:
-        Path to the platform-optimized video.
-    """
+    _validate_existing_file(video_path, "video_path")
     preset = PLATFORM_PRESETS.get(platform)
     if preset is None:
-        raise ValueError(f"Unknown platform: {platform}. Use one of: {list(PLATFORM_PRESETS.keys())}")
-
+        raise MediaValidationError(
+            f"Unknown platform: {platform}. Use one of: {list(PLATFORM_PRESETS.keys())}"
+        )
     if output_path is None:
-        output_path = f"/tmp/voicevid_{platform}_{os.getpid()}.mp4"
+        output_path = _generate_temp_output(f"voicevid_{platform}_", ".mp4")
 
     w, h = preset["width"], preset["height"]
-
-    _run_ffmpeg(
+    await _run_ffmpeg(
         [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
-            "-c:v", "libx264", "-preset", "fast",
-            "-b:v", preset["video_bitrate"],
-            "-r", str(preset["fps"]),
-            "-c:a", "aac", "-b:a", preset["audio_bitrate"],
-            "-movflags", "+faststart",
-            "-t", str(preset["max_duration"]),
+            "-y",
+            "-i",
+            video_path,
+            "-vf",
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-b:v",
+            preset["video_bitrate"],
+            "-r",
+            str(preset["fps"]),
+            "-c:a",
+            "aac",
+            "-b:a",
+            preset["audio_bitrate"],
+            "-movflags",
+            "+faststart",
+            "-t",
+            str(preset["max_duration"]),
             output_path,
         ],
         f"export for {platform}",
     )
-
     logger.info("Exported %s version: %s", platform, output_path)
     return output_path

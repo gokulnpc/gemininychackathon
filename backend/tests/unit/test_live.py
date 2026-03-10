@@ -69,7 +69,7 @@ async def test_tone_normalized_to_enum():
     with patch("services.gemini.live.tempfile.mkstemp", return_value=(1, "/tmp/fake")), \
          patch("services.gemini.live.os.write"), \
          patch("services.gemini.live.os.close"), \
-         patch("services.media.ffmpeg._run_ffmpeg"), \
+         patch("services.media.ffmpeg._run_ffmpeg", new=AsyncMock()), \
          patch("services.gemini.live.os.path.exists", return_value=True), \
          patch("services.gemini.live.os.unlink"), \
          patch("services.gemini.live.transcribe_live", new=AsyncMock(return_value={
@@ -91,7 +91,7 @@ async def test_valid_tone_preserved():
         with patch("services.gemini.live.tempfile.mkstemp", return_value=(1, "/tmp/fake")), \
              patch("services.gemini.live.os.write"), \
              patch("services.gemini.live.os.close"), \
-             patch("services.media.ffmpeg._run_ffmpeg"), \
+             patch("services.media.ffmpeg._run_ffmpeg", new=AsyncMock()), \
              patch("services.gemini.live.os.path.exists", return_value=True), \
              patch("services.gemini.live.os.unlink"), \
              patch("services.gemini.live.transcribe_live", new=AsyncMock(return_value={
@@ -110,7 +110,7 @@ async def test_full_flow_success():
     with patch("services.gemini.live.tempfile.mkstemp", return_value=(1, "/tmp/fake")), \
          patch("services.gemini.live.os.write"), \
          patch("services.gemini.live.os.close"), \
-         patch("services.media.ffmpeg._run_ffmpeg") as mock_ffmpeg, \
+         patch("services.media.ffmpeg._run_ffmpeg", new=AsyncMock()) as mock_ffmpeg, \
          patch("services.gemini.live.os.path.exists", return_value=True), \
          patch("services.gemini.live.os.unlink") as mock_unlink, \
          patch("services.gemini.live.transcribe_live", new=AsyncMock(return_value={

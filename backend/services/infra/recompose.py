@@ -118,7 +118,7 @@ async def recompose_video(
     ))
 
     captioned_path = os.path.join(work_dir, "captioned.mp4")
-    ffmpeg.add_captions(local_with_audio, srt_path, caption_style, captioned_path)
+    await ffmpeg.add_captions(local_with_audio, srt_path, caption_style, captioned_path)
 
     stages[-1].status = "completed"
     stages[-1].detail = f"Burned {caption_style} captions"
@@ -162,7 +162,7 @@ async def recompose_video(
 
         if music_file:
             music_out = os.path.join(work_dir, "composed_music.mp4")
-            composed_path = ffmpeg.mix_background_music(
+            composed_path = await ffmpeg.mix_background_music(
                 video_path=captioned_path,
                 music_path=music_file,
                 music_volume=music_volume,
@@ -189,7 +189,7 @@ async def recompose_video(
 
     video_urls: dict[str, str] = {}
     for platform in target_platforms:
-        platform_path = ffmpeg.export_for_platform(
+        platform_path = await ffmpeg.export_for_platform(
             video_path=composed_path,
             platform=platform.value,
             output_path=os.path.join(work_dir, f"final_{platform.value}.mp4"),

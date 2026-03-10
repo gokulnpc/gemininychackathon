@@ -40,7 +40,7 @@ async def run_export_stage(
     # Per-platform exports
     video_urls: dict[str, str] = {}
     for platform in target_platforms:
-        platform_path = ffmpeg.export_for_platform(
+        platform_path = await ffmpeg.export_for_platform(
             video_path=composed_path,
             platform=platform.value,
             output_path=os.path.join(work_dir, f"final_{platform.value}.mp4"),

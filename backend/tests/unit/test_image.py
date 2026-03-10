@@ -512,7 +512,7 @@ class TestBuildSceneGenerationPlan:
         plan = _build_scene_generation_plan(ImageGenerationRequest(prompt="scene"))
         assert plan.output_format == "PNG"
         assert plan.output_suffix == ".png"
-        assert "voicevid_gemini_" in plan.output_prefix
+        assert "storylabs_gemini_" in plan.output_prefix
 
     @pytest.mark.unit
     def test_fallback_contents_non_empty(self):
@@ -561,7 +561,7 @@ class TestBuildCharacterSheetPlan:
         )
         assert plan.output_format == "PNG"
         assert plan.output_suffix == ".png"
-        assert "voicevid_charsheet_" in plan.output_prefix
+        assert "storylabs_charsheet_" in plan.output_prefix
 
     @pytest.mark.unit
     def test_fallback_contents_starts_with_string(self):
@@ -612,7 +612,7 @@ class TestBuildThumbnailPlan:
         assert plan.output_format == "JPEG"
         assert plan.output_suffix == ".jpg"
         assert plan.save_kwargs.get("quality") == 92
-        assert "voicevid_thumb_" in plan.output_prefix
+        assert "storylabs_thumb_" in plan.output_prefix
 
 
 # ---------------------------------------------------------------------------
