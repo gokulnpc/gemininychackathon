@@ -36,7 +36,7 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
+        <button suppressHydrationWarning className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
           <Avatar className="w-8 h-8">
             <AvatarImage src={photoURL} alt={displayName} />
             <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">{initials}</AvatarFallback>

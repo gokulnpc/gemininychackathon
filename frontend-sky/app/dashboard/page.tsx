@@ -36,6 +36,7 @@ import {
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -127,13 +128,8 @@ export default function DashboardPage() {
     setPublishLoading(true);
     setPublishResults(null);
     try {
-      const resp = await fetch(`${API}/api/v1/projects/${projectId}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platforms }),
-      });
-      const data = await resp.json();
-      setPublishResults(data.posts ?? []);
+      const resp = await apiClient.post(`/api/v1/projects/${projectId}/publish`, { platforms });
+      setPublishResults(resp.data.posts ?? []);
     } catch (e) {
       setPublishResults([{ platform: "all", status: "failed", error: String(e) }]);
     } finally {
@@ -153,18 +149,14 @@ export default function DashboardPage() {
 
   // Fetch projects on mount
   useEffect(() => {
-    fetch(`${API}/api/v1/projects`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => setProjects(d.projects ?? []))
+    apiClient.get("/api/v1/projects")
+      .then((r) => setProjects(r.data.projects ?? []))
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
   async function deleteProject(id: string) {
-    await fetch(`${API}/api/v1/projects/${id}`, { method: "DELETE" });
+    await apiClient.delete(`/api/v1/projects/${id}`);
     setProjects((prev) => prev.filter((p) => p.project_id !== id));
     if (selected?.project_id === id) setSelected(null);
   }

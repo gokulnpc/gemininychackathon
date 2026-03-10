@@ -19,6 +19,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { UserMenu } from "@/components/shared/UserMenu";
 import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -107,12 +108,7 @@ function ScriptReadyPanel({
         voiceover_full_script: voiceover,
       };
       try {
-        const res = await fetch(`${API}/api/v1/projects/${project.project_id}/script`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ script: updatedScript }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await apiClient.put(`/api/v1/projects/${project.project_id}/script`, { script: updatedScript });
       } catch {
         setSaveError("Failed to save edits");
       } finally {
@@ -273,10 +269,8 @@ export default function ProjectDetailPage() {
 
   const fetchProject = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/projects/${projectId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setProject(data);
+      const res = await apiClient.get(`/api/v1/projects/${projectId}`);
+      setProject(res.data);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load project");
@@ -305,21 +299,13 @@ export default function ProjectDetailPage() {
   async function handleRegenerate() {
     if (!project) return;
     const cfg = project.pipeline_config ?? {};
-    const res = await fetch(`${API}/api/v1/projects/${project.project_id}/queue-script`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...cfg }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await apiClient.post(`/api/v1/projects/${project.project_id}/queue-script`, { ...cfg });
     await fetchProject();
   }
 
   async function handleApprove() {
     if (!project) return;
-    const res = await fetch(`${API}/api/v1/projects/${project.project_id}/approve-script`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await apiClient.post(`/api/v1/projects/${project.project_id}/approve-script`);
     await fetchProject();
   }
 

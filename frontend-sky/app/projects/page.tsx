@@ -29,6 +29,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { UserMenu } from "@/components/shared/UserMenu";
 import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -272,10 +273,8 @@ function ProjectsContent() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/projects`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setProjects(data.projects ?? []);
+      const res = await apiClient.get("/api/v1/projects");
+      setProjects(res.data.projects ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load projects");
@@ -302,7 +301,7 @@ function ProjectsContent() {
 
   async function handleDelete(id: string) {
     try {
-      await fetch(`${API}/api/v1/projects/${id}`, { method: "DELETE" });
+      await apiClient.delete(`/api/v1/projects/${id}`);
       setProjects((prev) => prev.filter((p) => p.project_id !== id));
     } catch {
       alert("Failed to delete project");

@@ -18,6 +18,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/components/shared/UserMenu";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -70,12 +71,8 @@ export default function AssetsPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API}/api/v1/assets?category=${category}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => setAssets(d.assets ?? []))
+    apiClient.get(`/api/v1/assets?category=${category}`)
+      .then((r) => setAssets(r.data.assets ?? []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [category]);
@@ -92,15 +89,8 @@ export default function AssetsPage() {
     formData.append("category", category);
 
     try {
-      const resp = await fetch(`${API}/api/v1/assets/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Upload failed (HTTP ${resp.status})`);
-      }
-      const newAsset: Asset = await resp.json();
+      const resp = await apiClient.post("/api/v1/assets/upload", formData);
+      const newAsset: Asset = resp.data;
       setAssets((prev) => [newAsset, ...prev]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -113,9 +103,7 @@ export default function AssetsPage() {
 
   async function handleDelete(assetId: string) {
     try {
-      await fetch(`${API}/api/v1/assets/${assetId}?category=${category}`, {
-        method: "DELETE",
-      });
+      await apiClient.delete(`/api/v1/assets/${assetId}?category=${category}`);
       setAssets((prev) => prev.filter((a) => a.id !== assetId));
     } catch (err) {
       setError("Failed to delete asset");
@@ -284,15 +272,13 @@ function AssetCard({
   index: number;
   onDelete: (id: string) => void;
 }) {
-  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   // For images, fetch the presigned URL for preview
   useEffect(() => {
     if (category !== "images") return;
-    fetch(`${API}/api/v1/assets/${asset.id}/url?category=images`)
-      .then((r) => r.json())
-      .then((d) => setImageUrl(d.url))
+    apiClient.get(`/api/v1/assets/${asset.id}/url?category=images`)
+      .then((r) => setImageUrl(r.data.url))
       .catch(() => {});
   }, [asset.id, category]);
 

@@ -15,8 +15,9 @@ import tempfile
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 
+from deps.auth import get_current_user
 from services.storage import gcs
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ def _validate_category(category: str) -> None:
 
 
 @router.get("/assets")
-async def list_assets(category: str = Query(..., description="images | music | voice_memos")):
+async def list_assets(category: str = Query(..., description="images | music | voice_memos"), current_user: dict = Depends(get_current_user)):
     """Return all assets in the given category, newest first."""
     _validate_category(category)
 
@@ -66,6 +67,7 @@ async def list_assets(category: str = Query(..., description="images | music | v
 async def upload_asset(
     file: UploadFile,
     category: str = Form(..., description="images | music | voice_memos"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Upload a file and return its asset metadata."""
     _validate_category(category)
@@ -118,6 +120,7 @@ async def upload_asset(
 async def get_asset_url(
     asset_id: str,
     category: str = Query(..., description="images | music | voice_memos"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Return a presigned (or public) URL for the asset file."""
     _validate_category(category)
@@ -143,6 +146,7 @@ async def get_asset_url(
 async def delete_asset(
     asset_id: str,
     category: str = Query(..., description="images | music | voice_memos"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Delete an asset and its metadata."""
     _validate_category(category)

@@ -23,6 +23,8 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
+import { apiFetch } from "@/lib/api";
 import TwickStudio from "@twick/studio";
 import type { Result } from "@twick/studio";
 import type { ProjectJSON } from "@twick/timeline";
@@ -113,10 +115,8 @@ export default function EditorPage() {
   // Load project
   const fetchProject = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/projects/${projectId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setProject(data);
+      const res = await apiClient.get(`/api/v1/projects/${projectId}`);
+      setProject(res.data);
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load project");
@@ -135,29 +135,16 @@ export default function EditorPage() {
   const handleExportVideo = useCallback(async (projectData: ProjectJSON): Promise<Result> => {
     try {
       // 1. Persist timeline edits
-      await fetch(`${API}/api/v1/projects/${projectId}/timeline`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(projectData),
-      });
+      await apiClient.put(`/api/v1/projects/${projectId}/timeline`, projectData);
 
       // 2. Trigger full video recompose with current settings
-      const latest = await fetch(`${API}/api/v1/projects/${projectId}`).then((r) => r.json()).catch(() => null);
-      const recomposeRes = await fetch(`${API}/api/v1/projects/${projectId}/recompose`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          caption_style: latest?.caption_style ?? "bold_stroke",
-          background_music: latest?.background_music ?? "none",
-          music_volume: 0.15,
-          target_platforms: latest?.platforms ?? ["instagram_reels"],
-        }),
+      const latest = await apiClient.get(`/api/v1/projects/${projectId}`).then((r) => r.data).catch(() => null);
+      await apiClient.post(`/api/v1/projects/${projectId}/recompose`, {
+        caption_style: latest?.caption_style ?? "bold_stroke",
+        background_music: latest?.background_music ?? "none",
+        music_volume: 0.15,
+        target_platforms: latest?.platforms ?? ["instagram_reels"],
       });
-
-      if (!recomposeRes.ok) {
-        const err = await recomposeRes.json().catch(() => ({}));
-        return { status: false, message: err?.detail ?? "Recompose failed" };
-      }
 
       return { status: true, message: "Video exported! Recompose started." };
     } catch (e) {
@@ -184,7 +171,7 @@ export default function EditorPage() {
     const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
 
     try {
-      const res = await fetch(`${API}/api/v1/projects/${projectId}/edit-agent`, {
+      const res = await apiFetch(`/api/v1/projects/${projectId}/edit-agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instruction, current_project_json: currentProjectJson }),

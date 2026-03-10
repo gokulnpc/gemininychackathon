@@ -11,6 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, CartesianGrid, YAxis } from "recharts";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
+import apiClient from "@/lib/apiClient";
 import { Music, Image as LucideImage, Mic as VoiceMemo, ArrowRight } from "lucide-react";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -130,19 +131,18 @@ export default function WelcomePage() {
   const displayAssets = filteredAssets.slice(0, 4);
 
   useEffect(() => {
-    fetch(`${API}/api/v1/projects`)
-      .then((r) => r.json())
-      .then((d) => {
-        setRecents((d.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
-        setTotalVideos(d.total ?? 0);
+    apiClient.get("/api/v1/projects")
+      .then((r) => {
+        setRecents((r.data.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
+        setTotalVideos(r.data.total ?? 0);
       })
       .catch(() => setRecents([]))
       .finally(() => setRecentsLoading(false));
 
     Promise.all([
-      fetch(`${API}/api/v1/assets?category=images`).then((r) => r.json()),
-      fetch(`${API}/api/v1/assets?category=music`).then((r) => r.json()),
-      fetch(`${API}/api/v1/assets?category=voice_memos`).then((r) => r.json()),
+      apiClient.get("/api/v1/assets?category=images").then((r) => r.data),
+      apiClient.get("/api/v1/assets?category=music").then((r) => r.data),
+      apiClient.get("/api/v1/assets?category=voice_memos").then((r) => r.data),
     ])
       .then(([img, mus, vcm]) => {
         setAssets({
