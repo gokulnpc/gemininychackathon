@@ -8,6 +8,7 @@ Same public interface as before — all callers work without changes.
 """
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -22,8 +23,9 @@ logger = logging.getLogger(__name__)
 _OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 
 
+@functools.lru_cache(maxsize=None)
 def _gcs_available() -> bool:
-    """Return True if google-cloud-storage is importable."""
+    """Return True if google-cloud-storage is importable. Cached after first call."""
     try:
         from google.cloud import storage  # noqa: F401
         return True
@@ -31,9 +33,8 @@ def _gcs_available() -> bool:
         return False
 
 
-def _get_client():
+def _get_client(settings):
     from google.cloud import storage
-    settings = get_settings()
     return storage.Client(project=settings.google_cloud_project or None)
 
 
@@ -58,7 +59,7 @@ async def upload_file(local_path: str, gcs_key: str, content_type: str = "video/
 
     if _gcs_available() and settings.gcs_bucket:
         def _upload():
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             blob = bucket.blob(gcs_key)
             blob.upload_from_filename(local_path, content_type=content_type)
@@ -84,7 +85,7 @@ async def generate_presigned_url(gcs_key: str, expires_in: int = 3600) -> str:
         return _local_url(gcs_key)
 
     def _sign():
-        client = _get_client()
+        client = _get_client(settings)
         bucket = client.bucket(settings.gcs_bucket)
         blob = bucket.blob(gcs_key)
         return blob.generate_signed_url(
@@ -107,7 +108,7 @@ async def download_file(gcs_key: str, local_path: str) -> str:
     if _gcs_available() and settings.gcs_bucket:
         def _download():
             os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             bucket.blob(gcs_key).download_to_filename(local_path)
 
@@ -127,7 +128,7 @@ async def store_json(data: dict, gcs_key: str) -> str:
 
     if _gcs_available() and settings.gcs_bucket:
         def _store():
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             blob = bucket.blob(gcs_key)
             blob.upload_from_string(
@@ -140,10 +141,13 @@ async def store_json(data: dict, gcs_key: str) -> str:
         logger.info("Stored JSON → %s", url)
         return url
 
-    dest = _local_path(gcs_key)
-    with open(dest, "w") as f:
-        json.dump(data, f, indent=2)
-    url = _local_url(gcs_key)
+    def _store_local() -> str:
+        dest = _local_path(gcs_key)
+        with open(dest, "w") as f:
+            json.dump(data, f, indent=2)
+        return _local_url(gcs_key)
+
+    url = await asyncio.to_thread(_store_local)
     logger.info("Stored JSON locally → %s", url)
     return url
 
@@ -154,15 +158,18 @@ async def load_json(gcs_key: str) -> dict:
 
     if _gcs_available() and settings.gcs_bucket:
         def _load():
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             return json.loads(bucket.blob(gcs_key).download_as_text())
 
         return await asyncio.to_thread(_load)
 
-    src = _local_path(gcs_key)
-    with open(src) as f:
-        return json.load(f)
+    def _load_local() -> dict:
+        src = _local_path(gcs_key)
+        with open(src) as f:
+            return json.load(f)
+
+    return await asyncio.to_thread(_load_local)
 
 
 async def list_keys(prefix: str) -> list[str]:
@@ -171,7 +178,7 @@ async def list_keys(prefix: str) -> list[str]:
 
     if _gcs_available() and settings.gcs_bucket:
         def _list():
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             return [blob.name for blob in bucket.list_blobs(prefix=prefix)]
 
@@ -193,7 +200,7 @@ async def key_exists(gcs_key: str) -> bool:
 
     if _gcs_available() and settings.gcs_bucket:
         def _exists():
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             return bucket.blob(gcs_key).exists()
 
@@ -208,7 +215,7 @@ async def delete_object(gcs_key: str) -> None:
 
     if _gcs_available() and settings.gcs_bucket:
         def _delete():
-            client = _get_client()
+            client = _get_client(settings)
             bucket = client.bucket(settings.gcs_bucket)
             bucket.blob(gcs_key).delete()
 

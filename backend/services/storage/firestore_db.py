@@ -18,6 +18,7 @@ Public interface mirrors the GCS pattern used in video.py and projects.py:
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 
 from config import get_settings
@@ -27,7 +28,9 @@ logger = logging.getLogger(__name__)
 COLLECTION = "projects"
 
 
+@functools.lru_cache(maxsize=None)
 def _firestore_available() -> bool:
+    """Return True if google-cloud-firestore is installed. Cached after first call."""
     try:
         from google.cloud import firestore  # noqa: F401
         return True
@@ -35,9 +38,10 @@ def _firestore_available() -> bool:
         return False
 
 
-def _get_db():
+def _get_db(settings=None):
     from google.cloud import firestore
-    settings = get_settings()
+    if settings is None:
+        settings = get_settings()
     return firestore.Client(project=settings.google_cloud_project or None)
 
 
@@ -49,7 +53,7 @@ async def save_project(project_id: str, metadata: dict) -> None:
 
     if _firestore_available() and settings.google_cloud_project:
         def _save():
-            db = _get_db()
+            db = _get_db(settings)
             db.collection(COLLECTION).document(project_id).set(metadata)
 
         await asyncio.to_thread(_save)
@@ -67,7 +71,7 @@ async def get_project(project_id: str) -> dict | None:
 
     if _firestore_available() and settings.google_cloud_project:
         def _get():
-            db = _get_db()
+            db = _get_db(settings)
             doc = db.collection(COLLECTION).document(project_id).get()
             return doc.to_dict() if doc.exists else None
 
@@ -79,7 +83,8 @@ async def get_project(project_id: str) -> dict | None:
     from services.storage import gcs
     try:
         return await gcs.load_json(f"projects/{project_id}/metadata.json")
-    except Exception:
+    except Exception as exc:
+        logger.debug("GCS get_project %s miss or error: %s", project_id, exc)
         return None
 
 
@@ -90,7 +95,7 @@ async def list_projects(limit: int = 50) -> list[dict]:
     if _firestore_available() and settings.google_cloud_project:
         def _list():
             from google.cloud import firestore
-            db = _get_db()
+            db = _get_db(settings)
             return [
                 doc.to_dict()
                 for doc in db.collection(COLLECTION)
@@ -111,6 +116,7 @@ async def list_projects(limit: int = 50) -> list[dict]:
         if k.endswith("/metadata.json") and len(k.split("/")) == 3
     ]
     project_ids = [k.split("/")[1] for k in meta_keys]
+
     async def _safe_load_json(pid: str) -> dict | None:
         try:
             return await gcs.load_json(f"projects/{pid}/metadata.json")
@@ -131,7 +137,7 @@ async def delete_project(project_id: str) -> None:
 
     if _firestore_available() and settings.google_cloud_project:
         def _delete():
-            _get_db().collection(COLLECTION).document(project_id).delete()
+            _get_db(settings).collection(COLLECTION).document(project_id).delete()
 
         await asyncio.to_thread(_delete)
         logger.info("Firestore: deleted project %s", project_id)

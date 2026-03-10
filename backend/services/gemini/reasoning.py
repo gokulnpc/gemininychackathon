@@ -46,7 +46,6 @@ async def research_hooks(niche: str, platform: str, style: str = "modern_energet
     Drop-in replacement for nemotron.research_hooks().
     Same return shape: {"reasoning": ..., "hooks": [...], "platform_insight": ..., "scored_by": "gemini"}
     """
-    import asyncio
     client = _get_client()
     if not client:
         logger.warning("Gemini Reasoning: GEMINI_API_KEY not set — skipping hook research")
@@ -111,7 +110,6 @@ async def score_script(
     Drop-in replacement for nemotron.score_script().
     Same return shape including "scored_by": "gemini"
     """
-    import asyncio
     client = _get_client()
     if not client:
         logger.warning("Gemini Reasoning: GEMINI_API_KEY not set — skipping script scoring")
@@ -190,7 +188,6 @@ async def auto_configure_series(
     Drop-in replacement for nemotron.auto_configure_series().
     Same return shape, configured_by = "gemini"
     """
-    import asyncio
     client = _get_client()
     if not client:
         logger.warning("Gemini Reasoning: GEMINI_API_KEY not set — skipping auto_configure_series")
@@ -567,7 +564,11 @@ async def auto_configure_series_adk(
         logger.warning("ADK series configurator: _commit_series_config was not called — falling back")
 
     except Exception as exc:
-        logger.warning("ADK series configurator failed: %s — falling back to single-call", exc)
+        logger.debug("ADK series configurator traceback", exc_info=True)
+        logger.warning(
+            "ADK series configurator failed (%s): %s — falling back to single-call",
+            type(exc).__name__, exc,
+        )
 
     # Fall back to the original single-call implementation
     return await auto_configure_series(transcript, target_platforms, reddit_context, analytics_context)
