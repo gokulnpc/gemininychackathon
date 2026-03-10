@@ -7,30 +7,21 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock,
-  Coins,
   Download,
-  LayoutDashboard,
   Loader2,
-  LogOut,
   RefreshCw,
   Settings,
   ThumbsUp,
-  User,
   Video,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { AppSidebar } from "@/components/app-sidebar";
+import { UserMenu } from "@/components/shared/UserMenu";
 import { useSidebar } from "@/context/SidebarContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -58,6 +49,11 @@ interface Project {
   video_urls?: Record<string, string>;
   thumbnail_url?: string;
   error?: string;
+  error_code?: string;
+  retryable?: boolean;
+  failure_stage?: string;
+  failed_at?: string;
+  script_attempt_count?: number;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
@@ -119,12 +115,7 @@ function ScriptReadyPanel({
         voiceover_full_script: voiceover,
       };
       try {
-        const res = await fetch(`${API}/api/v1/projects/${project.project_id}/script`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ script: updatedScript }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await apiClient.put(`/api/v1/projects/${project.project_id}/script`, { script: updatedScript });
       } catch {
         setSaveError("Failed to save edits");
       } finally {
@@ -199,6 +190,7 @@ function ScriptReadyPanel({
 
 function CompletedPanel({ project }: { project: Project }) {
   const platforms = Object.keys(project.video_urls ?? {});
+  const { idToken } = useAuth();
 
   return (
     <div className="flex flex-col gap-6">
@@ -229,7 +221,7 @@ function CompletedPanel({ project }: { project: Project }) {
           {platforms.map((platform) => (
             <a
               key={platform}
-              href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}`}
+              href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}${idToken ? `?token=${idToken}` : ''}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#2a2a2a] border border-white/10 hover:border-[#5a9ab5]/40 transition-colors group"
@@ -246,28 +238,61 @@ function CompletedPanel({ project }: { project: Project }) {
   );
 }
 
-function InProgressPanel({ project }: { project: Project }) {
+function VideoConfigPanel({ project }: { project: Project }) {
+  const cfg = project.pipeline_config ?? {};
+  
+  // Format helpers
+  const formatKey = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  
+  // Group configuration items
+  const visualSettings = [];
+  if (cfg.niche) visualSettings.push({ label: 'Niche', value: cfg.niche });
+  if (cfg.style) visualSettings.push({ label: 'Style', value: cfg.style });
+  
+  const contentSettings = [];
+  if (cfg.duration) contentSettings.push({ label: 'Duration', value: cfg.duration });
+  if (cfg.language) contentSettings.push({ label: 'Language', value: cfg.language });
+
   return (
-    <div className="flex flex-col items-center justify-center py-12 gap-6">
-      <div className="relative w-20 h-20">
-        <div className="absolute inset-0 rounded-full border-4 border-[#5a9ab5]/20" />
-        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#5a9ab5] animate-spin" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Clock className="w-7 h-7 text-[#5a9ab5]" />
+    <div className="flex flex-col gap-6">
+      <div className="bg-[#2a2a2a] rounded-xl p-5 border border-white/10">
+        <h3 className="text-white font-medium mb-4 flex items-center gap-2">
+          <Settings className="w-4 h-4 text-[#5a9ab5]" />
+          Video Configuration
+        </h3>
+        
+        <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+          {/* Visual Profile */}
+          {visualSettings.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Visual Profile</p>
+              <ul className="space-y-2">
+                {visualSettings.map(s => (
+                  <li key={s.label} className="flex justify-between text-sm">
+                    <span className="text-white/60">{s.label}</span>
+                    <span className="text-white text-right capitalize">{String(s.value).replace(/_/g, ' ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Content Rules */}
+          {contentSettings.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Content Rules</p>
+              <ul className="space-y-2">
+                {contentSettings.map(s => (
+                  <li key={s.label} className="flex justify-between text-sm">
+                    <span className="text-white/60">{s.label}</span>
+                    <span className="text-white text-right capitalize">{String(s.value).replace(/_/g, ' ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
-      <div className="text-center">
-        <p className="text-white font-medium mb-1">{project.current_stage ?? "Processing..."}</p>
-        <p className="text-white/40 text-sm">This may take a minute or two</p>
-      </div>
-      {typeof project.progress_pct === "number" && project.progress_pct > 0 && (
-        <div className="w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
-          <div
-            className="h-full bg-[#5a9ab5] rounded-full transition-all duration-500"
-            style={{ width: `${project.progress_pct}%` }}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -277,6 +302,7 @@ export default function ProjectDetailPage() {
   const projectId = params.id as string;
   const router = useRouter();
   const { isCollapsed } = useSidebar();
+  const { idToken } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -285,10 +311,8 @@ export default function ProjectDetailPage() {
 
   const fetchProject = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/projects/${projectId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setProject(data);
+      const res = await apiClient.get(`/api/v1/projects/${projectId}`);
+      setProject(res.data);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load project");
@@ -317,21 +341,19 @@ export default function ProjectDetailPage() {
   async function handleRegenerate() {
     if (!project) return;
     const cfg = project.pipeline_config ?? {};
-    const res = await fetch(`${API}/api/v1/projects/${project.project_id}/queue-script`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...cfg }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await apiClient.post(`/api/v1/projects/${project.project_id}/queue-script`, { ...cfg });
     await fetchProject();
   }
 
   async function handleApprove() {
     if (!project) return;
-    const res = await fetch(`${API}/api/v1/projects/${project.project_id}/approve-script`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await apiClient.post(`/api/v1/projects/${project.project_id}/approve-script`);
+    await fetchProject();
+  }
+
+  async function handleRetryScript() {
+    if (!project) return;
+    await apiClient.post(`/api/v1/projects/${project.project_id}/retry-script`);
     await fetchProject();
   }
 
@@ -362,41 +384,7 @@ export default function ProjectDetailPage() {
             <span className="text-sm">Projects</span>
           </button>
           <div className="flex items-center gap-4">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
-                  <Avatar className="w-8 h-8">
-                    <AvatarImage src="/Avatar.png" alt="An Tran" />
-                    <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">AT</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium text-white whitespace-nowrap">An Tran</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <div className="px-3 py-3 bg-[#5a9ab5]/5 rounded-lg mx-2 mt-2 mb-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Coins className="w-4 h-4 text-[#5a9ab5]" />
-                    <span className="text-sm font-medium text-[#1A1A1A]">Credits</span>
-                  </div>
-                  <p className="text-2xl font-semibold text-[#1A1A1A]">1,250</p>
-                  <p className="text-xs text-[#9B9B9B] mt-0.5">~25 videos remaining</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/welcome")} className="cursor-pointer">
-                  <LayoutDashboard className="w-4 h-4 mr-2" />Dashboard
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <User className="w-4 h-4 mr-2" />Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <Settings className="w-4 h-4 mr-2" />Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/login")} className="cursor-pointer text-red-600">
-                  <LogOut className="w-4 h-4 mr-2" />Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserMenu />
           </div>
         </header>
 
@@ -443,10 +431,10 @@ export default function ProjectDetailPage() {
                   <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10">
                     {isCompleted ? (
                       <video
-                        src={`${API}/api/v1/projects/${projectId}/stream/${firstPlatform}`}
+                        src={`${API}/api/v1/projects/${projectId}/stream/${firstPlatform}${idToken ? `?token=${idToken}` : ''}`}
                         controls
                         className="w-full h-full object-contain"
-                        poster={`${API}/api/v1/projects/${projectId}/thumbnail`}
+                        poster={`${API}/api/v1/projects/${projectId}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
@@ -488,7 +476,7 @@ export default function ProjectDetailPage() {
                     project.status === "generating_script" ||
                     project.status === "generating_video" ||
                     project.status === "in_progress") && (
-                    <InProgressPanel project={project} />
+                    <VideoConfigPanel project={project} />
                   )}
 
                   {project.status === "script_ready" && (
@@ -509,6 +497,21 @@ export default function ProjectDetailPage() {
                       <p className="text-white font-medium">Generation Failed</p>
                       {project.error && (
                         <p className="text-red-400/80 text-sm max-w-sm">{project.error}</p>
+                      )}
+                      {project.error_code && (
+                        <p className="text-white/35 text-xs">
+                          Error code: {project.error_code}
+                          {typeof project.script_attempt_count === "number" ? ` • Attempts: ${project.script_attempt_count}` : ""}
+                        </p>
+                      )}
+                      {project.retryable && (
+                        <Button
+                          onClick={handleRetryScript}
+                          className="rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Retry Script
+                        </Button>
                       )}
                     </div>
                   )}

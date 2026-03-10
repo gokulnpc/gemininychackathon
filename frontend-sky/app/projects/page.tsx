@@ -6,24 +6,18 @@ import {
   AlertCircle,
   Archive,
   CheckCircle2,
-  Coins,
   Copy,
-  LayoutDashboard,
   Loader2,
-  LogOut,
   MoreVertical,
   Pencil,
   Play,
   Search,
-  Settings,
   Trash2,
-  User,
   Video,
   X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,8 +26,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AppSidebar } from "@/components/app-sidebar";
+import { UserMenu } from "@/components/shared/UserMenu";
 import { useSidebar } from "@/context/SidebarContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -61,6 +58,11 @@ interface Project {
   video_urls?: Record<string, string>;
   thumbnail_url?: string;
   error?: string;
+  error_code?: string;
+  retryable?: boolean;
+  failure_stage?: string;
+  failed_at?: string;
+  script_attempt_count?: number;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
@@ -121,6 +123,7 @@ function ProjectCard({
   onUnarchive: (id: string) => void;
 }) {
   const router = useRouter();
+  const { idToken } = useAuth();
   const isActive = ACTIVE_STATUSES.includes(project.status);
   const isCompleted = project.status === "completed";
 
@@ -136,7 +139,7 @@ function ProjectCard({
       <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10 group-hover:border-[#5a9ab5]/50 transition-all duration-200">
         {isCompleted && (
           <img
-            src={`${API}/api/v1/projects/${project.project_id}/thumbnail`}
+            src={`${API}/api/v1/projects/${project.project_id}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
             alt={project.hook ?? "Video"}
             className="w-full h-full object-cover"
             onError={(e) => {
@@ -249,6 +252,11 @@ function ProjectCard({
         <p className="text-xs text-white/40 mt-0.5">
           {timeAgo(project.queued_at ?? project.created_at)}
         </p>
+        {project.status === "failed" && project.error && (
+          <p className="text-xs text-red-400/70 mt-1 line-clamp-2">
+            {project.error}
+          </p>
+        )}
       </div>
     </motion.div>
   );
@@ -277,10 +285,8 @@ function ProjectsContent() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/projects`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setProjects(data.projects ?? []);
+      const res = await apiClient.get("/api/v1/projects");
+      setProjects(res.data.projects ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load projects");
@@ -307,7 +313,7 @@ function ProjectsContent() {
 
   async function handleDelete(id: string) {
     try {
-      await fetch(`${API}/api/v1/projects/${id}`, { method: "DELETE" });
+      await apiClient.delete(`/api/v1/projects/${id}`);
       setProjects((prev) => prev.filter((p) => p.project_id !== id));
     } catch {
       alert("Failed to delete project");
@@ -361,41 +367,7 @@ function ProjectsContent() {
             >
               Create New
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
-                  <Avatar className="w-8 h-8">
-                    <AvatarImage src="/Avatar.png" alt="An Tran" />
-                    <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">AT</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium text-white whitespace-nowrap">An Tran</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <div className="px-3 py-3 bg-[#5a9ab5]/5 rounded-lg mx-2 mt-2 mb-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Coins className="w-4 h-4 text-[#5a9ab5]" />
-                    <span className="text-sm font-medium text-[#1A1A1A]">Credits</span>
-                  </div>
-                  <p className="text-2xl font-semibold text-[#1A1A1A]">1,250</p>
-                  <p className="text-xs text-[#9B9B9B] mt-0.5">~25 videos remaining</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/welcome")} className="cursor-pointer">
-                  <LayoutDashboard className="w-4 h-4 mr-2" />Dashboard
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <User className="w-4 h-4 mr-2" />Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <Settings className="w-4 h-4 mr-2" />Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/login")} className="cursor-pointer text-red-600">
-                  <LogOut className="w-4 h-4 mr-2" />Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserMenu />
           </div>
         </header>
 
@@ -484,19 +456,25 @@ function ProjectsContent() {
 
           {!loading && !error && visibleProjects.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-white/40">
-              <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
               {search.trim() || statusFilter !== "all" ? (
                 <>
+                  <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
                   <p className="text-lg">No matching projects</p>
                   <p className="text-sm mt-1">Try a different search or filter</p>
                 </>
               ) : tab === "active" ? (
                 <>
-                  <p className="text-lg">No projects yet</p>
-                  <p className="text-sm mt-1">Complete the wizard to queue your first video</p>
+                  <p className="text-lg mb-4">No videos yet.</p>
+                  <Button
+                    onClick={() => router.push("/create")}
+                    className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+                  >
+                    Create your first video
+                  </Button>
                 </>
               ) : (
                 <>
+                  <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
                   <p className="text-lg">No archived projects</p>
                   <p className="text-sm mt-1">Archived projects will appear here</p>
                 </>

@@ -4,6 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard,
+  Home,
   Plus,
   CreditCard,
   Settings,
@@ -47,8 +48,11 @@ export function AppSidebar({ activeStep }: AppSidebarProps) {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
 
-  const isOverview = pathname === "/welcome" || pathname === "/dashboard";
+  const isOverview = pathname === "/welcome";
+  const isDashboard = pathname === "/dashboard";
   const isCreate = pathname.startsWith("/create");
+  const isSettings = pathname === "/settings";
+  const isBilling = pathname === "/billing";
 
   return (
     <motion.aside
@@ -102,8 +106,26 @@ export function AppSidebar({ activeStep }: AppSidebarProps) {
                 !isCollapsed && "text-left"
               )}
             >
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
+              <Home className="w-4 h-4 shrink-0" />
               {!isCollapsed && <span>Overview</span>}
+            </button>
+          </li>
+
+          {/* Dashboard */}
+          <li>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
+                isDashboard
+                  ? "bg-[#5a9ab5] text-white"
+                  : "text-[#9B9B9B] hover:text-white hover:bg-white/10",
+                isCollapsed && "justify-center px-0",
+                !isCollapsed && "text-left"
+              )}
+            >
+              <LayoutDashboard className="w-4 h-4 shrink-0" />
+              {!isCollapsed && <span>Dashboard</span>}
             </button>
           </li>
 
@@ -197,8 +219,11 @@ export function AppSidebar({ activeStep }: AppSidebarProps) {
 
           {/* Billing */}
           <li>
-            <button className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-[#9B9B9B] hover:text-white hover:bg-white/10 transition-all duration-200",
+            <button 
+              onClick={() => router.push("/billing")}
+              className={cn(
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
+              isBilling ? "bg-[#5a9ab5] text-white" : "text-[#9B9B9B] hover:text-white hover:bg-white/10",
               isCollapsed ? "justify-center px-0" : "text-left"
             )}>
               <CreditCard className="w-4 h-4 shrink-0" />
@@ -208,8 +233,11 @@ export function AppSidebar({ activeStep }: AppSidebarProps) {
 
           {/* Settings */}
           <li>
-            <button className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-[#9B9B9B] hover:text-white hover:bg-white/10 transition-all duration-200",
+            <button 
+              onClick={() => router.push("/settings")}
+              className={cn(
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200",
+              isSettings ? "bg-[#5a9ab5] text-white" : "text-[#9B9B9B] hover:text-white hover:bg-white/10",
               isCollapsed ? "justify-center px-0" : "text-left"
             )}>
               <Settings className="w-4 h-4 shrink-0" />

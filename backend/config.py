@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Google Cloud Storage
-    gcs_bucket: str = "voicevid-assets"     # GCS bucket name
+    gcs_bucket: str = "storylab-assets"     # GCS bucket name
 
     # Social publishing — YouTube (OAuth2)
     youtube_client_secrets_file: str = ""
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     document_ai_location: str = "us"        # "us" or "eu"
 
     # App
-    app_name: str = "VoiceVid"
+    app_name: str = "StoryLabs"
     debug: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}

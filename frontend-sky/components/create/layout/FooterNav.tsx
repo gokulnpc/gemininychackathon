@@ -6,8 +6,7 @@ import { useWizard } from "@/context/WizardContext";
 import { motion } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import apiClient from "@/lib/apiClient";
 
 export function FooterNav() {
   const { state, dispatch } = useWizard();
@@ -70,26 +69,18 @@ export function FooterNav() {
     }
 
     try {
-      const res = await fetch(`${API}/api/v1/projects/${projectId}/queue-script`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.status === 202) {
-        router.push(`/projects?new=${projectId}`);
-      } else {
-        const detail = await res.json().catch(() => ({}));
-        const errDetail = detail.detail;
-        const errMessage =
-          typeof errDetail === "string"
-            ? errDetail
-            : Array.isArray(errDetail)
-            ? errDetail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ")
-            : `Launch failed (HTTP ${res.status})`;
-        setLaunchError(errMessage);
-      }
-    } catch (err) {
-      setLaunchError(err instanceof Error ? err.message : "Launch failed");
+      await apiClient.post(`/api/v1/projects/${projectId}/queue-script`, body);
+      router.push(`/projects?new=${projectId}`);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
+      const detail = axiosErr.response?.data?.detail;
+      const errMessage =
+        typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+          ? detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ")
+          : `Launch failed (HTTP ${axiosErr.response?.status ?? "unknown"})`;
+      setLaunchError(errMessage);
     } finally {
       setLoading(false);
     }

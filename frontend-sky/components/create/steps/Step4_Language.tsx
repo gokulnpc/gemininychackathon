@@ -5,8 +5,7 @@ import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
 import { motion } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import apiClient from "@/lib/apiClient";
 
 interface VoiceOption {
   id: string;
@@ -37,9 +36,9 @@ export function Step4_Language() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/v1/voices`)
-      .then((r) => r.json())
-      .then((data: VoiceOption[]) => {
+    apiClient.get("/api/v1/voices")
+      .then(r => r.data as VoiceOption[])
+      .then((data) => {
         setVoices(data);
         // Auto-select default voice if none selected yet
         if (!state.selectedVoice) {
@@ -75,9 +74,7 @@ export function Step4_Language() {
     setPreviewingId(voiceId);
 
     try {
-      const res = await fetch(`${API}/api/v1/voices/${voiceId}/preview`);
-      if (!res.ok) throw new Error("Preview failed");
-      const data = await res.json();
+      const data = await apiClient.get(`/api/v1/voices/${voiceId}/preview`).then(r => r.data);
       const audio = new Audio(`data:audio/wav;base64,${data.audio_base64}`);
       audioRef.current = audio;
       await audio.play();

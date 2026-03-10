@@ -4,32 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  Coins,
   FileAudio,
   Image as ImageIcon,
-  LayoutDashboard,
   Loader2,
-  LogOut,
   Mic,
   Music,
-  Settings,
   Trash2,
   Upload,
-  User,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
+import { UserMenu } from "@/components/shared/UserMenu";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -82,12 +71,8 @@ export default function AssetsPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API}/api/v1/assets?category=${category}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => setAssets(d.assets ?? []))
+    apiClient.get(`/api/v1/assets?category=${category}`)
+      .then((r) => setAssets(r.data.assets ?? []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [category]);
@@ -104,15 +89,8 @@ export default function AssetsPage() {
     formData.append("category", category);
 
     try {
-      const resp = await fetch(`${API}/api/v1/assets/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Upload failed (HTTP ${resp.status})`);
-      }
-      const newAsset: Asset = await resp.json();
+      const resp = await apiClient.post("/api/v1/assets/upload", formData);
+      const newAsset: Asset = resp.data;
       setAssets((prev) => [newAsset, ...prev]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -125,9 +103,7 @@ export default function AssetsPage() {
 
   async function handleDelete(assetId: string) {
     try {
-      await fetch(`${API}/api/v1/assets/${assetId}?category=${category}`, {
-        method: "DELETE",
-      });
+      await apiClient.delete(`/api/v1/assets/${assetId}?category=${category}`);
       setAssets((prev) => prev.filter((a) => a.id !== assetId));
     } catch (err) {
       setError("Failed to delete asset");
@@ -154,41 +130,7 @@ export default function AssetsPage() {
         <header className="flex items-center justify-between px-8 h-[80px] border-b border-white/10">
           <div />
           <div className="flex items-center gap-4">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
-                  <Avatar className="w-8 h-8">
-                    <AvatarImage src="/Avatar.png" alt="An Tran" />
-                    <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">AT</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium text-white whitespace-nowrap">An Tran</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <div className="px-3 py-3 bg-[#5a9ab5]/5 rounded-lg mx-2 mt-2 mb-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Coins className="w-4 h-4 text-[#5a9ab5]" />
-                    <span className="text-sm font-medium text-[#1A1A1A]">Credits</span>
-                  </div>
-                  <p className="text-2xl font-semibold text-[#1A1A1A]">1,250</p>
-                  <p className="text-xs text-[#9B9B9B] mt-0.5">~25 videos remaining</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/welcome")} className="cursor-pointer">
-                  <LayoutDashboard className="w-4 h-4 mr-2" />Dashboard
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <User className="w-4 h-4 mr-2" />Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <Settings className="w-4 h-4 mr-2" />Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/login")} className="cursor-pointer text-red-600">
-                  <LogOut className="w-4 h-4 mr-2" />Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserMenu />
           </div>
         </header>
 
@@ -330,15 +272,13 @@ function AssetCard({
   index: number;
   onDelete: (id: string) => void;
 }) {
-  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   // For images, fetch the presigned URL for preview
   useEffect(() => {
     if (category !== "images") return;
-    fetch(`${API}/api/v1/assets/${asset.id}/url?category=images`)
-      .then((r) => r.json())
-      .then((d) => setImageUrl(d.url))
+    apiClient.get(`/api/v1/assets/${asset.id}/url?category=images`)
+      .then((r) => setImageUrl(r.data.url))
       .catch(() => {});
   }, [asset.id, category]);
 

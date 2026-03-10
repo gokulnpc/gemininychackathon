@@ -404,6 +404,11 @@ class ProjectMetadata(BaseModel):
     platforms: list[str] = []
     video_urls: dict[str, str] = {}
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    retryable: Optional[bool] = None
+    failure_stage: Optional[str] = None
+    failed_at: Optional[str] = None
+    script_attempt_count: Optional[int] = None
     # Recompose fields (present on projects generated after recompose support was added)
     voiceover_full_script: Optional[str] = None
     caption_style: Optional[str] = None
@@ -417,6 +422,8 @@ class ProjectMetadata(BaseModel):
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     user_email: Optional[str] = None
+    # Twick-compatible editable timeline JSON (built by timeline_builder after pipeline)
+    project_json: Optional[dict] = None
 
 
 class JobStatusResponse(BaseModel):
@@ -432,6 +439,11 @@ class JobStatusResponse(BaseModel):
     video_urls: dict[str, str] = {}
     thumbnail_url: Optional[str] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    retryable: Optional[bool] = None
+    failure_stage: Optional[str] = None
+    failed_at: Optional[str] = None
+    script_attempt_count: Optional[int] = None
 
 
 class ProjectListResponse(BaseModel):
@@ -561,4 +573,8 @@ class EditAgentRequest(BaseModel):
     instruction: str = Field(
         ...,
         description="Natural-language edit request, e.g. 'make the captions more aggressive and add dark music'",
+    )
+    current_project_json: Optional[dict] = Field(
+        None,
+        description="Current Twick timeline JSON from the editor — used to patch and return updated state.",
     )

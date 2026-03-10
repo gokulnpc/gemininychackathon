@@ -7,8 +7,7 @@ import { RefreshCw, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
 import type { PlotOption } from "@/types";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import apiClient from "@/lib/apiClient";
 
 export function Step2_ChoosePlot() {
   const { state, dispatch } = useWizard();
@@ -50,25 +49,7 @@ export function Step2_ChoosePlot() {
         body.transcript = state.messageText;
       }
 
-      const res = await fetch(
-        `${API}/api/v1/projects/${projectId}/generate-plot-options`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
-
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        const detail =
-          typeof errBody?.detail === "string"
-            ? errBody.detail
-            : JSON.stringify(errBody?.detail ?? "Failed to generate options");
-        throw new Error(detail);
-      }
-
-      const data = await res.json();
+      const data = await apiClient.post(`/api/v1/projects/${projectId}/generate-plot-options`, body).then(r => r.data);
       setOptions(data.options ?? []);
     } catch (e) {
       console.error("Plot options fetch failed:", e);

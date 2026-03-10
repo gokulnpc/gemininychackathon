@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw, Play, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import apiClient from "@/lib/apiClient";
 
 export function ScriptReview() {
   const { state, dispatch } = useWizard();
@@ -38,29 +37,19 @@ export function ScriptReview() {
       // Preset mode: re-run Reddit + Databricks + Nemotron for the preset
       if (isPresetMode && state.selectedPreset) {
         const presetKey = state.selectedPreset.replace(/-/g, "_");
-        const configRes = await fetch(`${API}/api/v1/presets/${presetKey}/configure`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preset: presetKey, target_platforms: ["instagram_reels"] }),
-        });
-        if (!configRes.ok) throw new Error("Configure failed");
-        const config = await configRes.json();
+        const config = await apiClient.post(`/api/v1/presets/${presetKey}/configure`, {
+          preset: presetKey, target_platforms: ["instagram_reels"],
+        }).then(r => r.data);
         dispatch({ type: "SET_PRESET_CONFIG", payload: config });
         transcript = config.transcript as string;
       }
 
       // Text mode: re-run Reddit + Databricks + Nemotron on user's typed idea
       if (isTextMode && state.messageText.trim()) {
-        const configRes = await fetch(`${API}/api/v1/text/configure`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transcript: state.messageText,
-            target_platforms: ["instagram_reels"],
-          }),
-        });
-        if (!configRes.ok) throw new Error("Configure failed");
-        const config = await configRes.json();
+        const config = await apiClient.post(`/api/v1/text/configure`, {
+          transcript: state.messageText,
+          target_platforms: ["instagram_reels"],
+        }).then(r => r.data);
         dispatch({ type: "SET_PRESET_CONFIG", payload: config });
         transcript = config.transcript as string;
       }
@@ -83,16 +72,7 @@ export function ScriptReview() {
         body.transcript = transcript ?? state.messageText;
       }
 
-      const res = await fetch(
-        `${API}/api/v1/projects/${projectId}/generate-script`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
-      if (!res.ok) throw new Error("Regeneration failed");
-      const newScript = await res.json();
+      const newScript = await apiClient.post(`/api/v1/projects/${projectId}/generate-script`, body).then(r => r.data);
 
       dispatch({ type: "SET_SCRIPT_PROJECT_ID", payload: projectId });
       dispatch({ type: "SET_GENERATED_SCRIPT", payload: newScript });
@@ -114,32 +94,8 @@ export function ScriptReview() {
 
     setGenerating(true);
 
-    const body: Record<string, unknown> = {
-      script,
-      target_platforms: ["instagram_reels"],
-      caption_style: state.selectedCaption?.replace(/-/g, "_") ?? "bold_stroke",
-      video_duration: 30,
-    };
-    if (state.selectedArtStyle) {
-      body.art_style_override = state.selectedArtStyle.replace(/-/g, "_");
-    }
-    if (state.selectedMusic && state.selectedMusic !== "none") {
-      body.music_preset_override = state.selectedMusic.replace(/-/g, "_");
-    }
-    if (state.uploadedPicture) {
-      const raw = state.uploadedPicture.includes(",")
-        ? state.uploadedPicture.split(",")[1]
-        : state.uploadedPicture;
-      body.user_reference_image_b64 = raw;
-      body.user_character_role = state.pictureRole ?? "main_character";
-    }
-
-    fetch(`${API}/api/v1/projects/${projectId}/generate-video`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then((r) => r.json())
+    apiClient.post(`/api/v1/projects/${projectId}/approve-script`)
+      .then(r => r.data)
       .then((result) => {
         dispatch({
           type: "SET_PIPELINE_RESULT",
@@ -149,8 +105,14 @@ export function ScriptReview() {
           },
         });
       })
-      .catch((err) => {
-        console.error("Generate video failed:", err);
+      .catch((err: unknown) => {
+        const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } };
+        const status = axiosErr.response?.status;
+        if (status === 402) {
+          console.error("Insufficient credits to generate video.");
+        } else {
+          console.error("Generate video failed:", err);
+        }
         dispatch({
           type: "SET_PIPELINE_RESULT",
           payload: { projectId: projectId, videoUrls: {} },

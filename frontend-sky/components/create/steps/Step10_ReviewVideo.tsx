@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useWizard } from "@/context/WizardContext";
 import { voices, artStyles } from "@/data/staticData";
+import apiClient from "@/lib/apiClient";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -105,9 +106,7 @@ function ConnectAccountModal({
     if (platformId === "youtube") {
       setConnectingId("youtube");
       try {
-        const res = await fetch(`${API}/api/v1/auth/youtube`);
-        if (!res.ok) throw new Error("Failed to start YouTube auth");
-        const { auth_url } = await res.json();
+        const { auth_url } = await apiClient.get("/api/v1/auth/youtube").then(r => r.data);
 
         const popup = window.open(auth_url, "youtube-auth", "width=520,height=640,left=200,top=100");
         popupRef.current = popup;
@@ -119,8 +118,7 @@ function ConnectAccountModal({
             return;
           }
           try {
-            const statusRes = await fetch(`${API}/api/v1/auth/status`);
-            const status = await statusRes.json();
+            const status = await apiClient.get("/api/v1/auth/status").then(r => r.data);
             if (status.youtube) {
               clearInterval(pollRef.current!);
               popup?.close();
@@ -222,8 +220,7 @@ export function Step10_ReviewVideo() {
   // Check which platforms are already authorized on mount
   const refreshAuthStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/auth/status`);
-      const status: Record<string, boolean> = await res.json();
+      const status: Record<string, boolean> = await apiClient.get("/api/v1/auth/status").then(r => r.data);
       const connected = Object.entries(status)
         .filter(([, ok]) => ok)
         .map(([id]) => id);
@@ -305,19 +302,10 @@ export function Step10_ReviewVideo() {
         tiktok:          { title, caption, hashtags },
       };
 
-      const res = await fetch(`${API}/api/v1/projects/${projectId}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platforms,
-          social_copy: enrichedSocialCopy,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.detail ?? "Publish request failed");
-      }
-      const data = await res.json();
+      const data = await apiClient.post(`/api/v1/projects/${projectId}/publish`, {
+        platforms,
+        social_copy: enrichedSocialCopy,
+      }).then(r => r.data);
       setPublishResults(data.posts ?? []);
     } catch (e) {
       setPublishResults([

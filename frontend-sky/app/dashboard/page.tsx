@@ -5,25 +5,21 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
-  Coins,
   Download,
   Filter,
   Grid3X3,
-  LayoutDashboard,
   List,
   Loader2,
-  LogOut,
   MoreVertical,
+  Pencil,
   Play,
   Search,
-  Settings,
   Share2,
   Trash2,
-  User,
   XCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserMenu } from "@/components/shared/UserMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,12 +32,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import apiClient from "@/lib/apiClient";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -89,18 +86,39 @@ function gradient(id: string) {
   return GRADIENTS[(id.charCodeAt(0) + id.charCodeAt(1)) % GRADIENTS.length];
 }
 
-function streamUrl(projectId: string, platform: string) {
-  return `${API}/api/v1/projects/${projectId}/stream/${platform}`;
+function streamUrl(projectId: string, platform: string, token: string | null) {
+  const base = `${API}/api/v1/projects/${projectId}/stream/${platform}`;
+  return token ? `${base}?token=${token}` : base;
 }
 
-function thumbnailUrl(projectId: string, platform: string) {
-  return `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+function thumbnails(projectId: string, platform: string, token: string | null) {
+  const base = `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+  return token ? `${base}&token=${token}` : base;
+}
+
+function StatusPill({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string }> = {
+    queued: { label: "Queued", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
+    generating_script: { label: "Scripting", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
+    script_ready: { label: "Script Ready", className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
+    generating_video: { label: "Generating", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    in_progress: { label: "Generating", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    completed: { label: "Completed", className: "bg-green-500/20 text-green-300 border-green-500/30" },
+    failed: { label: "Failed", className: "bg-red-500/20 text-red-300 border-red-500/30" },
+  };
+  const { label, className } = config[status] ?? config.failed;
+  return (
+    <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap", className)}>
+      {label}
+    </span>
+  );
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
   const { isCollapsed } = useSidebar();
+  const { user, idToken, loading: authLoading } = useAuth();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,13 +151,8 @@ export default function DashboardPage() {
     setPublishLoading(true);
     setPublishResults(null);
     try {
-      const resp = await fetch(`${API}/api/v1/projects/${projectId}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platforms }),
-      });
-      const data = await resp.json();
-      setPublishResults(data.posts ?? []);
+      const resp = await apiClient.post(`/api/v1/projects/${projectId}/publish`, { platforms });
+      setPublishResults(resp.data.posts ?? []);
     } catch (e) {
       setPublishResults([{ platform: "all", status: "failed", error: String(e) }]);
     } finally {
@@ -159,18 +172,16 @@ export default function DashboardPage() {
 
   // Fetch projects on mount
   useEffect(() => {
-    fetch(`${API}/api/v1/projects`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d) => setProjects(d.projects ?? []))
+    if (authLoading || !user) return;
+
+    apiClient.get("/api/v1/projects")
+      .then((r) => setProjects(r.data.projects ?? []))
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [user, authLoading]);
 
   async function deleteProject(id: string) {
-    await fetch(`${API}/api/v1/projects/${id}`, { method: "DELETE" });
+    await apiClient.delete(`/api/v1/projects/${id}`);
     setProjects((prev) => prev.filter((p) => p.project_id !== id));
     if (selected?.project_id === id) setSelected(null);
   }
@@ -196,44 +207,7 @@ export default function DashboardPage() {
               Create New
             </Button>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
-                  <Avatar className="w-8 h-8">
-                    <AvatarImage src="/Avatar.png" alt="An Tran" />
-                    <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">AT</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium text-white whitespace-nowrap">An Tran</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <div className="px-3 py-3 bg-[#5a9ab5]/5 rounded-lg mx-2 mt-2 mb-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Coins className="w-4 h-4 text-[#5a9ab5]" />
-                    <span className="text-sm font-medium text-[#1A1A1A]">Credits</span>
-                  </div>
-                  <p className="text-2xl font-semibold text-[#1A1A1A]">1,250</p>
-                  <p className="text-xs text-[#9B9B9B] mt-0.5">~25 videos remaining</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push("/dashboard")} className="cursor-pointer">
-                  <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <User className="w-4 h-4 mr-2" /> Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  <Settings className="w-4 h-4 mr-2" /> Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => router.push("/login")}
-                  className="cursor-pointer text-red-600"
-                >
-                  <LogOut className="w-4 h-4 mr-2" /> Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserMenu />
           </div>
         </header>
 
@@ -327,114 +301,154 @@ export default function DashboardPage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 + index * 0.05 }}
-                    className={`group bg-[#333333] rounded-2xl border border-white/10 overflow-hidden transition-all duration-200 hover:shadow-xl hover:border-[#5a9ab5]/40 ${
-                      viewMode === "list" ? "flex items-center gap-4 p-4" : ""
-                    }`}
+                    className={cn(
+                      "group relative transition-all duration-200",
+                      viewMode === "list" ? "flex items-center gap-4 p-4 bg-[#333333] rounded-2xl border border-white/10" : ""
+                    )}
                   >
-                    {/* Thumbnail */}
+                    {/* Thumbnail Container */}
                     <div
-                      className={`relative overflow-hidden bg-linear-to-br ${gradient(project.project_id)} ${
-                        viewMode === "grid" ? "aspect-9/16" : "w-32 h-20 rounded-xl shrink-0"
-                      }`}
+                      className={cn(
+                        "relative overflow-hidden bg-[#1a1a1a] transition-all duration-300",
+                        viewMode === "grid"
+                          ? "aspect-9/16 rounded-2xl border border-white/10 group-hover:border-[#5a9ab5]/50 group-hover:shadow-xl cursor-pointer"
+                          : "w-32 h-20 rounded-xl shrink-0"
+                      )}
+                      onClick={viewMode === "grid" ? () => setSelected(project) : undefined}
                     >
                       {ready ? (
                         <>
                           <img
-                            src={thumbnailUrl(project.project_id, platform)}
+                            src={thumbnails(project.project_id, platform, idToken)}
                             alt={t}
-                            className="absolute inset-0 w-full h-full object-cover"
+                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                           />
-                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <button
-                              onClick={() => setSelected(project)}
-                              className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center hover:bg-white transition-colors"
-                            >
-                              <Play className="w-5 h-5 text-[#1A1A1A] ml-0.5" />
-                            </button>
+                          {/* Play overlay */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+                              <Play className="w-5 h-5 text-white ml-0.5 fill-white/20" />
+                            </div>
                           </div>
                         </>
                       ) : (
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <AlertCircle className="w-8 h-8 text-red-400 opacity-70" />
+                          {project.status === "failed" ? (
+                            <AlertCircle className="w-8 h-8 text-red-400 opacity-70" />
+                          ) : (
+                            <Loader2 className="w-8 h-8 text-[#5a9ab5] animate-spin opacity-50" />
+                          )}
                         </div>
                       )}
-                      <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 rounded text-xs text-white">
-                        {project.scenes_count} scenes
+
+                      {/* Top Left Badge */}
+                      <div className="absolute top-2 left-2 pointer-events-none">
+                        <StatusPill status={project.status} />
                       </div>
-                    </div>
 
-                    {/* Info */}
-                    <div className={viewMode === "grid" ? "p-4" : "flex-1 min-w-0"}>
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-medium text-white mb-1 line-clamp-2">{t}</h3>
-                          <p className="text-xs text-white/40">{timeAgo(project.created_at)}</p>
-                        </div>
-
-                        {viewMode === "grid" && (
+                      {/* Top Right Options (Grid) */}
+                      {viewMode === "grid" && (
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <button className="p-1 rounded-lg hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-1">
-                                <MoreVertical className="w-4 h-4 text-white/50" />
+                              <button className="p-1.5 rounded-lg bg-black/60 text-white/70 hover:text-white hover:bg-black/80 transition-colors">
+                                <MoreVertical className="w-4 h-4" />
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-40">
                               {ready && (
                                 <DropdownMenuItem asChild>
-                                  <a href={streamUrl(project.project_id, platform)} target="_blank" rel="noreferrer">
+                                  <a href={streamUrl(project.project_id, platform, idToken)} target="_blank" rel="noreferrer">
                                     <Play className="w-4 h-4 mr-2" /> Preview
                                   </a>
                                 </DropdownMenuItem>
                               )}
                               {ready && (
                                 <DropdownMenuItem asChild>
-                                  <a href={streamUrl(project.project_id, platform)} download>
+                                  <a href={streamUrl(project.project_id, platform, idToken)} download>
                                     <Download className="w-4 h-4 mr-2" /> Download
                                   </a>
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push(`/projects/${project.project_id}/edit`)}>
+                                <Pencil className="w-4 h-4 mr-2" /> Edit project
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={openShare}>
                                 <Share2 className="w-4 h-4 mr-2" /> Share
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                className="text-red-600"
+                                className="text-red-400"
                                 onClick={() => deleteProject(project.project_id)}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
-                        )}
-                      </div>
-
-                      {viewMode === "list" && (
-                        <div className="flex items-center gap-3 mt-2">
-                          <span className="text-xs text-white/40">{(project.platforms ?? []).join(", ")}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            ready ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                          }`}>
-                            {ready ? "ready" : "failed"}
-                          </span>
                         </div>
                       )}
+
+                      <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/60 rounded text-[10px] text-white/70">
+                        {project.scenes_count}s
+                      </div>
                     </div>
 
-                    {/* List actions */}
-                    {viewMode === "list" && ready && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/10" asChild>
-                          <a href={streamUrl(project.project_id, platform)} target="_blank" rel="noreferrer">
-                            <Play className="w-4 h-4 mr-2" /> Preview
-                          </a>
-                        </Button>
-                        <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/10" asChild>
-                          <a href={streamUrl(project.project_id, platform)} download>
-                            <Download className="w-4 h-4 mr-2" /> Download
-                          </a>
-                        </Button>
+                    {/* Info */}
+                    <div className={cn(
+                      viewMode === "grid" ? "mt-2 px-1" : "flex-1 min-w-0"
+                    )}>
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 flex-1">
+                          <h3 className={cn(
+                            "text-white font-medium line-clamp-2",
+                            viewMode === "grid" ? "text-sm" : "text-base mb-1"
+                          )}>{t}</h3>
+                          <p className="text-xs text-white/40">{timeAgo(project.created_at)}</p>
+                        </div>
+
+                        {viewMode === "list" && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            {ready && (
+                              <>
+                                <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/10" asChild>
+                                  <a href={streamUrl(project.project_id, platform, idToken)} target="_blank" rel="noreferrer">
+                                    <Play className="w-4 h-4 mr-2" /> Preview
+                                  </a>
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/10" asChild>
+                                  <a href={streamUrl(project.project_id, platform, idToken)} download>
+                                    <Download className="w-4 h-4" />
+                                  </a>
+                                </Button>
+                              </>
+                            )}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button className="p-2 rounded-lg hover:bg-white/10 transition-colors">
+                                    <MoreVertical className="w-4 h-4 text-white/50" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-40">
+                                  <DropdownMenuItem onClick={() => router.push(`/projects/${project.project_id}`)}>
+                                    <p>View detail</p>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => router.push(`/projects/${project.project_id}/edit`)}>
+                                    <p>Edit in studio</p>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={openShare}>
+                                    <Share2 className="w-4 h-4 mr-2" /> Share
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-red-400"
+                                    onClick={() => deleteProject(project.project_id)}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </motion.div>
                 );
               })}
@@ -452,7 +466,7 @@ export default function DashboardPage() {
 
           {selected && (() => {
             const platform = (selected.platforms ?? [])[0] ?? "master";
-            const src = streamUrl(selected.project_id, platform);
+            const src = streamUrl(selected.project_id, platform, idToken);
             return (
               <>
                 <div className="aspect-9/16 max-h-[60vh] bg-gray-900 rounded-xl overflow-hidden">
@@ -467,7 +481,7 @@ export default function DashboardPage() {
                   <div className="flex gap-2 flex-wrap justify-end">
                     {(selected.platforms ?? []).map((p) => (
                       <Button key={p} variant="outline" asChild>
-                        <a href={streamUrl(selected.project_id, p)} target="_blank" rel="noreferrer">
+                        <a href={streamUrl(selected.project_id, p, idToken)} target="_blank" rel="noreferrer">
                           <Download className="w-4 h-4 mr-2" />
                           {p.replace("_", " ")}
                         </a>

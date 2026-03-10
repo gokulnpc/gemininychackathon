@@ -2,21 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search, Play, Video, FileText, TrendingUp, ChevronDown, Coins, LayoutDashboard, LogOut, Settings, User } from "lucide-react";
+import { Loader2, Search, Play, Video, FileText, ChevronDown } from "lucide-react";
 import { motion } from "framer-motion";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { UserMenu } from "@/components/shared/UserMenu";
+import { useAuth } from "@/context/AuthContext";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, CartesianGrid, YAxis } from "recharts";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
+import apiClient from "@/lib/apiClient";
 import { Music, Image as LucideImage, Mic as VoiceMemo, ArrowRight } from "lucide-react";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -49,8 +44,9 @@ function projectTitle(p: Project): string {
   return p.hook ?? p.series_name ?? p.project_id.slice(0, 8);
 }
 
-function thumbnailUrl(projectId: string, platform: string) {
-  return `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+function thumbnailUrl(projectId: string, platform: string, token: string | null) {
+  const base = `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+  return token ? `${base}&token=${token}` : base;
 }
 
 const GRADIENTS = [
@@ -105,6 +101,8 @@ const distributionData = [
 
 export default function WelcomePage() {
   const router = useRouter();
+  const { user, idToken, loading } = useAuth();
+  const firstName = user?.displayName?.split(" ")[0] ?? user?.email?.split("@")[0] ?? "there";
 
   const [recents, setRecents] = useState<Project[]>([]);
   const [totalVideos, setTotalVideos] = useState(0);
@@ -134,19 +132,20 @@ export default function WelcomePage() {
   const displayAssets = filteredAssets.slice(0, 4);
 
   useEffect(() => {
-    fetch(`${API}/api/v1/projects`)
-      .then((r) => r.json())
-      .then((d) => {
-        setRecents((d.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
-        setTotalVideos(d.total ?? 0);
+    if (loading || !user) return;
+
+    apiClient.get("/api/v1/projects")
+      .then((r) => {
+        setRecents((r.data.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
+        setTotalVideos(r.data.total ?? 0);
       })
       .catch(() => setRecents([]))
       .finally(() => setRecentsLoading(false));
 
     Promise.all([
-      fetch(`${API}/api/v1/assets?category=images`).then((r) => r.json()),
-      fetch(`${API}/api/v1/assets?category=music`).then((r) => r.json()),
-      fetch(`${API}/api/v1/assets?category=voice_memos`).then((r) => r.json()),
+      apiClient.get("/api/v1/assets?category=images").then((r) => r.data),
+      apiClient.get("/api/v1/assets?category=music").then((r) => r.data),
+      apiClient.get("/api/v1/assets?category=voice_memos").then((r) => r.data),
     ])
       .then(([img, mus, vcm]) => {
         setAssets({
@@ -157,7 +156,7 @@ export default function WelcomePage() {
       })
       .catch(() => {})
       .finally(() => setAssetsLoading(false));
-  }, []);
+  }, [user, loading]);
 
   const filteredRecents = recents.filter((p) =>
     projectTitle(p).toLowerCase().includes(search.toLowerCase())
@@ -179,57 +178,7 @@ export default function WelcomePage() {
       )}>
         {/* Header */}
         <header className="flex items-center justify-end px-8 py-6">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 border border-white/20 hover:bg-white/15 transition-colors">
-                <Avatar className="w-8 h-8">
-                  <AvatarImage src="/Avatar.png" alt="An Tran" />
-                  <AvatarFallback className="bg-[#5a9ab5] text-white text-sm">
-                    AT
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-sm font-medium text-white">An Tran</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <div className="px-3 py-3 bg-[#5a9ab5]/5 rounded-lg mx-2 mt-2 mb-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <Coins className="w-4 h-4 text-[#5a9ab5]" />
-                  <span className="text-sm font-medium text-[#1A1A1A]">
-                    Credits
-                  </span>
-                </div>
-                <p className="text-2xl font-semibold text-[#1A1A1A]">1,250</p>
-                <p className="text-xs text-[#9B9B9B] mt-0.5">
-                  ~25 videos remaining
-                </p>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => router.push("/dashboard")}
-                className="cursor-pointer"
-              >
-                <LayoutDashboard className="w-4 h-4 mr-2" />
-                Dashboard
-              </DropdownMenuItem>
-              <DropdownMenuItem className="cursor-pointer">
-                <User className="w-4 h-4 mr-2" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem className="cursor-pointer">
-                <Settings className="w-4 h-4 mr-2" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => router.push("/login")}
-                className="cursor-pointer text-red-600"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <UserMenu />
         </header>
 
         {/* Main Content */}
@@ -242,7 +191,7 @@ export default function WelcomePage() {
             className="mb-12"
           >
             <h1 className="text-4xl font-medium text-white mb-2">
-              Welcome <span className="text-[#5a9ab5]">An</span>!
+              Welcome <span className="text-[#5a9ab5]">{firstName}</span>!
             </h1>
             <p className="text-2xl text-white/70">
               What would you like to build?
@@ -422,7 +371,7 @@ export default function WelcomePage() {
                         className={`relative aspect-9/16 bg-linear-to-br ${gradient(project.project_id)}`}
                       >
                         <img
-                          src={thumbnailUrl(project.project_id, platform)}
+                          src={thumbnailUrl(project.project_id, platform, idToken)}
                           alt={t}
                           className="absolute inset-0 w-full h-full object-cover"
                           onError={(e) => {
@@ -514,10 +463,14 @@ function AssetPreview({ asset }: { asset: any }) {
 
   useEffect(() => {
     if (asset.category !== "images") return;
-    fetch(`${API}/api/v1/assets/${asset.id}/url?category=images`)
-      .then((r) => r.json())
-      .then((d) => setImageUrl(d.url))
-      .catch(() => {});
+    
+    // Lazy-load apiClient inside this child component to avoid circular references if necessary,
+    // though it's already imported at the top.
+    import("@/lib/apiClient").then(({ default: client }) => {
+      client.get(`/api/v1/assets/${asset.id}/url?category=images`)
+        .then((r) => setImageUrl(r.data.url))
+        .catch(() => {});
+    });
   }, [asset.id, asset.category]);
 
   if (asset.category === "images") {
