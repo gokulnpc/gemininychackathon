@@ -1,49 +1,39 @@
-"""Gemini image generation — style-aware, character-consistent.
+"""Gemini image generation helpers.
 
-One image per scene (every 5 seconds). The selected art style drives:
-  1. A curated cinematic style suffix appended to every prompt.
-  2. A reference style image from assets/styles/<art_style>.png passed to Gemini
-     for true visual style transfer (not just text guidance).
-  3. Character consistency: first scene image is passed as a reference
-     to all subsequent scene generations so characters stay visually
-     cohesive across the entire video.
-
-Output: native 9:16 portrait from Gemini image_config (target ~576×1024).
+This module keeps the public async entrypoints stable while separating prompt
+construction, provider invocation, response parsing, and temp-file persistence.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import os
 import tempfile
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from PIL import Image
-
-from config import get_settings
 
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-3.1-flash-image-preview"
-_TEXT_MODEL = "gemini-2.0-flash"  # text-only inference — cheaper than image gen
+_TEXT_MODEL = "gemini-2.0-flash"
 
-# Art style reference images live here — one PNG per style
 _STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "styles")
 
-# ── Art style → cinematic prompt suffix ───────────────────────────────────────
-# Used alongside the style reference image for double-strength style guidance.
-
 _STYLE_SUFFIXES: dict[str, str] = {
-    # ── Active styles (reference images in assets/styles/) ─────────────────────
-    "cinematic":     (
+    "cinematic": (
         "anamorphic widescreen cinema, shallow depth of field bokeh, "
         "film grain, moody teal-and-orange colour grade, epic production value"
     ),
-    "color_block":   (
+    "color_block": (
         "bold geometric colour-blocking, flat saturated primary palette, "
         "contemporary minimal graphic design, clean crisp edges"
     ),
-    "cyborg":        (
+    "cyborg": (
         "cyberpunk cyborg aesthetic, mechanical body enhancements and bioluminescent circuits, "
         "neon-lit urban dystopia, chrome and carbon-fibre textures, sci-fi augmented reality"
     ),
@@ -51,23 +41,23 @@ _STYLE_SUFFIXES: dict[str, str] = {
         "professional shallow depth of field, subject in sharp focus against a softly blurred background, "
         "creamy bokeh, DSLR 85mm portrait lens, natural diffused lighting"
     ),
-    "dynamite":      (
+    "dynamite": (
         "explosive action-movie cinematography, dramatic fire and debris, "
         "high-contrast lens flare, intense kinetic energy, smoke-filled atmosphere"
     ),
-    "enamel_pin":    (
+    "enamel_pin": (
         "enamel pin badge illustration, bold flat colours with thick black outlines, "
         "simplified graphic shapes, collectible badge aesthetic, vibrant limited palette"
     ),
-    "gothic_clay":   (
+    "gothic_clay": (
         "dark gothic claymation, textured clay characters and environments, "
         "warm amber candle-lit gothic architecture, stop-motion quality, eerie handcrafted look"
     ),
-    "monochrome":    (
+    "monochrome": (
         "high-contrast black and white photography, dramatic chiaroscuro shadows, "
         "deep blacks and bright whites, silver gelatin darkroom aesthetic, no colour whatsoever"
     ),
-    "moody":         (
+    "moody": (
         "dark atmospheric moody photography, deep brooding shadows, desaturated muted palette, "
         "low-key dramatic lighting, emotional tension, melancholic and introspective atmosphere"
     ),
@@ -75,43 +65,43 @@ _STYLE_SUFFIXES: dict[str, str] = {
         "epic fantasy warrior art, dramatic battle pose, mythological weaponry and armour, "
         "ancient gods aesthetic, heroic grandeur, divine light breaking through storm clouds"
     ),
-    "oil_painting":  (
+    "oil_painting": (
         "classical oil painting, visible impasto brushstrokes, rich chiaroscuro lighting, "
         "museum gallery quality, Old Masters technique"
     ),
-    "old_cartoon":   (
+    "old_cartoon": (
         "vintage 1930s rubber-hose cartoon, Fleischer Studios aesthetic, "
         "exaggerated organic shapes, limited colour palette, film grain and vignette"
     ),
-    "risograph":     (
+    "risograph": (
         "risograph print art, limited two-colour halftone grain, "
         "indie zine texture, slightly misaligned ink layers, lo-fi printed aesthetic"
     ),
-    "runway":        (
+    "runway": (
         "high-fashion editorial photography, sleek studio three-point lighting, "
         "Vogue magazine cover aesthetic, polished and modern"
     ),
-    "salon":         (
+    "salon": (
         "soft Rembrandt portrait lighting, elegant neutral studio backdrop, "
         "fine-art photographic quality, refined and classical"
     ),
-    "sketch":        (
+    "sketch": (
         "detailed graphite pencil sketch on cream textured paper, "
         "expressive cross-hatching, gestural marks, monochromatic graphite tones"
     ),
-    "steampunk":     (
+    "steampunk": (
         "Victorian steampunk aesthetic, ornate brass gears and copper pipes, "
         "sepia-toned gaslight industrial atmosphere, intricate mechanical detail"
     ),
-    "sunrise":       (
+    "sunrise": (
         "golden-hour warm backlight, soft sun flare, sweeping open landscape, "
         "amber and rose tones, hopeful and expansive atmosphere"
     ),
-    "surreal":       (
+    "surreal": (
         "surrealist dreamscape art, impossible juxtapositions, melting reality, "
         "Dalí-inspired bizarre imagery, dreamlike hyper-detailed atmosphere"
     ),
-    "technicolor":   (
+    "technicolor": (
         "vivid Technicolor film aesthetic, oversaturated warm cinema tones, "
         "1950s Hollywood glamour, lush jewel-toned palette"
     ),
@@ -121,88 +111,575 @@ _FALLBACK_SUFFIX = (
     "vertical 9:16 portrait, cinematic dramatic lighting, ultra-detailed, top quality"
 )
 
+_STYLE_FILENAME_ALIASES: dict[str, list[str]] = {}
+
+ImageProvider = Callable[[list[object]], Image.Image | asyncio.Future]
+TextProvider = Callable[[str, Image.Image], str | asyncio.Future]
+
+
+class GeminiImageServiceError(RuntimeError):
+    """Base exception for Gemini image service failures."""
+
+
+class GeminiImageProviderError(GeminiImageServiceError):
+    """Raised when the Gemini provider call fails."""
+
+
+class GeminiImageResponseError(GeminiImageServiceError):
+    """Raised when Gemini returns no usable image payload."""
+
+
+@dataclass(frozen=True)
+class ImageGenerationRequest:
+    prompt: str
+    art_style: str = "realism"
+    previous_image_path: str | None = None
+    character_reference_path: str | None = None
+    user_reference_path: str | None = None
+    user_character_role: str | None = None
+
+
+@dataclass(frozen=True)
+class CharacterSheetRequest:
+    character_description: str
+    art_style: str = "cinematic"
+    user_reference_path: str | None = None
+
+
+@dataclass(frozen=True)
+class ThumbnailRequest:
+    hook_text: str
+    scene_visual_prompt: str
+    character_description: str | None
+    art_style: str = "cinematic"
+
+
+@dataclass(frozen=True)
+class _GenerationPlan:
+    mode: str
+    art_style: str
+    primary_contents: list[object]
+    fallback_contents: list[object]
+    output_prefix: str
+    output_suffix: str
+    output_format: str
+    save_kwargs: dict[str, Any]
+    log_target: str
+    has_style_reference: bool
+
+
+def _normalize_art_style(art_style: str) -> str:
+    return (art_style or "").strip().lower()
+
+
+def _require_text(value: str, field_name: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError(f"{field_name} must not be empty")
+    return cleaned
+
 
 def _style_suffix(art_style: str) -> str:
-    return _STYLE_SUFFIXES.get(art_style.lower(), _FALLBACK_SUFFIX)
+    return _STYLE_SUFFIXES.get(_normalize_art_style(art_style), _FALLBACK_SUFFIX)
 
 
-# Alternate filenames for styles whose enum key differs from the stored filename.
-# All current assets/styles/ filenames match their enum keys directly — no aliases needed.
-_STYLE_FILENAME_ALIASES: dict[str, list[str]] = {}
+def _open_rgb_image(path: str) -> Image.Image:
+    with Image.open(path) as image:
+        return image.convert("RGB")
+
+
+def _optional_rgb_image(path: str | None) -> Image.Image | None:
+    if not path or not os.path.exists(path):
+        return None
+    return _open_rgb_image(path)
 
 
 def _style_reference_image(art_style: str) -> Image.Image | None:
-    """Load the backend reference image for this art style, if it exists.
-
-    Tries the canonical name first, then any known aliases, then .jpg extension.
-    """
-    key = art_style.lower()
+    """Load the backend reference image for this art style, if it exists."""
+    key = _normalize_art_style(art_style)
     candidates = _STYLE_FILENAME_ALIASES.get(key, [key])
 
     for name in candidates:
         for ext in (".png", ".jpg", ".jpeg", ".webp"):
             path = os.path.join(_STYLES_DIR, f"{name}{ext}")
-            if os.path.exists(path):
-                try:
-                    return Image.open(path).convert("RGB")
-                except Exception as e:
-                    logger.warning("Could not load style reference image %s: %s", path, e)
+            if not os.path.exists(path):
+                continue
+            try:
+                return _open_rgb_image(path)
+            except Exception as exc:
+                logger.warning("Could not load style reference image %s: %s", path, exc)
+
     return None
 
 
-def _extract_image(response) -> Image.Image | None:
+def _extract_image(response: object) -> Image.Image | None:
     """Pull the first image from a Gemini response."""
-    for part in response.parts:
-        # New SDK: part.as_image()
+    parts = getattr(response, "parts", None) or []
+
+    for part in parts:
         try:
-            img = part.as_image()
-            if img is not None:
-                return img.convert("RGB")
+            as_image = getattr(part, "as_image", None)
+            if callable(as_image):
+                img = as_image()
+                if img is not None:
+                    return img.convert("RGB")
         except Exception:
             pass
 
-        # Fallback: inline_data bytes
-        import base64 as _b64
-        import io
         blob = getattr(part, "inline_data", None)
         if blob is None:
             continue
         raw = getattr(blob, "data", None)
         if raw is None:
             continue
+
         try:
             if isinstance(raw, str):
-                raw = _b64.b64decode(raw)
-            return Image.open(io.BytesIO(raw)).convert("RGB")
+                raw = base64.b64decode(raw)
+            with Image.open(io.BytesIO(raw)) as image:
+                return image.convert("RGB")
         except Exception as exc:
             logger.debug("inline_data decode failed: %s", exc)
 
     return None
 
 
-def _invoke(contents: list, api_key: str) -> object:
-    """Synchronous Gemini call — run via asyncio.to_thread."""
+def _default_image_client_factory():
+    from services.gemini.client import get_client
+
+    return get_client(force_api_key=True)
+
+
+def _default_text_client_factory():
+    from services.gemini.client import get_client
+
+    return get_client()
+
+
+def _generate_gemini_image_sync(
+    contents: list[object],
+    *,
+    client_factory: Callable[[], object] | None = None,
+) -> Image.Image:
     from google.genai import types
 
-    from services.gemini.client import get_client
-    client = get_client(force_api_key=True)
-    return client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_modalities=["TEXT", "IMAGE"],
-            image_config=types.ImageConfig(
-                aspect_ratio="9:16",
-                image_size="1K",
+    client = (client_factory or _default_image_client_factory)()
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+                image_config=types.ImageConfig(
+                    aspect_ratio="9:16",
+                    image_size="1K",
+                ),
             ),
-        ),
+        )
+    except Exception as exc:
+        raise GeminiImageProviderError(f"Gemini image request failed: {exc}") from exc
+
+    image = _extract_image(response)
+    if image is None:
+        raise GeminiImageResponseError("Gemini returned no image data.")
+    return image
+
+
+async def _generate_gemini_image(
+    contents: list[object],
+    *,
+    client_factory: Callable[[], object] | None = None,
+) -> Image.Image:
+    return await asyncio.to_thread(
+        _generate_gemini_image_sync,
+        contents,
+        client_factory=client_factory,
     )
 
 
-def _describe_subject_sync(image_path: str) -> str:
-    """Synchronous Gemini Vision call — run via asyncio.to_thread."""
-    img = Image.open(image_path).convert("RGB")
-    prompt = (
+def _generate_gemini_text_sync(
+    prompt: str,
+    image: Image.Image,
+    *,
+    client_factory: Callable[[], object] | None = None,
+) -> str:
+    client = (client_factory or _default_text_client_factory)()
+    try:
+        response = client.models.generate_content(model=_TEXT_MODEL, contents=[prompt, image])
+    except Exception as exc:
+        raise GeminiImageProviderError(f"Gemini text request failed: {exc}") from exc
+    return (getattr(response, "text", "") or "").strip()
+
+
+async def _generate_gemini_text(
+    prompt: str,
+    image: Image.Image,
+    *,
+    client_factory: Callable[[], object] | None = None,
+) -> str:
+    return await asyncio.to_thread(
+        _generate_gemini_text_sync,
+        prompt,
+        image,
+        client_factory=client_factory,
+    )
+
+
+async def _call_image_provider(
+    contents: list[object],
+    *,
+    image_provider: ImageProvider | None = None,
+) -> Image.Image:
+    if image_provider is None:
+        return await _generate_gemini_image(contents)
+
+    result = image_provider(contents)
+    if asyncio.iscoroutine(result):
+        result = await result
+    return result
+
+
+async def _call_text_provider(
+    prompt: str,
+    image: Image.Image,
+    *,
+    text_provider: TextProvider | None = None,
+) -> str:
+    if text_provider is None:
+        return await _generate_gemini_text(prompt, image)
+
+    result = text_provider(prompt, image)
+    if asyncio.iscoroutine(result):
+        result = await result
+    return (result or "").strip()
+
+
+def _save_temp_image(
+    image: Image.Image,
+    *,
+    prefix: str,
+    suffix: str,
+    output_format: str,
+    save_kwargs: dict[str, Any] | None = None,
+) -> str:
+    fd, tmp_path = tempfile.mkstemp(prefix=prefix, suffix=suffix)
+    os.close(fd)
+    image.save(tmp_path, output_format, **(save_kwargs or {}))
+    return tmp_path
+
+
+def _user_role_instruction(user_character_role: str | None) -> str:
+    if user_character_role == "main_character":
+        return (
+            "CRITICAL: The main protagonist in this scene must look exactly like the person "
+            "in the user reference photo — match their face, hair colour, facial features, "
+            "and build precisely. They are the central subject of this image."
+        )
+    if user_character_role == "side_character":
+        return (
+            "Include a supporting character in the scene who closely resembles the person "
+            "in the user reference photo — match their face and general appearance. "
+            "They should be visible but not the primary focus."
+        )
+    if user_character_role == "audience":
+        return (
+            "Somewhere in the scene, include a person in the background or crowd who "
+            "resembles the user reference photo as a natural bystander or audience member."
+        )
+    return ""
+
+
+def _style_transfer_instruction(style_ref_img: Image.Image | None, art_style: str) -> str:
+    suffix = _style_suffix(art_style)
+    if style_ref_img is not None:
+        return (
+            "Apply the exact visual style shown in the style reference image: "
+            "match its colour palette, textures, rendering technique, and overall aesthetic. "
+            f"Style description: {suffix}."
+        )
+    return f"Style: {suffix}."
+
+
+def _fallback_scene_prompt(prompt: str, art_style: str) -> str:
+    return f"Cinematic portrait scene: {prompt}. {_style_suffix(art_style)}. Vertical 9:16 format."
+
+
+def _thumbnail_fallback_prompt(hook_text: str, art_style: str) -> str:
+    return f"Scroll-stopping video thumbnail: {hook_text}. {_style_suffix(art_style)}. Vertical 9:16."
+
+
+def _build_scene_generation_prompt(
+    prompt: str,
+    style_instruction: str,
+    user_role_instruction: str,
+) -> str:
+    return (
+        f"{prompt}. "
+        f"{user_role_instruction} "
+        f"{style_instruction} "
+        "Vertical 9:16 portrait composition optimised for short-form video. "
+        "Ultra-detailed, cinematic lighting, top-quality render. No text or watermarks."
+    )
+
+
+def _build_scene_evolution_prompt(
+    prompt: str,
+    style_instruction: str,
+    user_role_instruction: str,
+) -> str:
+    return (
+        f"Transform this image into a new 2-second scene: {prompt}. "
+        "CRITICAL CONSISTENCY RULES:\n"
+        "1. CHARACTER: Keep the same characters and faces — identical features, hair, skin tone, and costume.\n"
+        f"2. ART STYLE: Maintain the exact same visual style — colour palette, rendering, and aesthetic. {style_instruction}\n"
+        "3. Change only the composition, action, and camera angle to match the new scene.\n"
+        f"{user_role_instruction} "
+        "Vertical 9:16 portrait format. Ultra-consistent, top-quality render."
+    )
+
+
+def _build_consistent_scene_prompt(
+    prompt: str,
+    style_instruction: str,
+    user_role_instruction: str,
+) -> str:
+    return (
+        "Create a new 2-second scene image continuing this visual story. "
+        f"New scene: {prompt}. "
+        "CRITICAL CONSISTENCY RULES — violating these will break the video:\n"
+        "1. CHARACTER: The main character must look IDENTICAL to the character reference image — "
+        "same face, hair colour, skin tone, facial features, body type, and costume. Zero deviation.\n"
+        f"2. ART STYLE: Match the exact visual style of the reference image — same colour palette, rendering technique, textures, and aesthetic. {style_instruction}\n"
+        "3. COMPOSITION: Change only the camera angle, action, and scene environment to match the new scene.\n"
+        f"{user_role_instruction} "
+        "Vertical 9:16 portrait format. Ultra-consistent, top-quality render."
+    )
+
+
+def _build_thumbnail_prompt(
+    hook_text: str,
+    scene_visual_prompt: str,
+    character_description: str | None,
+    art_style: str,
+) -> str:
+    char_clause = f"Character: {character_description}. " if character_description else ""
+    suffix = _style_suffix(art_style)
+    return (
+        "Create a visually striking social media video thumbnail.\n"
+        f"Hook concept: {hook_text}\n"
+        f"Scene visual: {scene_visual_prompt}\n"
+        f"{char_clause}"
+        f"Art style: {suffix}\n\n"
+        "Make it dramatic, high-contrast, and bold. "
+        "Clear focal point, vibrant colours, strong lighting. "
+        "The image must make someone stop scrolling — cinematic intensity, "
+        "compelling subject, professional quality. "
+        "Vertical 9:16 portrait format. No text or watermarks."
+    )
+
+
+def _build_character_sheet_prompt(
+    character_description: str,
+    art_style: str,
+    has_user_reference: bool,
+) -> str:
+    user_clause = ""
+    if has_user_reference:
+        user_clause = (
+            "The character must look exactly like the person in the user reference photo — "
+            "match their face, hair colour, skin tone, and build precisely. "
+        )
+    return (
+        "Full-body character reference sheet. Neutral standing pose, arms at sides. "
+        "Plain white or very light neutral background with no scenery or props. "
+        f"{user_clause}"
+        f"Character description: {character_description}. "
+        f"Art style: {_style_suffix(art_style)}. "
+        "Vertical 9:16 portrait. Single character centred. "
+        "High detail, clean render. No text, no watermarks."
+    )
+
+
+def _build_scene_generation_plan(request: ImageGenerationRequest) -> _GenerationPlan:
+    prompt = _require_text(request.prompt, "prompt")
+    art_style = _normalize_art_style(request.art_style) or "realism"
+    style_ref_img = _style_reference_image(art_style)
+    style_instruction = _style_transfer_instruction(style_ref_img, art_style)
+    user_img = _optional_rgb_image(request.user_reference_path)
+    user_instruction = _user_role_instruction(request.user_character_role if user_img else None)
+
+    primary_contents: list[object]
+    previous_image = _optional_rgb_image(request.previous_image_path)
+    character_reference = _optional_rgb_image(request.character_reference_path)
+
+    if previous_image is not None:
+        if (
+            character_reference is not None
+            and request.character_reference_path != request.previous_image_path
+        ):
+            primary_contents = [
+                _build_consistent_scene_prompt(prompt, style_instruction, user_instruction),
+            ]
+            if style_ref_img is not None:
+                primary_contents.append(style_ref_img)
+            primary_contents.extend([character_reference, previous_image])
+            if user_img is not None and request.user_character_role != "main_character":
+                primary_contents.append(user_img)
+            mode = "consistent-scene"
+        else:
+            primary_contents = [
+                _build_scene_evolution_prompt(prompt, style_instruction, user_instruction),
+            ]
+            if style_ref_img is not None:
+                primary_contents.append(style_ref_img)
+            primary_contents.append(previous_image)
+            if user_img is not None:
+                primary_contents.append(user_img)
+            mode = "scene-evolution"
+    else:
+        primary_contents = [
+            _build_scene_generation_prompt(prompt, style_instruction, user_instruction),
+        ]
+        if style_ref_img is not None:
+            primary_contents.append(style_ref_img)
+        if user_img is not None:
+            primary_contents.append(user_img)
+        mode = "generation"
+
+    fallback_contents: list[object] = [_fallback_scene_prompt(prompt, art_style)]
+    if style_ref_img is not None:
+        fallback_contents.append(style_ref_img)
+
+    return _GenerationPlan(
+        mode=mode,
+        art_style=art_style,
+        primary_contents=primary_contents,
+        fallback_contents=fallback_contents,
+        output_prefix="voicevid_gemini_",
+        output_suffix=".png",
+        output_format="PNG",
+        save_kwargs={},
+        log_target=prompt[:80],
+        has_style_reference=style_ref_img is not None,
+    )
+
+
+def _build_character_sheet_plan(request: CharacterSheetRequest) -> _GenerationPlan:
+    character_description = _require_text(request.character_description, "character_description")
+    art_style = _normalize_art_style(request.art_style) or "cinematic"
+    style_ref_img = _style_reference_image(art_style)
+    user_img = _optional_rgb_image(request.user_reference_path)
+
+    primary_contents: list[object] = [
+        _build_character_sheet_prompt(
+            character_description=character_description,
+            art_style=art_style,
+            has_user_reference=user_img is not None,
+        )
+    ]
+    if style_ref_img is not None:
+        primary_contents.append(style_ref_img)
+    if user_img is not None:
+        primary_contents.append(user_img)
+
+    fallback_contents: list[object] = [
+        "Character reference sheet, neutral pose, plain background. "
+        f"{character_description}. {_style_suffix(art_style)}. Vertical 9:16."
+    ]
+    if style_ref_img is not None:
+        fallback_contents.append(style_ref_img)
+
+    return _GenerationPlan(
+        mode="character-sheet",
+        art_style=art_style,
+        primary_contents=primary_contents,
+        fallback_contents=fallback_contents,
+        output_prefix="voicevid_charsheet_",
+        output_suffix=".png",
+        output_format="PNG",
+        save_kwargs={},
+        log_target=character_description[:80],
+        has_style_reference=style_ref_img is not None,
+    )
+
+
+def _build_thumbnail_plan(request: ThumbnailRequest) -> _GenerationPlan:
+    hook_text = _require_text(request.hook_text, "hook_text")
+    scene_visual_prompt = _require_text(request.scene_visual_prompt, "scene_visual_prompt")
+    art_style = _normalize_art_style(request.art_style) or "cinematic"
+    style_ref_img = _style_reference_image(art_style)
+
+    primary_contents: list[object] = [
+        _build_thumbnail_prompt(
+            hook_text=hook_text,
+            scene_visual_prompt=scene_visual_prompt,
+            character_description=request.character_description,
+            art_style=art_style,
+        )
+    ]
+    if style_ref_img is not None:
+        primary_contents.append(style_ref_img)
+
+    fallback_contents: list[object] = [_thumbnail_fallback_prompt(hook_text, art_style)]
+
+    return _GenerationPlan(
+        mode="thumbnail",
+        art_style=art_style,
+        primary_contents=primary_contents,
+        fallback_contents=fallback_contents,
+        output_prefix="voicevid_thumb_",
+        output_suffix=".jpg",
+        output_format="JPEG",
+        save_kwargs={"quality": 92},
+        log_target=hook_text[:60],
+        has_style_reference=style_ref_img is not None,
+    )
+
+
+async def _execute_generation_plan(
+    plan: _GenerationPlan,
+    *,
+    image_provider: ImageProvider | None = None,
+) -> str:
+    logger.info(
+        "Gemini image [%s | %s | style_ref=%s] → %s",
+        plan.mode,
+        plan.art_style,
+        "yes" if plan.has_style_reference else "no",
+        plan.log_target,
+    )
+
+    last_error: GeminiImageServiceError | None = None
+
+    for label, contents in (
+        ("primary", plan.primary_contents),
+        ("fallback", plan.fallback_contents),
+    ):
+        try:
+            image = await _call_image_provider(contents, image_provider=image_provider)
+            tmp_path = _save_temp_image(
+                image,
+                prefix=plan.output_prefix,
+                suffix=plan.output_suffix,
+                output_format=plan.output_format,
+                save_kwargs=plan.save_kwargs,
+            )
+            logger.info("Gemini image saved → %s", tmp_path)
+            return tmp_path
+        except GeminiImageServiceError as exc:
+            last_error = exc
+            logger.warning("%s %s attempt failed: %s", plan.mode, label, exc)
+        except Exception as exc:
+            last_error = GeminiImageProviderError(f"Unexpected image provider failure: {exc}")
+            logger.warning("%s %s attempt failed: %s", plan.mode, label, exc)
+
+    if last_error is not None:
+        raise last_error
+    raise GeminiImageResponseError("Gemini image generation produced no result.")
+
+
+def _describe_subject_prompt() -> str:
+    return (
         "Describe the person in this photo for use as context in a short-form video script. "
         "Provide a single sentence covering: apparent gender, approximate age range, "
         "clothing or style context, and expression or mood. "
@@ -210,23 +687,24 @@ def _describe_subject_sync(image_path: str) -> str:
         "Do not identify or name the person — only describe visible visual attributes. "
         "Respond with only the descriptive sentence, no preamble."
     )
-    from services.gemini.client import get_client
-    client = get_client()
-    response = client.models.generate_content(model=_TEXT_MODEL, contents=[prompt, img])
-    return (response.text or "").strip()
 
 
-async def describe_reference_subject(image_path: str) -> str:
-    """Use Gemini Vision to extract brief subject context from a reference photo.
-
-    Returns a short descriptor like:
-      "A man in his 50s, casual outdoor attire, relaxed confident expression"
-    Returns "" on any failure — inference is advisory, never blocks the pipeline.
-    """
+async def describe_reference_subject(
+    image_path: str,
+    *,
+    text_provider: TextProvider | None = None,
+) -> str:
+    """Use Gemini Vision to extract brief subject context from a reference photo."""
     if not image_path or not os.path.exists(image_path):
         return ""
+
     try:
-        result = await asyncio.to_thread(_describe_subject_sync, image_path)
+        image = _open_rgb_image(image_path)
+        result = await _call_text_provider(
+            _describe_subject_prompt(),
+            image,
+            text_provider=text_provider,
+        )
         logger.info("Reference subject inferred: %s", result)
         return result
     except Exception as exc:
@@ -241,267 +719,39 @@ async def generate_image(
     character_reference_path: str | None = None,
     user_reference_path: str | None = None,
     user_character_role: str | None = None,
+    *,
+    image_provider: ImageProvider | None = None,
 ) -> str:
-    """Generate a scene image with art-style reference, character consistency, and optional user photo.
-
-    Args:
-        prompt:                  Cinematic visual description from the script agent.
-        art_style:               Gallery style name — maps to a style reference image + text suffix.
-        previous_image_path:     If provided, Gemini edits this image (scene evolution).
-        character_reference_path: First-scene image reused to maintain character
-                                  consistency across all subsequent scenes.
-        user_reference_path:     Optional user photo for appearance-based personalisation.
-        user_character_role:     "main_character" | "side_character" | "audience".
-
-    Returns:
-        Absolute path to a 9:16 portrait PNG temp file.
-    """
-    settings = get_settings()
-    api_key = settings.gemini_api_key
-    suffix = _style_suffix(art_style)
-
-    # ── Load art style reference image (real visual style transfer) ───────────
-    style_ref_img = _style_reference_image(art_style)
-    style_transfer_instruction = (
-        f"Apply the exact visual style shown in the style reference image: "
-        f"match its colour palette, textures, rendering technique, and overall aesthetic. "
-        f"Style description: {suffix}."
-        if style_ref_img is not None
-        else f"Style: {suffix}."
-    )
-
-    # ── Role-specific instruction for user photo ───────────────────────────────
-    user_img: Image.Image | None = None
-    user_role_instruction = ""
-    if user_reference_path and os.path.exists(user_reference_path) and user_character_role:
-        user_img = Image.open(user_reference_path).convert("RGB")
-        if user_character_role == "main_character":
-            user_role_instruction = (
-                "CRITICAL: The main protagonist in this scene must look exactly like the person "
-                "in the user reference photo — match their face, hair colour, facial features, "
-                "and build precisely. They are the central subject of this image."
-            )
-        elif user_character_role == "side_character":
-            user_role_instruction = (
-                "Include a supporting character in the scene who closely resembles the person "
-                "in the user reference photo — match their face and general appearance. "
-                "They should be visible but not the primary focus."
-            )
-        elif user_character_role == "audience":
-            user_role_instruction = (
-                "Somewhere in the scene, include a person in the background or crowd who "
-                "resembles the user reference photo as a natural bystander or audience member."
-            )
-
-    img: Image.Image | None = None
-
-    # ── Build contents ────────────────────────────────────────────────────────
-    if previous_image_path and os.path.exists(previous_image_path):
-        prev_img = Image.open(previous_image_path).convert("RGB")
-
-        if (
-            character_reference_path
-            and os.path.exists(character_reference_path)
-            and character_reference_path != previous_image_path
-        ):
-            # Scenes 3+: character reference + previous scene + style
-            char_img = Image.open(character_reference_path).convert("RGB")
-            edit_prompt = (
-                f"Create a new 2-second scene image continuing this visual story. "
-                f"New scene: {prompt}. "
-                f"CRITICAL CONSISTENCY RULES — violating these will break the video:\n"
-                f"1. CHARACTER: The main character must look IDENTICAL to the character reference image — "
-                f"same face, hair colour, skin tone, facial features, body type, and costume. Zero deviation.\n"
-                f"2. ART STYLE: Match the exact visual style of the reference image — same colour palette, "
-                f"rendering technique, textures, and aesthetic. {style_transfer_instruction}\n"
-                f"3. COMPOSITION: Change only the camera angle, action, and scene environment to match the new scene.\n"
-                f"{user_role_instruction} "
-                f"Vertical 9:16 portrait format. Ultra-consistent, top-quality render."
-            )
-            # Order: prompt → style ref → character ref → previous scene → user photo
-            contents: list = [edit_prompt]
-            if style_ref_img is not None:
-                contents.append(style_ref_img)
-            contents.extend([char_img, prev_img])
-            if user_img and user_character_role != "main_character":
-                contents.append(user_img)
-            mode = "consistent-scene"
-
-        else:
-            # Scene 2: evolve the previous scene
-            edit_prompt = (
-                f"Transform this image into a new 2-second scene: {prompt}. "
-                f"CRITICAL CONSISTENCY RULES:\n"
-                f"1. CHARACTER: Keep the same characters and faces — identical features, hair, skin tone, and costume.\n"
-                f"2. ART STYLE: Maintain the exact same visual style — colour palette, rendering, and aesthetic. "
-                f"{style_transfer_instruction}\n"
-                f"3. Change only the composition, action, and camera angle to match the new scene.\n"
-                f"{user_role_instruction} "
-                f"Vertical 9:16 portrait format. Ultra-consistent, top-quality render."
-            )
-            contents = [edit_prompt]
-            if style_ref_img is not None:
-                contents.append(style_ref_img)
-            contents.append(prev_img)
-            if user_img:
-                contents.append(user_img)
-            mode = "scene-evolution"
-
-    else:
-        # Scene 1: generate from scratch
-        full_prompt = (
-            f"{prompt}. "
-            f"{user_role_instruction} "
-            f"{style_transfer_instruction} "
-            f"Vertical 9:16 portrait composition optimised for short-form video. "
-            f"Ultra-detailed, cinematic lighting, top-quality render. No text or watermarks."
+    """Generate a scene image with art-style and character-consistency support."""
+    plan = _build_scene_generation_plan(
+        ImageGenerationRequest(
+            prompt=prompt,
+            art_style=art_style,
+            previous_image_path=previous_image_path,
+            character_reference_path=character_reference_path,
+            user_reference_path=user_reference_path,
+            user_character_role=user_character_role,
         )
-        contents = [full_prompt]
-        if style_ref_img is not None:
-            contents.append(style_ref_img)
-        if user_img:
-            contents.append(user_img)
-        mode = "generation"
-
-    logger.info(
-        "Gemini image [%s | %s | style_ref=%s] → %s",
-        mode, art_style, "yes" if style_ref_img else "no", prompt[:80],
     )
-
-    # ── First attempt ─────────────────────────────────────────────────────────
-    try:
-        response = await asyncio.to_thread(_invoke, contents, api_key)
-        img = _extract_image(response)
-    except Exception as exc:
-        logger.warning("Gemini image %s failed: %s — retrying with simple prompt", mode, exc)
-
-    # ── Fallback: text-only prompt (no reference images) ──────────────────────
-    if img is None:
-        try:
-            fallback_contents: list = [
-                f"Cinematic portrait scene: {prompt}. {suffix}. Vertical 9:16 format."
-            ]
-            if style_ref_img is not None:
-                fallback_contents.append(style_ref_img)
-            response = await asyncio.to_thread(_invoke, fallback_contents, api_key)
-            img = _extract_image(response)
-        except Exception as exc2:
-            logger.warning("Gemini fallback also failed: %s", exc2)
-
-    if img is None:
-        raise RuntimeError(
-            "Gemini image generation returned no image data. "
-            "Check GEMINI_API_KEY and model availability."
-        )
-
-    tmp_path = tempfile.mktemp(suffix=".png", prefix="voicevid_gemini_")
-    img.save(tmp_path, "PNG")
-    logger.info("Gemini image saved → %s", tmp_path)
-    return tmp_path
+    return await _execute_generation_plan(plan, image_provider=image_provider)
 
 
 async def generate_character_sheet(
     character_description: str,
     art_style: str = "cinematic",
     user_reference_path: str | None = None,
+    *,
+    image_provider: ImageProvider | None = None,
 ) -> str:
-    """Generate a neutral full-body character sheet image for use as a stable reference.
-
-    A plain-background, neutral-pose image anchors all scene generations so
-    the character stays visually consistent. Generated once before the scene loop.
-
-    Args:
-        character_description: Physical description from script.metadata.character_description.
-        art_style:             Art style enum value.
-        user_reference_path:   Optional user photo — if provided, the character sheet
-                               will incorporate their likeness.
-
-    Returns:
-        Absolute path to a 9:16 PNG temp file.
-    """
-    settings = get_settings()
-    api_key = settings.gemini_api_key
-    suffix = _style_suffix(art_style)
-    style_ref_img = _style_reference_image(art_style)
-
-    user_clause = ""
-    user_img: object | None = None
-    if user_reference_path and os.path.exists(user_reference_path):
-        user_img = Image.open(user_reference_path).convert("RGB")
-        user_clause = (
-            "The character must look exactly like the person in the user reference photo — "
-            "match their face, hair colour, skin tone, and build precisely. "
+    """Generate a neutral full-body character sheet image for use as a stable reference."""
+    plan = _build_character_sheet_plan(
+        CharacterSheetRequest(
+            character_description=character_description,
+            art_style=art_style,
+            user_reference_path=user_reference_path,
         )
-
-    prompt = (
-        f"Full-body character reference sheet. Neutral standing pose, arms at sides. "
-        f"Plain white or very light neutral background with no scenery or props. "
-        f"{user_clause}"
-        f"Character description: {character_description}. "
-        f"Art style: {suffix}. "
-        f"Vertical 9:16 portrait. Single character centred. "
-        f"High detail, clean render. No text, no watermarks."
     )
-
-    contents: list = [prompt]
-    if style_ref_img is not None:
-        contents.append(style_ref_img)
-    if user_img is not None:
-        contents.append(user_img)
-
-    logger.info("Generating character sheet (art_style=%s, user_ref=%s)", art_style, "yes" if user_img else "no")
-
-    img: Image.Image | None = None
-    try:
-        response = await asyncio.to_thread(_invoke, contents, api_key)
-        img = _extract_image(response)
-    except Exception as exc:
-        logger.warning("Character sheet generation failed: %s — retrying text-only", exc)
-
-    if img is None:
-        fallback = [f"Character reference sheet, neutral pose, plain background. {character_description}. {suffix}. Vertical 9:16."]
-        if style_ref_img is not None:
-            fallback.append(style_ref_img)
-        try:
-            response = await asyncio.to_thread(_invoke, fallback, api_key)
-            img = _extract_image(response)
-        except Exception as exc2:
-            raise RuntimeError(f"Character sheet generation failed: {exc2}") from exc2
-
-    if img is None:
-        raise RuntimeError("Character sheet generation returned no image data.")
-
-    tmp_path = tempfile.mktemp(suffix=".png", prefix="voicevid_charsheet_")
-    img.save(tmp_path, "PNG")
-    logger.info("Character sheet saved → %s", tmp_path)
-    return tmp_path
-
-
-def _build_thumbnail_prompt(
-    hook_text: str,
-    scene_visual_prompt: str,
-    character_description: str | None,
-    art_style: str,
-) -> str:
-    """Build a scroll-stopping thumbnail generation prompt."""
-    char_clause = (
-        f"Character: {character_description}. "
-        if character_description
-        else ""
-    )
-    suffix = _style_suffix(art_style)
-    return (
-        f"Create a visually striking social media video thumbnail.\n"
-        f"Hook concept: {hook_text}\n"
-        f"Scene visual: {scene_visual_prompt}\n"
-        f"{char_clause}"
-        f"Art style: {suffix}\n\n"
-        f"Make it dramatic, high-contrast, and bold. "
-        f"Clear focal point, vibrant colours, strong lighting. "
-        f"The image must make someone stop scrolling — cinematic intensity, "
-        f"compelling subject, professional quality. "
-        f"Vertical 9:16 portrait format. No text or watermarks."
-    )
+    return await _execute_generation_plan(plan, image_provider=image_provider)
 
 
 async def generate_thumbnail(
@@ -509,56 +759,16 @@ async def generate_thumbnail(
     scene_visual_prompt: str,
     character_description: str | None,
     art_style: str = "cinematic",
+    *,
+    image_provider: ImageProvider | None = None,
 ) -> str:
-    """Generate a catchy thumbnail image for the video.
-
-    Uses Gemini image generation with a scroll-stopping prompt based on the
-    hook concept and first scene visual. No reference images needed — this is
-    a fresh, thumbnail-optimised generation.
-
-    Args:
-        hook_text:            The video's hook text (from script.hook.text).
-        scene_visual_prompt:  First scene's visual prompt for visual context.
-        character_description: Optional character description for consistency.
-        art_style:            Art style enum value (e.g. "cinematic", "realism").
-
-    Returns:
-        Absolute path to a 9:16 JPEG temp file.
-
-    Raises:
-        RuntimeError: if Gemini returns no image data.
-    """
-    settings = get_settings()
-    api_key = settings.gemini_api_key
-    prompt = _build_thumbnail_prompt(hook_text, scene_visual_prompt, character_description, art_style)
-
-    style_ref_img = _style_reference_image(art_style)
-    contents: list = [prompt]
-    if style_ref_img is not None:
-        contents.append(style_ref_img)
-
-    logger.info("Generating thumbnail (hook=%s…, art_style=%s)", hook_text[:60], art_style)
-
-    img: Image.Image | None = None
-    try:
-        response = await asyncio.to_thread(_invoke, contents, api_key)
-        img = _extract_image(response)
-    except Exception as exc:
-        logger.warning("Thumbnail generation failed: %s — retrying with text-only prompt", exc)
-
-    if img is None:
-        try:
-            response = await asyncio.to_thread(
-                _invoke, [f"Scroll-stopping video thumbnail: {hook_text}. {_style_suffix(art_style)}. Vertical 9:16."], api_key
-            )
-            img = _extract_image(response)
-        except Exception as exc2:
-            logger.warning("Thumbnail fallback also failed: %s", exc2)
-
-    if img is None:
-        raise RuntimeError("Gemini thumbnail generation returned no image data.")
-
-    tmp_path = tempfile.mktemp(suffix=".jpg", prefix="voicevid_thumb_")
-    img.save(tmp_path, "JPEG", quality=92)
-    logger.info("Thumbnail saved → %s", tmp_path)
-    return tmp_path
+    """Generate a catchy thumbnail image for the video."""
+    plan = _build_thumbnail_plan(
+        ThumbnailRequest(
+            hook_text=hook_text,
+            scene_visual_prompt=scene_visual_prompt,
+            character_description=character_description,
+            art_style=art_style,
+        )
+    )
+    return await _execute_generation_plan(plan, image_provider=image_provider)

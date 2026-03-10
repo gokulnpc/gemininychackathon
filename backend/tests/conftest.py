@@ -3,9 +3,9 @@ backend/tests/conftest.py
 
 Shared pytest fixtures for the Story Factory backend test suite.
 
-Coexists with the custom-runner tests in tests/unit/ and tests/integration/ —
-pytest is configured to only collect from tests/pytest/ (see backend/pytest.ini),
-so the standalone scripts are never touched.
+Applies to all pytest-collected tests in tests/unit/ and tests/integration/.
+Custom-runner standalone scripts (python tests/unit/test_*.py) also live in those
+folders and still work standalone — pytest collects their test_* functions too.
 
 Usage in generated tests:
     def test_something(mocker, mock_gemini_client, sample_words):

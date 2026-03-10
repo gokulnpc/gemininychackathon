@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 import { apiFetch } from "@/lib/api";
 import { auth } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
 import TwickStudio from "@twick/studio";
 import type { Result } from "@twick/studio";
 import type { ProjectJSON } from "@twick/timeline";
@@ -89,6 +90,7 @@ export default function EditorPage() {
   const params = useParams();
   const projectId = params.id as string;
   const router = useRouter();
+  const { idToken } = useAuth();
 
   // Project data
   const [project, setProject] = useState<Project | null>(null);
@@ -356,7 +358,7 @@ export default function EditorPage() {
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
   const streamUrl = (platform: string) =>
-    `${API}/api/v1/projects/${projectId}/stream/${platform}`;
+    `${API}/api/v1/projects/${projectId}/stream/${platform}${idToken ? `?token=${idToken}` : ''}`;
 
   const availablePlatforms = project?.platforms?.length
     ? project.platforms

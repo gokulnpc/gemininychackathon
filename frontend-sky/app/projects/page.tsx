@@ -28,6 +28,7 @@ import {
 import { AppSidebar } from "@/components/app-sidebar";
 import { UserMenu } from "@/components/shared/UserMenu";
 import { useSidebar } from "@/context/SidebarContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 
@@ -117,6 +118,7 @@ function ProjectCard({
   onUnarchive: (id: string) => void;
 }) {
   const router = useRouter();
+  const { idToken } = useAuth();
   const isActive = ACTIVE_STATUSES.includes(project.status);
   const isCompleted = project.status === "completed";
 
@@ -132,7 +134,7 @@ function ProjectCard({
       <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10 group-hover:border-[#5a9ab5]/50 transition-all duration-200">
         {isCompleted && (
           <img
-            src={`${API}/api/v1/projects/${project.project_id}/thumbnail`}
+            src={`${API}/api/v1/projects/${project.project_id}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
             alt={project.hook ?? "Video"}
             className="w-full h-full object-cover"
             onError={(e) => {

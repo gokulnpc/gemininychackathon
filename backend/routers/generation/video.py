@@ -53,18 +53,19 @@ async def generate_video(project_id: UUID, request: GenerateVideoRequest, curren
     uid = current_user["uid"]
     queued_at = datetime.now(timezone.utc).isoformat()
 
-    # ── Ownership check — carry forward existing project if present ───────────
-    existing = await firestore_db.get_project(pid)
-    if existing:
-        # Raises 403 if uid doesn't match
-        await firestore_db.get_project_for_user(pid, uid)
+    # ── Guard: this route is execute-only for an existing owned project ───────
+    # Missing project -> 404, non-owner -> 403.
+    existing = await firestore_db.get_project_for_user(pid, uid)
+
+    # Enforce the same idempotent credit policy used by approve-script.
+    await firestore_db.deduct_credits(uid=uid, project_id=pid, amount=100)
 
     # ── Write initial Firestore record ────────────────────────────────────────
     initial_metadata = {
-        **(existing or {}),
+        **existing,
         "project_id":   pid,
         "uid":          uid,
-        "created_at":   existing.get("created_at", queued_at) if existing else queued_at,
+        "created_at":   existing.get("created_at", queued_at),
         "queued_at":    queued_at,
         "status":       "queued",
         "platforms":    [p.value for p in request.target_platforms],

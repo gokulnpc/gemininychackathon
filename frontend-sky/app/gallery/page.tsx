@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, Loader2, Play, X, Download, ArrowLeft } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -33,12 +34,14 @@ function title(p: Project): string {
   return p.hook ?? p.series_name ?? p.project_id.slice(0, 8);
 }
 
-function streamUrl(projectId: string, platform: string) {
-  return `${API}/api/v1/projects/${projectId}/stream/${platform}`;
+function streamUrl(projectId: string, platform: string, token: string | null) {
+  const base = `${API}/api/v1/projects/${projectId}/stream/${platform}`;
+  return token ? `${base}?token=${token}` : base;
 }
 
-function thumbnailUrl(projectId: string, platform: string) {
-  return `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+function thumbnailUrl(projectId: string, platform: string, token: string | null) {
+  const base = `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+  return token ? `${base}&token=${token}` : base;
 }
 
 export default function GalleryPage() {
@@ -47,6 +50,7 @@ export default function GalleryPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Project | null>(null);
+  const { idToken } = useAuth();
 
   useEffect(() => {
     fetch(`${API}/api/v1/projects`)
@@ -139,9 +143,8 @@ export default function GalleryPage() {
                   onClick={() => setSelected(project)}
                   className="group relative aspect-[9/16] rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/30 transition-all duration-300 text-left"
                 >
-                  {/* Thumbnail */}
                   <img
-                    src={thumbnailUrl(project.project_id, platform)}
+                    src={thumbnailUrl(project.project_id, platform, idToken)}
                     alt={t}
                     className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -175,7 +178,7 @@ export default function GalleryPage() {
       <AnimatePresence>
         {selected && (() => {
           const platform = selected.platforms[0] ?? "master";
-          const src = streamUrl(selected.project_id, platform);
+          const src = streamUrl(selected.project_id, platform, idToken);
           const t = title(selected);
 
           return (

@@ -117,7 +117,7 @@ async def list_tones():
     return TONE_CATALOGUE
 
 
-_STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "styles")
+_STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "styles")
 
 # Human-readable display names — keys match assets/styles/ filenames (without extension)
 _STYLE_DISPLAY_NAMES: dict[str, str] = {

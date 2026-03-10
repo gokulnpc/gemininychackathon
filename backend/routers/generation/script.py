@@ -139,7 +139,11 @@ _TONE_TO_STYLE: dict[str, str] = {
 
 
 @router.post("/projects/{project_id}/generate-plot-options")
-async def generate_plot_options(project_id: UUID, request: GenerateScriptRequest):
+async def generate_plot_options(
+    project_id: UUID,
+    request: GenerateScriptRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Generate 3 brief story/plot direction options for the user to choose from.
 
     Fast single Gemini call (not the full agentic loop).
@@ -217,7 +221,11 @@ async def generate_plot_options(project_id: UUID, request: GenerateScriptRequest
 
 
 @router.post("/projects/{project_id}/generate-script", response_model=ScriptGenerationResponse)
-async def generate_script(project_id: UUID, request: GenerateScriptRequest):
+async def generate_script(
+    project_id: UUID,
+    request: GenerateScriptRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Generate a video script — supports voice, text, and preset input modes.
 
     Returns the script for user review. Call /generate-video once approved.
@@ -319,7 +327,11 @@ async def generate_script(project_id: UUID, request: GenerateScriptRequest):
 
 
 @router.post("/projects/{project_id}/generate-script-stream")
-async def generate_script_stream(project_id: UUID, request: GenerateScriptRequest):
+async def generate_script_stream(
+    project_id: UUID,
+    request: GenerateScriptRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Stream Scout (ADK agent) progress as SSE, then deliver the final script.
 
     Each SSE event is one JSON dict:

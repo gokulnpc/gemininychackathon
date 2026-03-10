@@ -104,15 +104,19 @@ async def get_top_hooks(niche: str, limit: int = MAX_FEEDBACK_HOOKS) -> list[dic
             return []
 
         def _query() -> list[dict]:
-            docs = (
+            from google.cloud import firestore
+            
+            docs_stream = (
                 _get_db().collection(_FEEDBACK_COLLECTION)
-                .where("niche", "==", niche)
-                .where("quality_score", ">=", HIGH_QUALITY_THRESHOLD)
-                .order_by("quality_score", direction="DESCENDING")
-                .limit(limit)
+                .where(filter=firestore.FieldFilter("niche", "==", niche))
                 .stream()
             )
-            return [d.to_dict() for d in docs]
+            docs = [d.to_dict() for d in docs_stream]
+            
+            # Filter and sort in Python memory to bypass Firestore missing index restrictions
+            filtered = [d for d in docs if d.get("quality_score", 0) >= HIGH_QUALITY_THRESHOLD]
+            filtered.sort(key=lambda d: d.get("quality_score", 0), reverse=True)
+            return filtered[:limit]
 
         return await asyncio.to_thread(_query)
     except Exception as exc:

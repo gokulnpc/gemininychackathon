@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { AppSidebar } from "@/components/app-sidebar";
 import { UserMenu } from "@/components/shared/UserMenu";
 import { useSidebar } from "@/context/SidebarContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 
@@ -183,6 +184,7 @@ function ScriptReadyPanel({
 
 function CompletedPanel({ project }: { project: Project }) {
   const platforms = Object.keys(project.video_urls ?? {});
+  const { idToken } = useAuth();
 
   return (
     <div className="flex flex-col gap-6">
@@ -213,7 +215,7 @@ function CompletedPanel({ project }: { project: Project }) {
           {platforms.map((platform) => (
             <a
               key={platform}
-              href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}`}
+              href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}${idToken ? `?token=${idToken}` : ''}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#2a2a2a] border border-white/10 hover:border-[#5a9ab5]/40 transition-colors group"
@@ -261,6 +263,7 @@ export default function ProjectDetailPage() {
   const projectId = params.id as string;
   const router = useRouter();
   const { isCollapsed } = useSidebar();
+  const { idToken } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -383,10 +386,10 @@ export default function ProjectDetailPage() {
                   <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10">
                     {isCompleted ? (
                       <video
-                        src={`${API}/api/v1/projects/${projectId}/stream/${firstPlatform}`}
+                        src={`${API}/api/v1/projects/${projectId}/stream/${firstPlatform}${idToken ? `?token=${idToken}` : ''}`}
                         controls
                         className="w-full h-full object-contain"
-                        poster={`${API}/api/v1/projects/${projectId}/thumbnail`}
+                        poster={`${API}/api/v1/projects/${projectId}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">

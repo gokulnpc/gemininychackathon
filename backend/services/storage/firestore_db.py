@@ -243,14 +243,14 @@ async def list_projects_for_user(uid: str, limit: int = 100) -> list[dict]:
         def _list():
             from google.cloud import firestore
             db = _get_db(settings)
-            return [
+            docs = [
                 doc.to_dict()
                 for doc in db.collection(COLLECTION)
-                .where("uid", "==", uid)
-                .order_by("created_at", direction=firestore.Query.DESCENDING)
-                .limit(limit)
+                .where(filter=firestore.FieldFilter("uid", "==", uid))
                 .stream()
             ]
+            docs.sort(key=lambda d: d.get("created_at", "") or "", reverse=True)
+            return docs[:limit]
 
         results = await asyncio.to_thread(_list)
         logger.debug("Firestore: listed %d projects for uid=%s", len(results), uid)

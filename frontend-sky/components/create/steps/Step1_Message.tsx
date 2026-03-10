@@ -22,6 +22,8 @@ import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { Play, RotateCcw, Pause } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 export function Step1_Message() {
   const { state, dispatch } = useWizard();
   const [activeTab, setActiveTab] = useState<"speech" | "text" | "preset">(

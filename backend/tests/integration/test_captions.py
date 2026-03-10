@@ -31,8 +31,15 @@ from services.media.captions import (
 )
 from services.media.stt import extract_word_timestamps
 
+import pytest
+
 SAMPLE_M4A = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "input", "weather_caudio.m4a")
+)
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_STT_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live STT integration test. Set RUN_LIVE_STT_TESTS=1 to run.",
 )
 
 

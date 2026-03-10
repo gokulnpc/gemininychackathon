@@ -44,8 +44,9 @@ function projectTitle(p: Project): string {
   return p.hook ?? p.series_name ?? p.project_id.slice(0, 8);
 }
 
-function thumbnailUrl(projectId: string, platform: string) {
-  return `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+function thumbnailUrl(projectId: string, platform: string, token: string | null) {
+  const base = `${API}/api/v1/projects/${projectId}/thumbnail?platform=${platform}`;
+  return token ? `${base}&token=${token}` : base;
 }
 
 const GRADIENTS = [
@@ -100,7 +101,7 @@ const distributionData = [
 
 export default function WelcomePage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, idToken, loading } = useAuth();
   const firstName = user?.displayName?.split(" ")[0] ?? user?.email?.split("@")[0] ?? "there";
 
   const [recents, setRecents] = useState<Project[]>([]);
@@ -131,6 +132,8 @@ export default function WelcomePage() {
   const displayAssets = filteredAssets.slice(0, 4);
 
   useEffect(() => {
+    if (loading || !user) return;
+
     apiClient.get("/api/v1/projects")
       .then((r) => {
         setRecents((r.data.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
@@ -153,7 +156,7 @@ export default function WelcomePage() {
       })
       .catch(() => {})
       .finally(() => setAssetsLoading(false));
-  }, []);
+  }, [user, loading]);
 
   const filteredRecents = recents.filter((p) =>
     projectTitle(p).toLowerCase().includes(search.toLowerCase())
@@ -368,7 +371,7 @@ export default function WelcomePage() {
                         className={`relative aspect-9/16 bg-linear-to-br ${gradient(project.project_id)}`}
                       >
                         <img
-                          src={thumbnailUrl(project.project_id, platform)}
+                          src={thumbnailUrl(project.project_id, platform, idToken)}
                           alt={t}
                           className="absolute inset-0 w-full h-full object-cover"
                           onError={(e) => {

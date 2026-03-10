@@ -48,6 +48,14 @@ VOICE_AUDIO    = INPUT_DIR / "weather_caudio.m4a"
 # Timeout for generate-video (sync mode, up to 15 min)
 VIDEO_TIMEOUT = 900
 
+# This file is a manual end-to-end runner and should not be collected in
+# automated pytest integration runs.
+try:
+    import pytest
+    pytestmark = pytest.mark.skip(reason="Manual E2E runner; execute as a script, not as pytest tests.")
+except Exception:
+    pass
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

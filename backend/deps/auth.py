@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.infra.firebase_admin import verify_id_token
 
@@ -12,23 +12,35 @@ _bearer = HTTPBearer(auto_error=False)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    token: str | None = Query(None),
 ) -> dict:
     """FastAPI dependency — verifies Firebase ID token, auto-provisions user profile,
     and returns enriched claims: { uid, email, display_name, photo_url, credits }.
 
     Raises 401 if the token is missing or invalid.
     """
-    if not credentials:
+    token_str = None
+    if credentials and credentials.credentials:
+        token_str = credentials.credentials
+        logger.info(f"Auth: Using Bearer token from header (starts with {token_str[:10]}...)")
+    elif token:
+        token_str = token
+        logger.info(f"Auth: Using token from query parameter (starts with {token_str[:10]}...)")
+
+    if not token_str:
+        logger.info("Auth: No token found in header or query")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
+            detail="Not authenticated - no token provided",
         )
     try:
-        claims = verify_id_token(credentials.credentials)
-    except Exception:
+        claims = verify_id_token(token_str)
+        logger.info(f"Auth: Token verified for user {claims.get('uid')}")
+    except Exception as e:
+        logger.error(f"Auth: Firebase verification failed for token starts with {token_str[:10]}: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            detail=f"Invalid or expired token: {e}",
         )
 
     uid = claims["uid"]
