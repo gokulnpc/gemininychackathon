@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PATHS = ["/login"];
+const PUBLIC_EXACT = ["/"]; // landing page — no auth required
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths and static assets
   if (
+    PUBLIC_EXACT.includes(pathname) ||
     PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
