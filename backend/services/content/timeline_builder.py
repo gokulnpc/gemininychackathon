@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Any, Callable
 from uuid import UUID
 
 from models.project_timeline import ElementFrame, TimelineElement, TimelineProject, TimelineTrack
@@ -88,9 +88,11 @@ _DEFAULT_CAP_PROPS = _CAP_PROPS["bold_stroke"]
 
 @dataclass
 class SceneAssetSpec:
-    """Video URL (required) + optional still-image overlay for a single scene."""
-    video_url: str
+    """Canonical editable asset for a single scene."""
     image_url: str | None = None
+    video_url: str | None = None
+    motion_effect: str | None = None
+    transition_to_next: str | None = None
 
 
 @dataclass
@@ -111,6 +113,7 @@ class AudioTrackSpec:
     url: str
     volume: float = 1.0
     loop: bool = False
+    duration_seconds: float | None = None
 
 
 @dataclass
@@ -118,6 +121,7 @@ class CaptionTrackSpec:
     """Caption configuration with word-level timestamps."""
     word_timestamps: list[dict]
     style: str = "bold_stroke"
+    timing_source: str = "unknown"
 
 
 @dataclass
@@ -139,6 +143,52 @@ def _uid() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _validate_scene_assets(scene_assets: list[SceneAssetSpec]) -> None:
+    for idx, asset in enumerate(scene_assets, start=1):
+        if not asset.image_url and not asset.video_url:
+            raise ValueError(f"scene asset {idx} must include image_url or video_url")
+
+
+def _safe_round(value: float) -> float:
+    return round(float(value), 3)
+
+
+def _normalize_audio_duration(audio_duration: float | None) -> float | None:
+    if audio_duration is None:
+        return None
+    if audio_duration <= 0:
+        raise ValueError(f"voiceover duration must be > 0, got {audio_duration}")
+    return float(audio_duration)
+
+
+def _clamp_caption_timestamps(
+    word_timestamps: list[dict[str, Any]],
+    audio_duration: float | None,
+) -> list[dict[str, Any]]:
+    if audio_duration is None:
+        return word_timestamps
+
+    clamped: list[dict[str, Any]] = []
+    for word in word_timestamps:
+        start = max(0.0, min(float(word.get("start", 0.0)), audio_duration))
+        end = max(start, min(float(word.get("end", start)), audio_duration))
+        if end <= start:
+            continue
+        clamped.append({
+            **word,
+            "start": start,
+            "end": end,
+        })
+    return clamped
+
+
+def _find_primary_scene_element(track: TimelineTrack) -> TimelineElement | None:
+    for element in track.elements:
+        if element.type in {"image", "video"}:
+            return element
+    return None
+
+
 # ── Core builder (accepts spec + injectable factories) ─────────────────────────
 
 def _build_from_spec(
@@ -158,55 +208,81 @@ def _build_from_spec(
             f"scene_assets length ({len(spec.scene_assets)}) != "
             f"script.scenes length ({len(spec.script.scenes)})"
         )
+    _validate_scene_assets(spec.scene_assets)
     if not (0.0 <= spec.music_volume <= 1.0):
         raise ValueError(f"music_volume must be in [0.0, 1.0], got {spec.music_volume}")
+    audio_duration = _normalize_audio_duration(spec.voiceover.duration_seconds) if spec.voiceover else None
 
     tracks: list[TimelineTrack] = []
+    scene_image_assets: list[dict[str, Any]] = []
+    scene_video_assets: list[dict[str, Any]] = []
 
-    # ── 1. Scene video tracks ─────────────────────────────────────────────────
+    # ── 1. Scene tracks ───────────────────────────────────────────────────────
     cursor = 0.0
     for idx, (scene, asset) in enumerate(zip(spec.script.scenes, spec.scene_assets)):
         duration = float(getattr(scene, "duration_seconds", 2) or 2)
         track_id = f"t-scene-{id_factory()}"
-        elem_id = f"e-scene-{id_factory()}"
+        start_time = _safe_round(cursor)
+        end_time = _safe_round(cursor + duration)
 
+        base_props: dict[str, Any] = {
+            "sceneId": getattr(scene, "scene_id", idx + 1),
+            "motionEffect": asset.motion_effect,
+            "transitionToNext": asset.transition_to_next,
+        }
         elements: list[TimelineElement] = []
 
-        # Optional background image element (behind video)
         if asset.image_url:
+            scene_image_assets.append({
+                "scene_index": idx,
+                "url": asset.image_url,
+                "duration": duration,
+            })
             elements.append(TimelineElement(
                 id=f"e-img-{id_factory()}",
                 trackId=track_id,
                 type="image",
-                s=round(cursor, 3),
-                e=round(cursor + duration, 3),
-                props={"src": asset.image_url},
+                s=start_time,
+                e=end_time,
+                props={
+                    **base_props,
+                    "src": asset.image_url,
+                    "objectFit": "cover",
+                },
                 zIndex=idx,
                 frame=ElementFrame(size=[SCENE_WIDTH, SCENE_HEIGHT], x=0.0, y=0.0),
                 objectFit="cover",
                 mediaDuration=duration,
             ))
+        elif asset.video_url:
+            elements.append(TimelineElement(
+                id=f"e-scene-{id_factory()}",
+                trackId=track_id,
+                type="video",
+                s=start_time,
+                e=end_time,
+                props={
+                    **base_props,
+                    "src": asset.video_url,
+                    "playbackRate": 1,
+                    "time": 0,
+                    "mediaFilter": "none",
+                    "volume": 0,
+                    "zIndex": idx + 1,
+                },
+                zIndex=idx + 1,
+                frame=ElementFrame(size=[SCENE_WIDTH, SCENE_HEIGHT], x=0.0, y=0.0),
+                frameEffects=[],
+                objectFit="cover",
+                mediaDuration=duration,
+            ))
 
-        elements.append(TimelineElement(
-            id=elem_id,
-            trackId=track_id,
-            type="video",
-            s=round(cursor, 3),
-            e=round(cursor + duration, 3),
-            props={
-                "src": asset.video_url,
-                "playbackRate": 1,
-                "time": 0,
-                "mediaFilter": "none",
-                "volume": 0,
-                "zIndex": idx + 1,
-            },
-            zIndex=idx + 1,
-            frame=ElementFrame(size=[SCENE_WIDTH, SCENE_HEIGHT], x=0.0, y=0.0),
-            frameEffects=[],
-            objectFit="cover",
-            mediaDuration=duration,
-        ))
+        if asset.video_url:
+            scene_video_assets.append({
+                "scene_index": idx,
+                "url": asset.video_url,
+                "duration": duration,
+            })
 
         tracks.append(TimelineTrack(
             id=track_id,
@@ -216,7 +292,7 @@ def _build_from_spec(
         ))
         cursor += duration
 
-    total_duration = cursor
+    scene_total_duration = cursor
 
     # ── 2. Voiceover audio track ──────────────────────────────────────────────
     if spec.voiceover:
@@ -230,7 +306,7 @@ def _build_from_spec(
                 trackId=vo_track_id,
                 type="audio",
                 s=0.0,
-                e=round(total_duration, 3),
+                e=_safe_round(audio_duration or scene_total_duration),
                 props={
                     "src": spec.voiceover.url,
                     "time": 0,
@@ -238,7 +314,7 @@ def _build_from_spec(
                     "volume": spec.voiceover.volume,
                     "loop": spec.voiceover.loop,
                 },
-                mediaDuration=round(total_duration, 3),
+                mediaDuration=_safe_round(audio_duration or scene_total_duration),
             )],
         ))
 
@@ -274,7 +350,8 @@ def _build_from_spec(
 
     # ── 4. Caption track ──────────────────────────────────────────────────────
     if spec.captions and spec.captions.word_timestamps:
-        cues = words_to_cues(spec.captions.word_timestamps, spec.captions.style)
+        caption_words = _clamp_caption_timestamps(spec.captions.word_timestamps, audio_duration)
+        cues = words_to_cues(caption_words, spec.captions.style)
 
         cap_style_key = _CAP_STYLE_MAP.get(spec.captions.style, "text_bg")
         cap_props_template = _CAP_PROPS.get(spec.captions.style, _DEFAULT_CAP_PROPS)
@@ -283,35 +360,75 @@ def _build_from_spec(
         caption_elements: list[TimelineElement] = []
 
         for cue in cues:
+            cue_start = _safe_round(cue.start)
+            cue_end = _safe_round(cue.end)
+            if cue_end <= cue_start:
+                continue
             caption_elements.append(TimelineElement(
                 id=f"e-cap-{id_factory()}",
                 trackId=cap_track_id,
                 type="caption",
-                s=round(cue.start, 3),
-                e=round(cue.end, 3),
+                s=cue_start,
+                e=cue_end,
                 props={},
                 t=cue.text,
             ))
 
-        tracks.append(TimelineTrack(
-            id=cap_track_id,
-            name="Captions",
-            type="caption",
-            props={
-                "capStyle": cap_style_key,
-                "font": cap_props_template.get("font", {}),
-                "colors": cap_props_template.get("colors", {}),
-                "lineWidth": 0.35,
-                "stroke": cap_props_template.get("stroke", "#000000"),
-                "fontWeight": cap_props_template.get("font", {}).get("weight", 700),
-                "shadowOffset": cap_props_template.get("shadowOffset", [0, 0]),
-                "shadowColor": cap_props_template.get("shadowColor", "#000000"),
-                "x": 0,
-                "y": 150,
-                "applyToAll": True,
-            },
-            elements=caption_elements,
-        ))
+        if caption_elements:
+            tracks.append(TimelineTrack(
+                id=cap_track_id,
+                name="Captions",
+                type="caption",
+                props={
+                    "capStyle": cap_style_key,
+                    "font": cap_props_template.get("font", {}),
+                    "colors": cap_props_template.get("colors", {}),
+                    "lineWidth": 0.35,
+                    "stroke": cap_props_template.get("stroke", "#000000"),
+                    "fontWeight": cap_props_template.get("font", {}).get("weight", 700),
+                    "shadowOffset": cap_props_template.get("shadowOffset", [0, 0]),
+                    "shadowColor": cap_props_template.get("shadowColor", "#000000"),
+                    "x": 0,
+                    "y": 150,
+                    "applyToAll": True,
+                },
+                elements=caption_elements,
+            ))
+
+    last_caption_end = max(
+        (element.e for track in tracks if track.name == "Captions" for element in track.elements),
+        default=0.0,
+    )
+    project_end_time = max(scene_total_duration, audio_duration or 0.0, last_caption_end)
+    final_visual_original_end = _safe_round(scene_total_duration)
+    final_visual_effective_end = final_visual_original_end
+    final_visual_extended = False
+
+    if tracks and project_end_time > scene_total_duration:
+        for track in reversed(tracks):
+            primary_element = _find_primary_scene_element(track)
+            if primary_element is None:
+                continue
+            primary_element.e = _safe_round(project_end_time)
+            primary_element.mediaDuration = _safe_round(project_end_time - primary_element.s)
+            final_visual_effective_end = primary_element.e
+            final_visual_extended = True
+            break
+
+    total_duration = project_end_time
+    timeline_build_mode = "image_canonical" if scene_image_assets else "video_fallback"
+    artifact_manifest = {
+        "scene_image_urls": [asset.image_url for asset in spec.scene_assets if asset.image_url],
+        "scene_video_urls": [asset.video_url for asset in spec.scene_assets if asset.video_url],
+        "voiceover_url": spec.voiceover.url if spec.voiceover else None,
+        "actual_voiceover_duration": _safe_round(audio_duration) if audio_duration else None,
+        "caption_timing_source": spec.captions.timing_source if spec.captions else "",
+        "timeline_build_mode": timeline_build_mode,
+        "final_visual_extended": final_visual_extended,
+        "final_visual_original_end": final_visual_original_end,
+        "final_visual_effective_end": final_visual_effective_end,
+        "visual_end_policy": "extend_last_scene",
+    }
 
     return TimelineProject(
         tracks=tracks,
@@ -322,8 +439,25 @@ def _build_from_spec(
             "created_at": now_factory().isoformat(),
             "caption_style": spec.captions.style if spec.captions else "",
             "music_preset": spec.music_preset,
-            "total_duration": round(total_duration, 3),
+            "total_duration": _safe_round(total_duration),
+            "scene_total_duration": _safe_round(scene_total_duration),
             "scene_count": len(spec.script.scenes),
+            "voiceover_duration": _safe_round(audio_duration) if audio_duration else None,
+            "caption_timing_source": spec.captions.timing_source if spec.captions else "",
+            "timeline_build_mode": timeline_build_mode,
+            "final_visual_extended": final_visual_extended,
+            "final_visual_original_end": final_visual_original_end,
+            "final_visual_effective_end": final_visual_effective_end,
+            "visual_end_policy": "extend_last_scene",
+            "artifact_manifest": artifact_manifest,
+        },
+        assets={
+            "scene_images": scene_image_assets,
+            "scene_videos": scene_video_assets,
+            "voiceover": {
+                "url": spec.voiceover.url,
+                "duration": _safe_round(audio_duration) if audio_duration else None,
+            } if spec.voiceover else {},
         },
     )
 
@@ -333,7 +467,7 @@ def _build_from_spec(
 def build_project_timeline(
     project_id: UUID,
     script: ScriptGenerationResponse,
-    scene_gcs_urls: list[str],
+    scene_gcs_urls: list[str] | None,
     voiceover_gcs_url: str | None,
     word_timestamps: list[dict],
     caption_style: str,
@@ -341,6 +475,10 @@ def build_project_timeline(
     music_volume: float,
     *,
     scene_image_gcs_urls: list[str | None] | None = None,
+    voiceover_duration_seconds: float | None = None,
+    caption_timing_source: str = "unknown",
+    scene_motion_effects: list[str | None] | None = None,
+    scene_transitions: list[str | None] | None = None,
     overlay_elements: list[OverlayElementSpec] | None = None,
     id_factory: Callable[[], str] = _uid,
     now_factory: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -350,13 +488,17 @@ def build_project_timeline(
     Args:
         project_id: The project UUID (used in metadata).
         script: Fully populated script with scenes and timing.
-        scene_gcs_urls: GCS public URLs for each animated scene clip (index-aligned with script.scenes).
-        voiceover_gcs_url: GCS URL for the voiceover MP3, or None if TTS failed.
+        scene_gcs_urls: Optional GCS public URLs for animated scene clips (index-aligned with script.scenes).
+        voiceover_gcs_url: GCS URL for the voiceover asset, or None if TTS failed.
         word_timestamps: Per-word timestamps [{"word", "start", "end"}, ...].
         caption_style: Pipeline caption style key (e.g. "bold_stroke").
         music_preset: Music preset key (e.g. "happy_rhythm") or "none".
         music_volume: Background music mix volume (0.0–1.0).
         scene_image_gcs_urls: Optional per-scene still-image URLs (index-aligned).
+        voiceover_duration_seconds: Actual uploaded voiceover duration in seconds.
+        caption_timing_source: Timestamp provenance ("stt", "estimated", ...).
+        scene_motion_effects: Optional per-scene motion effect names.
+        scene_transitions: Optional per-scene transition names.
         overlay_elements: Optional list of OverlayElementSpec for text overlays.
         id_factory: Callable returning a unique string ID (injectable for testing).
         now_factory: Callable returning current datetime (injectable for testing).
@@ -365,21 +507,48 @@ def build_project_timeline(
         A TimelineProject ready for .model_dump() serialisation.
 
     Raises:
-        ValueError: if scene_gcs_urls length != script.scenes length, or
+        ValueError: if scene asset inputs are misaligned or invalid, or
                     if music_volume is outside [0.0, 1.0].
     """
-    image_urls = scene_image_gcs_urls or ([None] * len(scene_gcs_urls))
+    scene_video_urls = scene_gcs_urls or []
+    scene_count = len(script.scenes)
+    image_urls = scene_image_gcs_urls or ([None] * scene_count)
+    video_urls = scene_video_urls or ([None] * scene_count)
+    motion_effects = scene_motion_effects or ([None] * scene_count)
+    transitions = scene_transitions or ([None] * scene_count)
+    lengths = {
+        "scene_image_gcs_urls": len(image_urls),
+        "scene_gcs_urls": len(video_urls),
+        "scene_motion_effects": len(motion_effects),
+        "scene_transitions": len(transitions),
+    }
+    for label, size in lengths.items():
+        if size != scene_count:
+            raise ValueError(f"{label} length ({size}) != script.scenes length ({scene_count})")
+
     scene_assets = [
-        SceneAssetSpec(video_url=v, image_url=i)
-        for v, i in zip(scene_gcs_urls, image_urls)
+        SceneAssetSpec(
+            image_url=image_urls[idx],
+            video_url=video_urls[idx],
+            motion_effect=motion_effects[idx],
+            transition_to_next=transitions[idx],
+        )
+        for idx in range(scene_count)
     ]
 
     spec = TimelineBuildSpec(
         project_id=project_id,
         script=script,
         scene_assets=scene_assets,
-        voiceover=AudioTrackSpec(url=voiceover_gcs_url) if voiceover_gcs_url else None,
-        captions=CaptionTrackSpec(word_timestamps=word_timestamps, style=caption_style) if word_timestamps else None,
+        voiceover=AudioTrackSpec(
+            url=voiceover_gcs_url,
+            duration_seconds=voiceover_duration_seconds,
+        ) if voiceover_gcs_url else None,
+        captions=CaptionTrackSpec(
+            word_timestamps=word_timestamps,
+            style=caption_style,
+            timing_source=caption_timing_source,
+        ) if word_timestamps else None,
         overlays=overlay_elements or [],
         music_preset=music_preset,
         music_volume=music_volume,

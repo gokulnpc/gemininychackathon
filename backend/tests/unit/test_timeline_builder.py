@@ -27,6 +27,7 @@ from services.content.timeline_builder import (
 # ---------------------------------------------------------------------------
 
 _DET_NOW = datetime(2025, 1, 1, tzinfo=timezone.utc)
+_USE_DEFAULT = object()
 
 
 def _det_now() -> datetime:
@@ -66,13 +67,17 @@ def _build(script, sample_words, det_id_factory):
 
     def _call(
         *,
-        scene_gcs_urls=None,
+        scene_gcs_urls=_USE_DEFAULT,
         voiceover_gcs_url="gs://bucket/vo.wav",
         word_timestamps=None,
         caption_style="bold_stroke",
         music_preset="upbeat",
         music_volume=0.5,
         scene_image_gcs_urls=None,
+        voiceover_duration_seconds=None,
+        caption_timing_source="stt",
+        scene_motion_effects=None,
+        scene_transitions=None,
         overlay_elements=None,
         id_factory=None,
         now_factory=_det_now,
@@ -80,13 +85,17 @@ def _build(script, sample_words, det_id_factory):
         return build_project_timeline(
             project_id=project_id,
             script=script,
-            scene_gcs_urls=scene_gcs_urls or ["gs://bucket/s1.mp4", "gs://bucket/s2.mp4"],
+            scene_gcs_urls=["gs://bucket/s1.mp4", "gs://bucket/s2.mp4"] if scene_gcs_urls is _USE_DEFAULT else scene_gcs_urls,
             voiceover_gcs_url=voiceover_gcs_url,
             word_timestamps=word_timestamps if word_timestamps is not None else sample_words,
             caption_style=caption_style,
             music_preset=music_preset,
             music_volume=music_volume,
             scene_image_gcs_urls=scene_image_gcs_urls,
+            voiceover_duration_seconds=voiceover_duration_seconds,
+            caption_timing_source=caption_timing_source,
+            scene_motion_effects=scene_motion_effects,
+            scene_transitions=scene_transitions,
             overlay_elements=overlay_elements,
             id_factory=id_factory or det_id_factory,
             now_factory=now_factory,
@@ -165,6 +174,16 @@ def test_voiceover_track_span(_build):
     vo_elem = vo_track.elements[0]
     assert vo_elem.s == 0.0
     assert vo_elem.e == 10.0
+
+
+@pytest.mark.unit
+def test_voiceover_track_uses_actual_audio_duration(_build):
+    """Voiceover audio element duration comes from actual uploaded audio duration."""
+    project = _build(voiceover_duration_seconds=8.25)
+    vo_track = next(t for t in project.tracks if t.name == "Voiceover")
+    vo_elem = vo_track.elements[0]
+    assert vo_elem.e == 8.25
+    assert vo_elem.mediaDuration == 8.25
 
 
 @pytest.mark.unit
@@ -269,7 +288,7 @@ def test_invalid_music_volume_raises(_build, bad_volume):
 @pytest.mark.unit
 def test_mismatched_scene_assets_raises(script, sample_words, det_id_factory):
     """Mismatched scene_assets and script.scenes lengths raise ValueError."""
-    with pytest.raises(ValueError, match=r"scene_assets length"):
+    with pytest.raises(ValueError, match=r"scene_gcs_urls length"):
         build_project_timeline(
             project_id=uuid4(),
             script=script,
@@ -314,6 +333,88 @@ def test_scene_image_urls_produce_image_elements(_build):
 
 
 @pytest.mark.unit
+def test_scene_image_urls_make_images_primary_assets(_build):
+    """When image URLs are provided, scene tracks use image elements instead of video elements."""
+    image_urls = ["gs://bucket/img1.jpg", "gs://bucket/img2.jpg"]
+    project = _build(scene_image_gcs_urls=image_urls)
+    scene_tracks = [t for t in project.tracks if t.name.startswith("Scene_")]
+    for track in scene_tracks:
+        assert [e.type for e in track.elements] == ["image"]
+
+
+@pytest.mark.unit
+def test_final_image_scene_extends_to_audio_duration(_build):
+    """The final image scene stretches to the true project end when audio is longer."""
+    image_urls = ["gs://bucket/img1.jpg", "gs://bucket/img2.jpg"]
+    project = _build(
+        scene_image_gcs_urls=image_urls,
+        voiceover_duration_seconds=12.5,
+    )
+    scene_tracks = sorted(
+        [t for t in project.tracks if t.name.startswith("Scene_")],
+        key=lambda track: track.name,
+    )
+    first_image = scene_tracks[0].elements[0]
+    final_image = scene_tracks[-1].elements[0]
+
+    assert (first_image.s, first_image.e) == (0.0, 5.0)
+    assert (final_image.s, final_image.e) == (5.0, 12.5)
+    assert final_image.mediaDuration == 7.5
+
+
+@pytest.mark.unit
+def test_final_video_scene_extends_to_caption_end_when_no_audio(_build):
+    """In video fallback mode, the final visual extends to the last caption when captions outlive scenes."""
+    project = _build(
+        scene_image_gcs_urls=None,
+        voiceover_gcs_url=None,
+        word_timestamps=[
+            {"word": "Hello", "start": 0.0, "end": 0.5},
+            {"word": "again", "start": 10.4, "end": 11.8},
+        ],
+    )
+    scene_tracks = sorted(
+        [t for t in project.tracks if t.name.startswith("Scene_")],
+        key=lambda track: track.name,
+    )
+    final_video = scene_tracks[-1].elements[0]
+
+    assert final_video.type == "video"
+    assert final_video.e == 11.8
+    assert final_video.mediaDuration == 6.8
+
+
+@pytest.mark.unit
+def test_final_visual_not_extended_when_scene_total_is_long_enough(_build):
+    """If scene timings already cover the project end, no final-scene stretch is applied."""
+    image_urls = ["gs://bucket/img1.jpg", "gs://bucket/img2.jpg"]
+    project = _build(
+        scene_image_gcs_urls=image_urls,
+        voiceover_duration_seconds=8.0,
+    )
+    scene_tracks = sorted(
+        [t for t in project.tracks if t.name.startswith("Scene_")],
+        key=lambda track: track.name,
+    )
+    final_image = scene_tracks[-1].elements[0]
+
+    assert final_image.e == 10.0
+    assert final_image.mediaDuration == 5.0
+    assert project.metadata["final_visual_extended"] is False
+
+
+@pytest.mark.unit
+def test_image_only_scene_build_is_supported(_build):
+    """Timeline builder supports image-only editable scenes without uploaded scene videos."""
+    image_urls = ["gs://bucket/img1.jpg", "gs://bucket/img2.jpg"]
+    project = _build(scene_gcs_urls=None, scene_image_gcs_urls=image_urls)
+    scene_tracks = [t for t in project.tracks if t.name.startswith("Scene_")]
+    assert len(scene_tracks) == 2
+    for track in scene_tracks:
+        assert track.elements[0].type == "image"
+
+
+@pytest.mark.unit
 def test_scene_image_element_srcs_match(_build):
     """Image element src props match the supplied image GCS URLs."""
     image_urls = ["gs://bucket/img_a.jpg", "gs://bucket/img_b.jpg"]
@@ -337,6 +438,20 @@ def test_no_scene_image_urls_omits_image_elements(_build):
     for track in scene_tracks:
         image_elems = [e for e in track.elements if e.type == "image"]
         assert len(image_elems) == 0
+
+
+@pytest.mark.unit
+def test_caption_cues_are_clamped_to_audio_duration(_build):
+    """Caption elements do not extend beyond the actual voiceover duration."""
+    project = _build(
+        voiceover_duration_seconds=1.25,
+        word_timestamps=[
+            {"word": "Hello", "start": 0.0, "end": 0.6},
+            {"word": "world", "start": 0.6, "end": 1.8},
+        ],
+    )
+    cap_track = next(t for t in project.tracks if t.name == "Captions")
+    assert max(element.e for element in cap_track.elements) <= 1.25
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +609,38 @@ def test_metadata_caption_style_set(_build):
     """Metadata caption_style reflects the supplied style string."""
     project = _build(caption_style="karaoke")
     assert project.metadata["caption_style"] == "karaoke"
+
+
+@pytest.mark.unit
+def test_metadata_records_timing_source_and_build_mode(_build):
+    """Metadata captures the caption timing source and image-canonical build mode."""
+    project = _build(
+        scene_image_gcs_urls=["gs://bucket/img1.jpg", "gs://bucket/img2.jpg"],
+        voiceover_duration_seconds=8.0,
+        caption_timing_source="estimated",
+    )
+    assert project.metadata["caption_timing_source"] == "estimated"
+    assert project.metadata["timeline_build_mode"] == "image_canonical"
+    assert project.metadata["voiceover_duration"] == 8.0
+
+
+@pytest.mark.unit
+def test_metadata_records_final_visual_extension_details(_build):
+    """Metadata and artifact manifest record how the last visual was extended."""
+    project = _build(
+        scene_image_gcs_urls=["gs://bucket/img1.jpg", "gs://bucket/img2.jpg"],
+        voiceover_duration_seconds=12.5,
+    )
+    metadata = project.metadata
+    manifest = metadata["artifact_manifest"]
+
+    assert metadata["final_visual_extended"] is True
+    assert metadata["final_visual_original_end"] == 10.0
+    assert metadata["final_visual_effective_end"] == 12.5
+    assert metadata["visual_end_policy"] == "extend_last_scene"
+    assert manifest["final_visual_extended"] is True
+    assert manifest["final_visual_original_end"] == 10.0
+    assert manifest["final_visual_effective_end"] == 12.5
 
 
 @pytest.mark.unit

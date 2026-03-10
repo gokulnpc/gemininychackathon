@@ -72,6 +72,11 @@ async def get_project_status(project_id: UUID, current_user: dict = Depends(get_
         video_urls=data.get("video_urls", {}),
         thumbnail_url=data.get("thumbnail_url"),
         error=data.get("error"),
+        error_code=data.get("error_code"),
+        retryable=data.get("retryable"),
+        failure_stage=data.get("failure_stage"),
+        failed_at=data.get("failed_at"),
+        script_attempt_count=data.get("script_attempt_count"),
     )
 
 
@@ -202,6 +207,47 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to enqueue video generation: {e}")
+
+    return JSONResponse(status_code=202, content={
+        "project_id": str(project_id),
+        "status": "queued",
+        "poll_url": f"/api/v1/projects/{project_id}/status",
+    })
+
+
+@router.post("/projects/{project_id}/retry-script", status_code=202)
+async def retry_script(project_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Retry async script generation using the stored pipeline_config."""
+    doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
+    if doc.get("status") != "failed":
+        raise HTTPException(status_code=409, detail="Script retry is only allowed when status is failed")
+
+    cfg = doc.get("pipeline_config", {})
+    if not cfg:
+        raise HTTPException(status_code=422, detail="No pipeline_config found for project — cannot retry")
+    if cfg.get("source") == "voice" and not doc.get("audio_gcs_key"):
+        raise HTTPException(status_code=422, detail="Missing stored audio for voice retry")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await firestore_db.save_project(str(project_id), {
+        **doc,
+        "status": "queued",
+        "current_stage": "Queued for script regeneration",
+        "progress_pct": 0,
+        "queued_at": now,
+        "error": None,
+        "error_code": None,
+        "retryable": None,
+        "failure_stage": None,
+        "failed_at": None,
+        "last_error_code": None,
+    })
+
+    from services.infra import task_queue
+    try:
+        await task_queue.enqueue_script_generation(str(project_id))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue script retry: {e}")
 
     return JSONResponse(status_code=202, content={
         "project_id": str(project_id),

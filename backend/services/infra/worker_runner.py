@@ -166,6 +166,7 @@ async def run_generation(project_id: UUID, request: GenerateVideoRequest) -> Non
             hook=script.hook.text if script else None,
             scenes_count=len(script.scenes) if script else 0,
             thumbnail_url=thumbnail_url,
+            voiceover_duration=(project_json or {}).get("metadata", {}).get("voiceover_duration"),
             voiceover_full_script=script.voiceover_full_script if script else None,
             caption_style=request.caption_style.value,
             background_music=series.background_music.value if series else "none",

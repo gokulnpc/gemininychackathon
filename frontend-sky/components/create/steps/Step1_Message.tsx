@@ -469,7 +469,7 @@ export function Step1_Message() {
                       {transcribing ? (
                         <div className="flex-1 flex items-center justify-center">
                           <span className="text-sm font-medium text-white/50">
-                            Thinking...
+                            Transcribing...
                           </span>
                         </div>
                       ) : (

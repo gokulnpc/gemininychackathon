@@ -25,6 +25,21 @@ _TASK_TIMEOUT_SECONDS = 900    # 15 min — covers 10-min generation + overhead
 _MAX_ATTEMPTS = 2              # generation is expensive; don't retry aggressively
 
 
+def _spawn_local_task(coro, *, description: str):
+    import asyncio
+
+    task = asyncio.create_task(coro)
+
+    def _done(completed_task: asyncio.Task) -> None:
+        try:
+            completed_task.result()
+        except Exception:
+            logger.exception("Local background task failed: %s", description)
+
+    task.add_done_callback(_done)
+    return task
+
+
 def _tasks_available() -> bool:
     try:
         from google.cloud import tasks_v2  # noqa: F401
@@ -54,21 +69,25 @@ async def enqueue_video_generation(
 
     if not settings.worker_url:
         # Local dev — run in-process as a background task
-        import asyncio
         from routers.internal.worker import _run_video_generation
         from models.schemas import GenerateVideoRequest as _GVR
         gen_request = _GVR(**request_payload)
-        asyncio.create_task(_run_video_generation(project_id=project_id, gen_request=gen_request))
+        _spawn_local_task(
+            _run_video_generation(project_id=project_id, gen_request=gen_request),
+            description=f"video generation for project {project_id}",
+        )
         logger.info("Local mode — running video gen in-process for %s", project_id)
         return "local-inprocess"
 
     if not _tasks_available():
         # Cloud Tasks library not installed — fall back to in-process background task
-        import asyncio
         from routers.internal.worker import _run_video_generation
         from models.schemas import GenerateVideoRequest as _GVR
         gen_request = _GVR(**request_payload)
-        asyncio.create_task(_run_video_generation(project_id=project_id, gen_request=gen_request))
+        _spawn_local_task(
+            _run_video_generation(project_id=project_id, gen_request=gen_request),
+            description=f"video generation for project {project_id}",
+        )
         logger.info("Cloud Tasks unavailable — running video gen in-process for %s", project_id)
         return "local-inprocess"
 
@@ -133,17 +152,21 @@ async def enqueue_script_generation(project_id: str) -> str:
 
     if not settings.worker_url:
         # Local dev — run in-process as a background task
-        import asyncio
         from routers.internal.worker import _run_script_generation
-        asyncio.create_task(_run_script_generation(project_id))
+        _spawn_local_task(
+            _run_script_generation(project_id),
+            description=f"script generation for project {project_id}",
+        )
         logger.info("Local mode — running script gen in-process for %s", project_id)
         return "local-inprocess"
 
     if not _tasks_available():
         # Cloud Tasks library not installed — fall back to in-process background task
-        import asyncio
         from routers.internal.worker import _run_script_generation
-        asyncio.create_task(_run_script_generation(project_id))
+        _spawn_local_task(
+            _run_script_generation(project_id),
+            description=f"script generation for project {project_id}",
+        )
         logger.info("Cloud Tasks unavailable — running script gen in-process for %s", project_id)
         return "local-inprocess"
 

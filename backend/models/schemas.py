@@ -404,6 +404,11 @@ class ProjectMetadata(BaseModel):
     platforms: list[str] = []
     video_urls: dict[str, str] = {}
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    retryable: Optional[bool] = None
+    failure_stage: Optional[str] = None
+    failed_at: Optional[str] = None
+    script_attempt_count: Optional[int] = None
     # Recompose fields (present on projects generated after recompose support was added)
     voiceover_full_script: Optional[str] = None
     caption_style: Optional[str] = None
@@ -434,6 +439,11 @@ class JobStatusResponse(BaseModel):
     video_urls: dict[str, str] = {}
     thumbnail_url: Optional[str] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    retryable: Optional[bool] = None
+    failure_stage: Optional[str] = None
+    failed_at: Optional[str] = None
+    script_attempt_count: Optional[int] = None
 
 
 class ProjectListResponse(BaseModel):

@@ -22,6 +22,7 @@ Local dev:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -50,18 +51,35 @@ async def _run_script_generation(project_id: str) -> None:
     if doc is None:
         raise ValueError(f"Project {project_id} not found")
 
-    cfg = doc.get("pipeline_config", {})
+    project_doc = dict(doc)
+    cfg = project_doc.get("pipeline_config", {})
     reddit_ctx: dict = {}
 
-    async def _update(stage: str, pct: int) -> None:
-        await firestore_db.save_project(project_id, {
-            **doc,
-            "status": "generating_script",
-            "current_stage": stage,
-            "progress_pct": pct,
-        })
+    async def _save_patch(**updates) -> None:
+        nonlocal project_doc
+        project_doc = {**project_doc, **updates}
+        await firestore_db.save_project(project_id, project_doc)
+
+    async def _update(stage: str, pct: int, **extra) -> None:
+        await _save_patch(
+            status="generating_script",
+            current_stage=stage,
+            progress_pct=pct,
+            **extra,
+        )
 
     try:
+        attempt_count = int(project_doc.get("script_attempt_count") or 0) + 1
+        await _save_patch(
+            script_attempt_count=attempt_count,
+            error=None,
+            error_code=None,
+            retryable=None,
+            failure_stage=None,
+            failed_at=None,
+            last_error_code=None,
+        )
+
         # ── Step 1: Resolve transcript ────────────────────────────────────────
         source = cfg.get("source", "text")
 
@@ -138,6 +156,7 @@ async def _run_script_generation(project_id: str) -> None:
             "optimize_for_platform":   55,
             "validate_script_quality": 70,
             "finalize_script":         85,
+            "retry_script_generation": 18,
         }
 
         script_data = None
@@ -154,42 +173,68 @@ async def _run_script_generation(project_id: str) -> None:
             if event["type"] == "agent_step":
                 tool = event.get("tool", "")
                 pct = _STEP_PROGRESS.get(tool, 50)
-                await firestore_db.save_project(project_id, {
-                    **doc,
-                    "status": "generating_script",
-                    "current_stage": event["message"],
-                    "progress_pct": pct,
-                })
+                await _update(event["message"], pct)
+            elif event["type"] == "retry":
+                attempt_count = int(event.get("attempt") or attempt_count)
+                await _update(
+                    event.get("message", "Retrying script generation"),
+                    int(event.get("progress_pct") or 18),
+                    script_attempt_count=attempt_count,
+                    last_retry_at=datetime.now(timezone.utc).isoformat(),
+                    last_error_code=event.get("error_code"),
+                )
             elif event["type"] == "complete":
                 script_data = event["script"]
             elif event["type"] == "error":
-                raise RuntimeError(event["message"])
+                from services.gemini.agent import ScriptAgentFailure
+
+                raise ScriptAgentFailure(
+                    message=event.get("message") or "Scout failed during script generation.",
+                    error_code=event.get("error_code") or "unexpected_agent_error",
+                    retryable=bool(event.get("retryable")),
+                    debug_hint=event.get("debug_hint"),
+                )
 
         if script_data is None:
-            raise RuntimeError("Script agent completed without producing a script")
+            from services.gemini.agent import _classify_script_agent_failure
+
+            raise _classify_script_agent_failure("Script agent completed without producing a script")
 
         # ── Step 4: Save script + mark script_ready ──────────────────────────
-        await firestore_db.save_project(project_id, {
-            **doc,
-            "status": "script_ready",
-            "current_stage": "Script ready for review",
-            "progress_pct": 100,
-            "script": script_data,
-            "hook": script_data.get("hook", {}).get("text", ""),
-            "scenes_count": len(script_data.get("scenes", [])),
-            "voiceover_full_script": script_data.get("voiceover_full_script", ""),
-        })
+        await _save_patch(
+            status="script_ready",
+            current_stage="Script ready for review",
+            progress_pct=100,
+            script=script_data,
+            hook=script_data.get("hook", {}).get("text", ""),
+            scenes_count=len(script_data.get("scenes", [])),
+            voiceover_full_script=script_data.get("voiceover_full_script", ""),
+            error=None,
+            error_code=None,
+            retryable=None,
+            failure_stage=None,
+            failed_at=None,
+            last_error_code=None,
+        )
         logger.info("Script generation complete for project %s", project_id)
 
     except Exception as exc:
+        from services.gemini.agent import _classify_script_agent_failure
+
+        failure = _classify_script_agent_failure(exc)
         logger.exception("Script generation failed for project %s", project_id)
-        await firestore_db.save_project(project_id, {
-            **doc,
-            "status": "failed",
-            "current_stage": "Script generation failed",
-            "error": str(exc),
-        })
-        raise
+        await _save_patch(
+            status="failed",
+            current_stage="Script generation failed",
+            progress_pct=None,
+            error=str(failure),
+            error_code=failure.error_code,
+            retryable=failure.retryable,
+            failed_at=datetime.now(timezone.utc).isoformat(),
+            failure_stage="script_generation",
+            last_error_code=failure.error_code,
+        )
+        raise failure
 
 
 # ── HTTP handlers (thin wrappers used by Cloud Tasks) ─────────────────────────

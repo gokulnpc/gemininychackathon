@@ -10,6 +10,7 @@ import {
   Download,
   Loader2,
   RefreshCw,
+  Settings,
   ThumbsUp,
   Video,
 } from "lucide-react";
@@ -48,6 +49,11 @@ interface Project {
   video_urls?: Record<string, string>;
   thumbnail_url?: string;
   error?: string;
+  error_code?: string;
+  retryable?: boolean;
+  failure_stage?: string;
+  failed_at?: string;
+  script_attempt_count?: number;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
@@ -232,28 +238,61 @@ function CompletedPanel({ project }: { project: Project }) {
   );
 }
 
-function InProgressPanel({ project }: { project: Project }) {
+function VideoConfigPanel({ project }: { project: Project }) {
+  const cfg = project.pipeline_config ?? {};
+  
+  // Format helpers
+  const formatKey = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  
+  // Group configuration items
+  const visualSettings = [];
+  if (cfg.niche) visualSettings.push({ label: 'Niche', value: cfg.niche });
+  if (cfg.style) visualSettings.push({ label: 'Style', value: cfg.style });
+  
+  const contentSettings = [];
+  if (cfg.duration) contentSettings.push({ label: 'Duration', value: cfg.duration });
+  if (cfg.language) contentSettings.push({ label: 'Language', value: cfg.language });
+
   return (
-    <div className="flex flex-col items-center justify-center py-12 gap-6">
-      <div className="relative w-20 h-20">
-        <div className="absolute inset-0 rounded-full border-4 border-[#5a9ab5]/20" />
-        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#5a9ab5] animate-spin" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Clock className="w-7 h-7 text-[#5a9ab5]" />
+    <div className="flex flex-col gap-6">
+      <div className="bg-[#2a2a2a] rounded-xl p-5 border border-white/10">
+        <h3 className="text-white font-medium mb-4 flex items-center gap-2">
+          <Settings className="w-4 h-4 text-[#5a9ab5]" />
+          Video Configuration
+        </h3>
+        
+        <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+          {/* Visual Profile */}
+          {visualSettings.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Visual Profile</p>
+              <ul className="space-y-2">
+                {visualSettings.map(s => (
+                  <li key={s.label} className="flex justify-between text-sm">
+                    <span className="text-white/60">{s.label}</span>
+                    <span className="text-white text-right capitalize">{String(s.value).replace(/_/g, ' ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Content Rules */}
+          {contentSettings.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Content Rules</p>
+              <ul className="space-y-2">
+                {contentSettings.map(s => (
+                  <li key={s.label} className="flex justify-between text-sm">
+                    <span className="text-white/60">{s.label}</span>
+                    <span className="text-white text-right capitalize">{String(s.value).replace(/_/g, ' ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
-      <div className="text-center">
-        <p className="text-white font-medium mb-1">{project.current_stage ?? "Processing..."}</p>
-        <p className="text-white/40 text-sm">This may take a minute or two</p>
-      </div>
-      {typeof project.progress_pct === "number" && project.progress_pct > 0 && (
-        <div className="w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
-          <div
-            className="h-full bg-[#5a9ab5] rounded-full transition-all duration-500"
-            style={{ width: `${project.progress_pct}%` }}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -309,6 +348,12 @@ export default function ProjectDetailPage() {
   async function handleApprove() {
     if (!project) return;
     await apiClient.post(`/api/v1/projects/${project.project_id}/approve-script`);
+    await fetchProject();
+  }
+
+  async function handleRetryScript() {
+    if (!project) return;
+    await apiClient.post(`/api/v1/projects/${project.project_id}/retry-script`);
     await fetchProject();
   }
 
@@ -431,7 +476,7 @@ export default function ProjectDetailPage() {
                     project.status === "generating_script" ||
                     project.status === "generating_video" ||
                     project.status === "in_progress") && (
-                    <InProgressPanel project={project} />
+                    <VideoConfigPanel project={project} />
                   )}
 
                   {project.status === "script_ready" && (
@@ -452,6 +497,21 @@ export default function ProjectDetailPage() {
                       <p className="text-white font-medium">Generation Failed</p>
                       {project.error && (
                         <p className="text-red-400/80 text-sm max-w-sm">{project.error}</p>
+                      )}
+                      {project.error_code && (
+                        <p className="text-white/35 text-xs">
+                          Error code: {project.error_code}
+                          {typeof project.script_attempt_count === "number" ? ` • Attempts: ${project.script_attempt_count}` : ""}
+                        </p>
+                      )}
+                      {project.retryable && (
+                        <Button
+                          onClick={handleRetryScript}
+                          className="rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Retry Script
+                        </Button>
                       )}
                     </div>
                   )}

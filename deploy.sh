@@ -97,7 +97,7 @@ echo "▶ Building Docker image via Cloud Build..."
 gcloud builds submit . \
   --config=backend/cloudbuild.yaml \
   --project="$PROJECT_ID" \
-  --substitutions="_REGION=$REGION,_IMAGE=$IMAGE,_PROJECT_ID=$PROJECT_ID,_WORKER_URL="
+  --substitutions="_IMAGE=$IMAGE"
 
 # ── Deploy Worker service first (so we have its URL for the API service) ──────
 echo "▶ Deploying $WORKER_SERVICE to Cloud Run..."

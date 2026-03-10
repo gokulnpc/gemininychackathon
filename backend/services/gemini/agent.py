@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from dataclasses import dataclass
 from uuid import uuid4
 
 from google.adk.agents import Agent
@@ -27,6 +28,8 @@ from services.gemini import reasoning as gemini_reasoning
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
+_MAX_SCRIPT_ATTEMPTS = 2
+_RETRY_DELAYS = [4]
 
 
 # ── Reference data ─────────────────────────────────────────────────────────────
@@ -102,6 +105,82 @@ _STYLE_RULES: dict[str, str] = {
     "surreal":        "Dreamlike, unexpected, impossible. Let logic unravel. Lean into the strange.",
     "technicolor":    "Lavish, glamorous, full-throttle. Think Hollywood golden era.",
 }
+
+
+@dataclass(frozen=True)
+class ScriptAgentFailure(RuntimeError):
+    message: str
+    error_code: str
+    retryable: bool
+    debug_hint: str | None = None
+
+    def __str__(self) -> str:
+        return self.message
+
+
+def _classify_script_agent_failure(exc: Exception | str) -> ScriptAgentFailure:
+    if isinstance(exc, ScriptAgentFailure):
+        return exc
+
+    message = exc if isinstance(exc, str) else str(exc)
+    lower = message.lower()
+
+    if any(token in lower for token in (
+        "finalize_script was not called",
+        "did not produce a script",
+        "completed without producing a script",
+        "agent did not call finalize_script",
+    )):
+        return ScriptAgentFailure(
+            message="Scout did not finalize a script on this run.",
+            error_code="agent_no_finalize",
+            retryable=True,
+            debug_hint="The ADK session ended without finalize_script being called.",
+        )
+
+    if any(token in lower for token in (
+        "503",
+        "429",
+        "500",
+        "unavailable",
+        "resource_exhausted",
+        "deadline exceeded",
+        "timed out",
+        "connection error",
+    )):
+        return ScriptAgentFailure(
+            message="Scout hit a temporary model/service issue while generating the script.",
+            error_code="transient_model_error",
+            retryable=True,
+            debug_hint="Transient Gemini or ADK availability failure.",
+        )
+
+    if any(token in lower for token in (
+        "json",
+        "validation",
+        "scenes_json",
+        "hook_text",
+        "cta_text",
+        "invalid",
+        "malformed",
+    )):
+        return ScriptAgentFailure(
+            message="Scout produced invalid tool output while assembling the script.",
+            error_code="invalid_tool_output",
+            retryable=False,
+            debug_hint="Tool arguments or structured output were invalid.",
+        )
+
+    return ScriptAgentFailure(
+        message=message or "Scout failed unexpectedly during script generation.",
+        error_code="unexpected_agent_error",
+        retryable=False,
+        debug_hint="Unexpected ADK or script agent failure.",
+    )
+
+
+def _should_retry_script_agent_failure(failure: ScriptAgentFailure) -> bool:
+    return failure.retryable
 
 
 # ── Pure-Python tool helpers ───────────────────────────────────────────────────
@@ -539,19 +618,24 @@ async def generate_script_with_agent(
         platform, inferred_niche, video_duration, MODEL,
     )
 
-    # Retry wrapper — ADK's internal tenacity only covers individual LLM calls;
-    # a 503 mid-conversation exhausts those retries and surfaces here.
-    # On transient errors we restart the entire session (fresh context).
-    _MAX_ATTEMPTS = 3
-    _RETRY_DELAYS = [4, 8]  # seconds between attempts
     finalized = None
-    last_exc: Exception | None = None
+    last_failure: ScriptAgentFailure | None = None
 
-    for attempt in range(_MAX_ATTEMPTS):
+    for attempt in range(_MAX_SCRIPT_ATTEMPTS):
         if attempt:
             delay = _RETRY_DELAYS[min(attempt - 1, len(_RETRY_DELAYS) - 1)]
-            logger.warning("ADK agent attempt %d/%d failed — retrying in %ds: %s",
-                           attempt, _MAX_ATTEMPTS, delay, last_exc)
+            logger.warning(
+                "ADK agent retrying",
+                extra={
+                    "attempt": attempt + 1,
+                    "max_attempts": _MAX_SCRIPT_ATTEMPTS,
+                    "error_code": last_failure.error_code if last_failure else None,
+                    "retryable": last_failure.retryable if last_failure else None,
+                    "delay_seconds": delay,
+                    "platform": platform,
+                    "source": "sync",
+                },
+            )
             await asyncio.sleep(delay)
             # New session for fresh ADK context
             session_id = str(uuid4())
@@ -571,19 +655,16 @@ async def generate_script_with_agent(
             finalized = (session.state or {}).get("finalized_script")
             if finalized is not None:
                 break  # success
-            last_exc = RuntimeError("finalize_script was not called")
+            last_failure = _classify_script_agent_failure("finalize_script was not called")
         except Exception as exc:
-            last_exc = exc
-            # Only retry on transient server errors (503, 429, connection errors)
-            exc_str = str(exc)
-            if any(code in exc_str for code in ("503", "429", "500", "UNAVAILABLE", "RESOURCE_EXHAUSTED")):
+            last_failure = _classify_script_agent_failure(exc)
+            if _should_retry_script_agent_failure(last_failure):
                 continue
-            raise  # non-transient error — propagate immediately
+            raise last_failure
 
     if finalized is None:
-        raise RuntimeError(
-            "ADK agent did not call finalize_script within the allowed turns. "
-            "Check GEMINI_API_KEY / Vertex AI config and model availability."
+        raise last_failure or _classify_script_agent_failure(
+            "ADK agent did not call finalize_script within the allowed turns."
         )
 
     logger.info(
@@ -734,32 +815,89 @@ async def stream_script_agent(
     )
 
     logger.info(
-        "ADK stream agent starting: platform=%s niche=%s duration=%ds",
-        platform, inferred_niche, video_duration,
+        "ADK stream agent starting",
+        extra={
+            "platform": platform,
+            "niche": inferred_niche,
+            "duration_seconds": video_duration,
+            "source": "stream",
+        },
     )
 
-    try:
-        async for event in runner.run_async(
-            user_id=user_id, session_id=session_id, new_message=message
-        ):
-            if not event.content or not event.content.parts:
-                continue
-            for part in event.content.parts:
-                fc = getattr(part, "function_call", None)
-                if fc and fc.name in _TOOL_LABELS:
-                    yield {"type": "agent_step", "tool": fc.name, "message": _TOOL_LABELS[fc.name]}
+    last_failure: ScriptAgentFailure | None = None
 
-        session = await session_service.get_session(
-            app_name=app_name, user_id=user_id, session_id=session_id
-        )
-        finalized = (session.state or {}).get("finalized_script")
-        if finalized is None:
-            yield {"type": "error", "message": "Scout did not produce a script — try again"}
+    for attempt_index in range(_MAX_SCRIPT_ATTEMPTS):
+        attempt = attempt_index + 1
+        if attempt_index:
+            delay = _RETRY_DELAYS[min(attempt_index - 1, len(_RETRY_DELAYS) - 1)]
+            yield {
+                "type": "retry",
+                "attempt": attempt,
+                "message": "Retrying script generation with a fresh Scout session…",
+                "error_code": last_failure.error_code if last_failure else None,
+                "retryable": True,
+                "progress_pct": 18,
+            }
+            await asyncio.sleep(delay)
+            session_id = str(uuid4())
+            await session_service.create_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+
+        try:
+            async for event in runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=message
+            ):
+                if not event.content or not event.content.parts:
+                    continue
+                for part in event.content.parts:
+                    fc = getattr(part, "function_call", None)
+                    if fc and fc.name in _TOOL_LABELS:
+                        yield {
+                            "type": "agent_step",
+                            "tool": fc.name,
+                            "message": _TOOL_LABELS[fc.name],
+                            "attempt": attempt,
+                        }
+
+            session = await session_service.get_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+            finalized = (session.state or {}).get("finalized_script")
+            if finalized is None:
+                last_failure = _classify_script_agent_failure("finalize_script was not called")
+            else:
+                logger.info(
+                    "ADK stream agent completed",
+                    extra={
+                        "quality_score": finalized.get("quality_score"),
+                        "attempt": attempt,
+                        "platform": platform,
+                        "source": "stream",
+                    },
+                )
+                yield {"type": "complete", "script": _build_response(finalized, platform, video_duration)}
+                return
+        except Exception as exc:
+            last_failure = _classify_script_agent_failure(exc)
+
+        assert last_failure is not None
+        if not _should_retry_script_agent_failure(last_failure) or attempt >= _MAX_SCRIPT_ATTEMPTS:
+            logger.error(
+                "ADK stream agent failed",
+                extra={
+                    "attempt": attempt,
+                    "error_code": last_failure.error_code,
+                    "retryable": last_failure.retryable,
+                    "platform": platform,
+                    "source": "stream",
+                },
+            )
+            yield {
+                "type": "error",
+                "message": str(last_failure),
+                "error_code": last_failure.error_code,
+                "retryable": last_failure.retryable,
+                "debug_hint": last_failure.debug_hint,
+            }
             return
-
-        logger.info("ADK stream agent completed — quality_score=%s", finalized.get("quality_score"))
-        yield {"type": "complete", "script": _build_response(finalized, platform, video_duration)}
-
-    except Exception as exc:
-        logger.exception("ADK stream agent error: %s", exc)
-        yield {"type": "error", "message": str(exc)}

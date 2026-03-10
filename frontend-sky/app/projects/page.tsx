@@ -58,6 +58,11 @@ interface Project {
   video_urls?: Record<string, string>;
   thumbnail_url?: string;
   error?: string;
+  error_code?: string;
+  retryable?: boolean;
+  failure_stage?: string;
+  failed_at?: string;
+  script_attempt_count?: number;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
@@ -247,6 +252,11 @@ function ProjectCard({
         <p className="text-xs text-white/40 mt-0.5">
           {timeAgo(project.queued_at ?? project.created_at)}
         </p>
+        {project.status === "failed" && project.error && (
+          <p className="text-xs text-red-400/70 mt-1 line-clamp-2">
+            {project.error}
+          </p>
+        )}
       </div>
     </motion.div>
   );
@@ -446,19 +456,25 @@ function ProjectsContent() {
 
           {!loading && !error && visibleProjects.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-white/40">
-              <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
               {search.trim() || statusFilter !== "all" ? (
                 <>
+                  <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
                   <p className="text-lg">No matching projects</p>
                   <p className="text-sm mt-1">Try a different search or filter</p>
                 </>
               ) : tab === "active" ? (
                 <>
-                  <p className="text-lg">No projects yet</p>
-                  <p className="text-sm mt-1">Complete the wizard to queue your first video</p>
+                  <p className="text-lg mb-4">No videos yet.</p>
+                  <Button
+                    onClick={() => router.push("/create")}
+                    className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+                  >
+                    Create your first video
+                  </Button>
                 </>
               ) : (
                 <>
+                  <CheckCircle2 className="w-12 h-12 mb-4 opacity-30" />
                   <p className="text-lg">No archived projects</p>
                   <p className="text-sm mt-1">Archived projects will appear here</p>
                 </>

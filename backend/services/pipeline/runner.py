@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass, field
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
@@ -26,6 +27,20 @@ from services.pipeline.stages import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PipelineArtifacts:
+    voiceover: voiceover.VoiceoverStageResult | None = None
+    reviewed_image_paths: list[str] = field(default_factory=list)
+    scene_motion_effects: list[str | None] = field(default_factory=list)
+    scene_transitions: list[str | None] = field(default_factory=list)
+    chunk_clips: list[str] = field(default_factory=list)
+    video_urls: dict[str, str] = field(default_factory=dict)
+    scene_video_gcs_urls: list[str] = field(default_factory=list)
+    scene_image_gcs_urls: list[str] = field(default_factory=list)
+    voiceover_gcs_url: str | None = None
+    artifact_manifest: dict = field(default_factory=dict)
 
 
 async def run_pipeline_stages(
@@ -53,6 +68,7 @@ async def run_pipeline_stages(
     settings = resolve_series_settings(series, video_duration, caption_style_override)
 
     stages: list[PipelineStageStatus] = []
+    artifacts = PipelineArtifacts()
 
     # Stage 1.5: Infer subject context from reference image (non-blocking)
     subject_description: str | None = None
@@ -77,7 +93,7 @@ async def run_pipeline_stages(
     )
 
     # Stage 3: TTS voiceover + STT word timestamps
-    voiceover_path, word_timestamps = await voiceover.run_voiceover_stage(
+    artifacts.voiceover = await voiceover.run_voiceover_stage(
         stages=stages,
         script=generated_script,
         voice_id=settings["voice_id"],
@@ -110,17 +126,17 @@ async def run_pipeline_stages(
     )
 
     # Animate reviewed images → video clips, then clean up images
-    chunk_clips, scene_transitions = await images.animate_scenes(
-        reviewed_image_paths=reviewed_image_paths,
+    artifacts.reviewed_image_paths = reviewed_image_paths
+    artifacts.chunk_clips, artifacts.scene_transitions = await images.animate_scenes(
+        reviewed_image_paths=artifacts.reviewed_image_paths,
         script=generated_script,
         work_dir=work_dir,
     )
-    images.cleanup_images(
-        all_image_paths=all_image_paths,
-        reviewed_image_paths=reviewed_image_paths,
-        user_reference_path=user_reference_path,
-        char_sheet_path=char_sheet_path,
-    )
+    from services.media import ffmpeg as ffmpeg_svc
+    artifacts.scene_motion_effects = [
+        ffmpeg_svc.emotion_to_effect(getattr(scene, "emotion", None))
+        for scene in generated_script.scenes
+    ]
 
     # Stage 4b: Thumbnail
     thumbnail_url = await thumbnail.run_thumbnail_stage(
@@ -135,7 +151,7 @@ async def run_pipeline_stages(
     # Stage 5: Captions
     srt_path = await captions.run_captions_stage(
         stages=stages,
-        word_timestamps=word_timestamps,
+        word_timestamps=artifacts.voiceover.word_timestamps,
         caption_style=settings["caption_style"],
         work_dir=work_dir,
         on_progress=on_progress,
@@ -145,11 +161,11 @@ async def run_pipeline_stages(
     with_audio_dest = os.path.join(work_dir, "with_audio.mp4")
     composed_path = await composition.run_composition_stage(
         stages=stages,
-        chunk_clips=chunk_clips,
-        voiceover_path=voiceover_path,
+        chunk_clips=artifacts.chunk_clips,
+        voiceover_path=artifacts.voiceover.voiceover_path,
         srt_path=srt_path,
         caption_style=settings["caption_style"],
-        scene_transitions=scene_transitions,
+        scene_transitions=artifacts.scene_transitions,
         music_preset=settings["music_preset"],
         music_volume=settings["music_volume"],
         style=style,
@@ -159,28 +175,49 @@ async def run_pipeline_stages(
     )
 
     # Stage 7: Platform export + GCS upload
-    video_urls, scene_gcs_urls, voiceover_gcs_url = await export.run_export_stage(
+    export_result = await export.run_export_stage(
         stages=stages,
         composed_path=composed_path,
         target_platforms=target_platforms,
         project_id=project_id,
         work_dir=work_dir,
         with_audio_dest=with_audio_dest,
-        chunk_clips=chunk_clips,
-        voiceover_path=voiceover_path,
+        chunk_clips=artifacts.chunk_clips,
+        reviewed_image_paths=artifacts.reviewed_image_paths,
+        voiceover_path=artifacts.voiceover.voiceover_path,
+        voiceover_duration_seconds=artifacts.voiceover.actual_duration,
         on_progress=on_progress,
     )
+    artifacts.video_urls = export_result.video_urls
+    artifacts.scene_video_gcs_urls = export_result.scene_video_gcs_urls
+    artifacts.scene_image_gcs_urls = export_result.scene_image_gcs_urls
+    artifacts.voiceover_gcs_url = export_result.voiceover_gcs_url
+    artifacts.artifact_manifest = export_result.artifact_manifest
 
     # Timeline JSON
-    project_json = await timeline.run_timeline_stage(
-        project_id=project_id,
-        script=generated_script,
-        scene_gcs_urls=scene_gcs_urls,
-        voiceover_gcs_url=voiceover_gcs_url,
-        word_timestamps=word_timestamps,
-        caption_style=settings["caption_style"],
-        music_preset=settings["music_preset"],
-        music_volume=settings["music_volume"],
-    )
+    try:
+        project_json = await timeline.run_timeline_stage(
+            project_id=project_id,
+            script=generated_script,
+            scene_gcs_urls=artifacts.scene_video_gcs_urls,
+            scene_image_gcs_urls=artifacts.scene_image_gcs_urls,
+            voiceover_gcs_url=artifacts.voiceover_gcs_url,
+            voiceover_duration_seconds=artifacts.voiceover.actual_duration,
+            word_timestamps=artifacts.voiceover.word_timestamps,
+            caption_timing_source=artifacts.voiceover.timing_source,
+            caption_style=settings["caption_style"],
+            music_preset=settings["music_preset"],
+            music_volume=settings["music_volume"],
+            scene_motion_effects=artifacts.scene_motion_effects,
+            scene_transitions=artifacts.scene_transitions,
+            artifact_manifest=artifacts.artifact_manifest,
+        )
+    finally:
+        images.cleanup_images(
+            all_image_paths=all_image_paths,
+            reviewed_image_paths=artifacts.reviewed_image_paths,
+            user_reference_path=user_reference_path,
+            char_sheet_path=char_sheet_path,
+        )
 
-    return stages, video_urls, generated_script, thumbnail_url, qa_report, project_json
+    return stages, artifacts.video_urls, generated_script, thumbnail_url, qa_report, project_json
