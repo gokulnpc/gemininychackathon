@@ -460,10 +460,14 @@ function AssetPreview({ asset }: { asset: any }) {
 
   useEffect(() => {
     if (asset.category !== "images") return;
-    fetch(`${API}/api/v1/assets/${asset.id}/url?category=images`)
-      .then((r) => r.json())
-      .then((d) => setImageUrl(d.url))
-      .catch(() => {});
+    
+    // Lazy-load apiClient inside this child component to avoid circular references if necessary,
+    // though it's already imported at the top.
+    import("@/lib/apiClient").then(({ default: client }) => {
+      client.get(`/api/v1/assets/${asset.id}/url?category=images`)
+        .then((r) => setImageUrl(r.data.url))
+        .catch(() => {});
+    });
   }, [asset.id, asset.category]);
 
   if (asset.category === "images") {

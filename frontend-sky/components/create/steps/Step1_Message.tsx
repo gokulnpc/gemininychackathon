@@ -39,10 +39,16 @@ export function Step1_Message() {
   const [playbackProgress, setPlaybackProgress] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // WebSocket and Audio processing refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
 
   const handleTabChange = (value: string) => {
     setActiveTab(value as "speech" | "text" | "preset");
@@ -152,13 +158,19 @@ export function Step1_Message() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Ensure 16kHz sample rate for Gemini live streaming
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+
+      // In parallel, record the file locally for playback using MediaRecorder
       const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         setAudioUrl((prev) => {
           if (prev) URL.revokeObjectURL(prev);
@@ -169,27 +181,99 @@ export function Step1_Message() {
           const b64 = (reader.result as string).split(",")[1];
           dispatch({ type: "SET_AUDIO_BASE64", payload: b64 });
           dispatch({ type: "SET_AUDIO_FORMAT", payload: "webm" });
-          setAudioReady(true);
-          setUploadedFileName(null);
-          runTranscribe(b64, "webm");
         };
         reader.readAsDataURL(blob);
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
-      setIsRecording(true);
-      setAudioReady(false);
-      setTranscript(null);
-    } catch {
-      alert(
-        "Microphone access denied. Please allow microphone access and try again."
-      );
+
+      const source = audioContext.createMediaStreamSource(stream);
+      // 4096 frames = ~250ms chunks at 16kHz
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      // Connect WebSocket
+      const wsUrl = `${API.replace(/^http/, "ws")}/api/v1/transcribe/ws`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "transcript_chunk") {
+          setTranscribing(true); // just to show it's working
+          setTranscript((prev) => (prev ? prev + " " + msg.text : msg.text));
+        } else if (msg.type === "final_result") {
+          setTranscript(msg.transcript);
+          // msg.detected_tone could be logged or used later
+          setTranscribing(false);
+          setAudioReady(true);
+        } else if (msg.type === "error") {
+          console.error("Transcription WS error:", msg.message);
+          setTranscript("Error during live transcription.");
+          setTranscribing(false);
+        }
+      };
+
+      ws.onopen = () => {
+        setIsRecording(true);
+        setAudioReady(false);
+        setTranscript(null);
+        setTranscribing(true); // Actively listening
+
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          
+          // Convert Float32 to Int16
+          const pcmData = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+             let s = Math.max(-1, Math.min(1, inputData[i]));
+             pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          
+          // Base64 encode PCM array buffer
+          let binary = "";
+          const bytes = new Uint8Array(pcmData.buffer);
+          const len = bytes.byteLength;
+          for (let i = 0; i < len; i++) {
+              binary += String.fromCharCode(bytes[i]);
+          }
+          const b64 = window.btoa(binary);
+          
+          ws.send(JSON.stringify({ type: "audio", data: b64 }));
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+      };
+
+    } catch (err) {
+      console.error(err);
+      alert("Microphone access denied. Please allow microphone access and try again.");
     }
   };
 
   const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
     setIsRecording(false);
+    
+    // Stop local MediaRecorder so it saves the audioUrl
+    mediaRecorderRef.current?.stop();
+    
+    // Stop audio tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
+    
+    // Disconnect live audio WS nodes
+    if (processorRef.current && audioContextRef.current) {
+      processorRef.current.disconnect();
+      audioContextRef.current.close();
+    }
+    
+    // Tell socket we're done sending audio so Gemini can finalize
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "stop" }));
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -359,14 +443,19 @@ export function Step1_Message() {
                       className="mb-8"
                     >
                       <AudioVisualizer />
-                      <motion.p
+                      <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ delay: 0.5 }}
-                        className="text-white/70 text-sm mt-6 font-medium"
+                        className="text-white/70 text-sm mt-6 font-medium text-center flex flex-col items-center"
                       >
                         Listening…
-                      </motion.p>
+                        {transcript && (
+                          <div className="mt-4 p-4 rounded-xl bg-black/20 text-white/90 text-left max-w-lg w-full">
+                            {transcript}
+                          </div>
+                        )}
+                      </motion.div>
                     </motion.div>
                   ) : audioReady ? (
                     <motion.div
@@ -391,13 +480,15 @@ export function Step1_Message() {
                       {transcribing ? (
                         <div className="flex-1 flex items-center justify-center">
                           <span className="text-sm font-medium text-white/50">
-                            Transcribing...
+                            Thinking...
                           </span>
                         </div>
                       ) : (
                         <>
                           <div className="flex-1 mb-8 text-base text-white/80 leading-relaxed font-light">
-                            {transcript ? renderHighlightedText(transcript, playbackProgress, audioDuration) : "No transcript available."}
+                            {transcript ? (
+                              <span className="text-white bg-[#9A7A76] rounded px-0.5">{transcript}</span>
+                            ) : "No transcript available."}
                           </div>
 
                           <div className="flex items-center justify-between">
