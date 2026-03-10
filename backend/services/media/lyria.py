@@ -94,7 +94,7 @@ def _invoke_lyria(prompt: str, project_id: str, location: str) -> bytes:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Lyria HTTP {exc.code}: {body}") from exc
 
-    b64_wav = result["predictions"][0]["audioContent"]
+    b64_wav = result["predictions"][0]["bytesBase64Encoded"]
     return base64.b64decode(b64_wav)
 
 
