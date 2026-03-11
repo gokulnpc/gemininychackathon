@@ -29,6 +29,8 @@ const initialState: WizardState = {
 
   // Step 4: Music
   selectedMusic: null,
+  customMusicAssetId: null,
+  customMusicFilename: null,
 
   // Step 4: Art Style
   selectedArtStyle: null,
@@ -104,7 +106,14 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
     case "SET_SELECTED_VOICE":
       return { ...state, selectedVoice: action.payload };
     case "SET_SELECTED_MUSIC":
-      return { ...state, selectedMusic: action.payload };
+      return { ...state, selectedMusic: action.payload, customMusicAssetId: null, customMusicFilename: null };
+    case "SET_CUSTOM_MUSIC_ASSET":
+      return {
+        ...state,
+        customMusicAssetId: action.payload?.id ?? null,
+        customMusicFilename: action.payload?.filename ?? null,
+        selectedMusic: action.payload ? null : state.selectedMusic,
+      };
     case "SET_SELECTED_ART_STYLE":
       return { ...state, selectedArtStyle: action.payload };
     case "SET_SELECTED_CAPTION":

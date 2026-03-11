@@ -112,6 +112,8 @@ export interface WizardState {
 
   // Step 4: Music
   selectedMusic: string | null;
+  customMusicAssetId: string | null;
+  customMusicFilename: string | null;
 
   // Step 4: Art Style
   selectedArtStyle: string | null;
@@ -161,6 +163,7 @@ export type WizardAction =
   | { type: "SET_LANGUAGE"; payload: string }
   | { type: "SET_SELECTED_VOICE"; payload: string | null }
   | { type: "SET_SELECTED_MUSIC"; payload: string | null }
+  | { type: "SET_CUSTOM_MUSIC_ASSET"; payload: { id: string; filename: string } | null }
   | { type: "SET_SELECTED_ART_STYLE"; payload: string | null }
   | { type: "SET_SELECTED_CAPTION"; payload: string | null }
   | {

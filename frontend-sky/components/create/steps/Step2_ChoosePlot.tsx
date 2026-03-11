@@ -19,7 +19,7 @@ export function Step2_ChoosePlot() {
   const isSpeechMode = state.messageTab === "speech";
   const isPresetMode = state.messageTab === "preset";
 
-  const fetchOptions = async () => {
+  const fetchOptions = async (previousOptions: string[] = []) => {
     if (isSpeechMode && !state.audioBase64) {
       setError("No audio recorded. Go back and record your voice memo.");
       return;
@@ -47,6 +47,10 @@ export function Step2_ChoosePlot() {
       } else {
         body.source = "text";
         body.transcript = state.messageText;
+      }
+
+      if (previousOptions.length > 0) {
+        body.previous_options = previousOptions;
       }
 
       const data = await apiClient.post(`/api/v1/projects/${projectId}/generate-plot-options`, body).then(r => r.data);
@@ -82,7 +86,7 @@ export function Step2_ChoosePlot() {
         <p className="text-red-400 text-sm text-center max-w-sm">{error}</p>
         <Button
           variant="outline"
-          onClick={fetchOptions}
+          onClick={() => fetchOptions()}
           className="rounded-full px-5 py-2 h-10 border-white/20 bg-white/10 hover:bg-white/20 text-white"
         >
           <RefreshCw className="w-4 h-4 mr-2" />
@@ -119,7 +123,7 @@ export function Step2_ChoosePlot() {
         </p>
         <Button
           variant="outline"
-          onClick={fetchOptions}
+          onClick={() => fetchOptions(options.map(o => `${o.title}: ${o.summary}`))}
           disabled={loading}
           className="rounded-full px-4 py-2 h-9 border-white/20 bg-white/10 hover:bg-white/20 text-white text-xs"
         >

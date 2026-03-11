@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,9 @@ import {
   Sparkles,
   Trash2,
   FileText,
+  Mic,
+  Search,
+  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWizard } from "@/context/WizardContext";
@@ -21,6 +24,27 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { Play, RotateCcw, Pause } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+
+interface AssetItem {
+  id: string;
+  filename: string;
+  content_type: string;
+  uploaded_at: string;
+  size_bytes?: number;
+}
+
+function formatAssetBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -45,6 +69,17 @@ export function Step1_Message() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   
+  // My Assets — voice memos dialog
+  const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
+  const [voiceSearch, setVoiceSearch] = useState('');
+  const [voiceAssets, setVoiceAssets] = useState<AssetItem[]>([]);
+  const [voiceAssetUrls, setVoiceAssetUrls] = useState<Record<string, string>>({});
+  const [voiceAssetsFetched, setVoiceAssetsFetched] = useState(false);
+  const [voiceAssetsLoading, setVoiceAssetsLoading] = useState(false);
+  const [voicePreviewingId, setVoicePreviewingId] = useState<string | null>(null);
+  const [voicePlayingId, setVoicePlayingId] = useState<string | null>(null);
+  const voiceAssetAudioRef = useRef<HTMLAudioElement | null>(null);
+
   // WebSocket and Audio processing refs
   const wsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -61,6 +96,93 @@ export function Step1_Message() {
 
   const handlePresetSelect = (presetId: string) => {
     dispatch({ type: "SET_SELECTED_PRESET", payload: presetId });
+  };
+
+  // ── Voice memo assets ───────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!voiceDialogOpen || voiceAssetsFetched) return;
+    setVoiceAssetsLoading(true);
+    apiClient
+      .get('/api/v1/assets?category=voice_memos')
+      .then((r) => {
+        const list: AssetItem[] = r.data.assets ?? [];
+        setVoiceAssets(list);
+        setVoiceAssetsFetched(true);
+        return list;
+      })
+      .then((list) => {
+        if (!list.length) return;
+        Promise.all(
+          list.map((a) =>
+            apiClient
+              .get(`/api/v1/assets/${a.id}/url?category=voice_memos`)
+              .then((r) => [a.id, r.data.url] as [string, string])
+              .catch(() => [a.id, ''] as [string, string])
+          )
+        ).then((entries) => setVoiceAssetUrls(Object.fromEntries(entries)));
+      })
+      .catch(() => { setVoiceAssets([]); setVoiceAssetsFetched(true); })
+      .finally(() => setVoiceAssetsLoading(false));
+  }, [voiceDialogOpen, voiceAssetsFetched]);
+
+  const filteredVoiceAssets = voiceAssets.filter((a) =>
+    a.filename.toLowerCase().includes(voiceSearch.toLowerCase())
+  );
+
+  const handleVoiceAssetPreview = async (e: React.MouseEvent, asset: AssetItem) => {
+    e.stopPropagation();
+    if (voicePlayingId === asset.id) {
+      voiceAssetAudioRef.current?.pause();
+      voiceAssetAudioRef.current = null;
+      setVoicePlayingId(null);
+      return;
+    }
+    voiceAssetAudioRef.current?.pause();
+    voiceAssetAudioRef.current = null;
+    setVoicePlayingId(null);
+    const url = voiceAssetUrls[asset.id];
+    if (!url) return;
+    setVoicePreviewingId(asset.id);
+    try {
+      const audio = new Audio(url);
+      audio.onended = () => { setVoicePlayingId(null); voiceAssetAudioRef.current = null; };
+      await audio.play();
+      voiceAssetAudioRef.current = audio;
+      setVoicePlayingId(asset.id);
+    } catch {
+      console.error('Voice asset preview failed');
+    } finally {
+      setVoicePreviewingId(null);
+    }
+  };
+
+  const handleVoiceAssetSelect = async (asset: AssetItem) => {
+    const url = voiceAssetUrls[asset.id];
+    if (!url) return;
+    voiceAssetAudioRef.current?.pause();
+    voiceAssetAudioRef.current = null;
+    setVoicePlayingId(null);
+
+    try {
+      const blob = await fetch(url).then((r) => r.blob());
+      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? 'mp3';
+      setAudioUrl(URL.createObjectURL(blob));
+      setUploadedFileName(asset.filename);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const b64 = (reader.result as string).split(',')[1];
+        dispatch({ type: 'SET_AUDIO_BASE64', payload: b64 });
+        dispatch({ type: 'SET_AUDIO_FORMAT', payload: ext });
+        setAudioReady(true);
+        setVoiceDialogOpen(false);
+        setVoiceSearch('');
+        runTranscribe(b64, ext);
+      };
+      reader.readAsDataURL(blob);
+    } catch {
+      console.error('Failed to load voice asset');
+    }
   };
 
   // ── Transcription ──────────────────────────────────────────────────────────
@@ -585,6 +707,15 @@ export function Step1_Message() {
                           <Upload className="w-4 h-4 mr-2" />
                           Upload Audio
                         </Button>
+                        <span className="text-white/40 text-sm">or</span>
+                        <Button
+                          variant="outline"
+                          className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20"
+                          onClick={() => setVoiceDialogOpen(true)}
+                        >
+                          <Mic className="w-4 h-4 mr-2" />
+                          My Assets
+                        </Button>
                       </>
                     )
                   )}
@@ -778,6 +909,92 @@ export function Step1_Message() {
         </TabsContent>
 
       </Tabs>
+
+      {/* Voice Memos — My Assets Dialog */}
+      <Dialog
+        open={voiceDialogOpen}
+        onOpenChange={(open) => {
+          setVoiceDialogOpen(open);
+          if (!open) {
+            setVoiceSearch('');
+            voiceAssetAudioRef.current?.pause();
+            voiceAssetAudioRef.current = null;
+            setVoicePlayingId(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl bg-[#2B2B2B] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle className="text-white">Select from My Assets</DialogTitle>
+          </DialogHeader>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+            <Input
+              placeholder="Search by filename…"
+              value={voiceSearch}
+              onChange={(e) => setVoiceSearch(e.target.value)}
+              className="pl-9 bg-[#333333] border-white/10 text-white placeholder:text-white/40 focus-visible:ring-[#5a9ab5]"
+            />
+          </div>
+
+          <div className="overflow-y-auto max-h-96 space-y-2 pr-1 mt-1">
+            {voiceAssetsLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-6 h-6 animate-spin text-[#5a9ab5]" />
+              </div>
+            ) : filteredVoiceAssets.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <Mic className="w-10 h-10 text-white/20" />
+                <p className="text-sm text-white/40 text-center">
+                  {voiceAssets.length === 0
+                    ? 'No voice memos in My Assets yet.'
+                    : 'No files match your search.'}
+                </p>
+              </div>
+            ) : (
+              filteredVoiceAssets.map((asset) => {
+                const isPlaying = voicePlayingId === asset.id;
+                const isPreviewing = voicePreviewingId === asset.id;
+                return (
+                  <button
+                    key={asset.id}
+                    onClick={() => handleVoiceAssetSelect(asset)}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-white/10 bg-[#333333] hover:border-[#5a9ab5]/40 hover:bg-white/10 transition-all duration-200 text-left"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-[#5a9ab5]/20 flex items-center justify-center shrink-0">
+                      <Mic className="w-4 h-4 text-[#5a9ab5]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{asset.filename}</p>
+                      {asset.size_bytes != null && (
+                        <p className="text-xs text-white/40">{formatAssetBytes(asset.size_bytes)}</p>
+                      )}
+                    </div>
+                    <div
+                      onClick={(e) => handleVoiceAssetPreview(e, asset)}
+                      className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
+                        isPlaying
+                          ? 'bg-[#5a9ab5] text-white'
+                          : 'bg-white/10 border border-white/20 hover:bg-white/20 text-white/60'
+                      )}
+                    >
+                      {isPreviewing ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : isPlaying ? (
+                        <Square className="w-3 h-3 fill-current" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5 ml-0.5" />
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }

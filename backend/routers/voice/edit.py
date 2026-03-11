@@ -100,6 +100,10 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
     logger.info("Scout edit voice WebSocket connected: project=%s", project_id)
 
     audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    live_state: dict = {
+        "project_json": project_data.get("project_json"),
+        "editor_context": None,
+    }
 
     async def _audio_stream():
         while True:
@@ -133,6 +137,9 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
                     if data.get("type") == "done":
                         await audio_queue.put(None)
                         return
+                    if data.get("type") == "editor_state":
+                        live_state["project_json"] = data.get("project_json")
+                        live_state["editor_context"] = data.get("editor_context")
         except WebSocketDisconnect:
             await audio_queue.put(None)
         except Exception as exc:
@@ -148,6 +155,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
             project_id=project_id,
             project_data=project_data,
             audio_chunks=_audio_stream(),
+            get_live_state=lambda: dict(live_state),
             on_event=_on_event,
         ):
             await websocket.send_bytes(audio_chunk)

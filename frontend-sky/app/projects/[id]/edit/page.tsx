@@ -16,23 +16,20 @@ import {
   ChevronDown,
   Download,
   Loader2,
-  Mic,
-  MicOff,
-  Send,
-  Sparkles,
-  X,
+  Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 import { apiFetch } from "@/lib/api";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
-import TwickStudio from "@twick/studio";
 import type { Result } from "@twick/studio";
 import type { ProjectJSON } from "@twick/timeline";
 import "@twick/studio/dist/studio.css";
 import { TimelineProvider, INITIAL_TIMELINE_DATA, useTimelineContext } from "@twick/timeline";
 import { LivePlayerProvider, useLivePlayerContext } from "@twick/live-player";
+import { EditorShell } from "@/components/editor/editor-shell";
+import type { AgentMessage, Project } from "@/components/editor/types";
 
 // ─── AgentBridge ───────────────────────────────────────────────────────────────
 // Zero-render child inside TimelineProvider — exposes editor API to parent via ref.
@@ -95,36 +92,7 @@ const AgentBridge = forwardRef<EditorBridgeHandle>((_, ref) => {
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_API = API.replace(/^http/, "ws");
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Project {
-  project_id: string;
-  status: string;
-  hook?: string;
-  scenes_count?: number;
-  video_duration?: number;
-  platforms?: string[];
-  video_urls?: Record<string, string>;
-  thumbnail_url?: string;
-  caption_style?: string;
-  background_music?: string;
-  voiceover_full_script?: string;
-  voiceover_duration?: number;
-  error?: string;
-  project_json?: ProjectJSON | null;
-}
-
-interface AgentMessage {
-  id: string;
-  role: "user" | "agent";
-  text: string;
-  actions?: string[];
-  isThinking?: boolean;
-  isError?: boolean;
-}
-
 const PLATFORMS = ["instagram_reels", "tiktok", "youtube_shorts", "master"];
-
 // ─── Editor Page ──────────────────────────────────────────────────────────────
 
 export default function EditorPage() {
@@ -149,23 +117,102 @@ export default function EditorPage() {
   const [agentInput, setAgentInput] = useState("");
   const [agentLoading, setAgentLoading] = useState(false);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const agentBottomRef = useRef<HTMLDivElement>(null);
   const editorBridgeRef = useRef<EditorBridgeHandle | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const captureAudioCtxRef = useRef<AudioContext | null>(null);
+  const playbackAudioCtxRef = useRef<AudioContext | null>(null);
+  const playbackNodeRef = useRef<AudioWorkletNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const normalizeProjectJson = useCallback((json: ProjectJSON | null): ProjectJSON | null => {
+    if (!json) return null;
+    return {
+      ...json,
+      tracks: (json.tracks ?? []).map((track) => ({
+        ...track,
+        elements: (track.elements ?? []).map((element) => {
+          const props = typeof element.props === "object" && element.props ? { ...element.props } : element.props;
+          const src = typeof props?.src === "string" ? props.src : null;
+          if (src && src.startsWith("/assets/")) {
+            props.src = `${API}${src}`;
+          }
+          return props ? { ...element, props } : element;
+        }),
+      })),
+    };
+  }, []);
+
+  const saveTimelineDebounced = useCallback((json: ProjectJSON | null) => {
+    if (!json) return;
+    setSaveState("saving");
+    if (persistTimeoutRef.current) {
+      clearTimeout(persistTimeoutRef.current);
+    }
+    persistTimeoutRef.current = setTimeout(() => {
+      apiClient.put(`/api/v1/projects/${projectId}/timeline`, json)
+        .then(() => {
+          setSaveState("saved");
+          setLastSavedAt(new Date());
+        })
+        .catch((error) => {
+          console.error("Failed to persist live timeline:", error);
+          setSaveState("error");
+        });
+    }, 600);
+  }, [projectId]);
+
+  const syncProjectJson = useCallback((json: ProjectJSON | null) => {
+    const normalized = normalizeProjectJson(json);
+    if (!normalized) return;
+    setProject((prev) => prev ? { ...prev, project_json: normalized } : prev);
+    saveTimelineDebounced(normalized);
+  }, [normalizeProjectJson, saveTimelineDebounced]);
+
+  const applyLiveProjectJson = useCallback((json: ProjectJSON | null, changes?: Record<string, unknown>) => {
+    const normalized = normalizeProjectJson(json);
+    if (!normalized) return;
+    editorBridgeRef.current?.loadProject(normalized);
+    saveTimelineDebounced(normalized);
+    setProject((prev) => prev ? ({
+      ...prev,
+      ...(changes?.caption_style ? { caption_style: String(changes.caption_style) } : {}),
+      ...(changes?.background_music ? { background_music: String(changes.background_music) } : {}),
+      project_json: normalized,
+    }) : prev);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
+      wsRef.current.send(JSON.stringify({
+        type: "editor_state",
+        project_json: normalized,
+        editor_context: agentPanelOpen
+          ? { ...editorContext, active_panel: "agent" }
+          : editorContext,
+      }));
+    }
+  }, [agentPanelOpen, normalizeProjectJson, saveTimelineDebounced]);
 
   // Load project
   const fetchProject = useCallback(async () => {
     try {
       const res = await apiClient.get(`/api/v1/projects/${projectId}`);
-      setProject(res.data);
+      const data = res.data as Project;
+      setProject({
+        ...data,
+        project_json: normalizeProjectJson((data.project_json as ProjectJSON | null) ?? null),
+      });
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load project");
     }
-  }, [projectId]);
+  }, [normalizeProjectJson, projectId]);
 
   useEffect(() => { fetchProject(); }, [fetchProject]);
 
@@ -197,6 +244,29 @@ export default function EditorPage() {
       return { status: false, message };
     }
   }, [projectId]);
+
+  const exportCurrentTimeline = useCallback(async () => {
+    const currentProject = editorBridgeRef.current?.getProject() ?? project?.project_json ?? null;
+    if (!currentProject || exportLoading) return;
+    setExportLoading(true);
+    setSaveState("saving");
+    setExportMessage(null);
+    const result = await handleExportVideo(currentProject);
+    setExportMessage(result.message);
+    setExportLoading(false);
+    setSaveState(result.status ? "saved" : "error");
+    if (result.status) {
+      setLastSavedAt(new Date());
+    }
+  }, [exportLoading, handleExportVideo, project?.project_json]);
+
+  const saveStateLabel = saveState === "saving"
+    ? "Saving..."
+    : saveState === "error"
+      ? "Save failed"
+      : lastSavedAt
+        ? `Saved ${lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "Saved";
 
   // ─── Agent (SSE text) ────────────────────────────────────────────────────────
 
@@ -247,15 +317,22 @@ export default function EditorPage() {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            if (event.type === "progress" && event.message) {
+            if ((event.type === "progress" || event.type === "agent_step") && event.message) {
               agentText = event.message;
+              if (event.tool) {
+                actions.push(event.tool);
+              }
             } else if (event.type === "tool_call" && event.tool) {
               actions.push(event.tool);
+            } else if (event.type === "tool_event" && event.name) {
+              actions.push(event.name);
             } else if (event.type === "complete") {
               agentText = event.message ?? "Done! Changes applied.";
               if (event.project_json) {
-                // Load patched timeline into Twick editor — instant, no video recompose
-                editorBridgeRef.current?.loadProject(event.project_json as ProjectJSON);
+                applyLiveProjectJson(
+                  event.project_json as ProjectJSON,
+                  event.changes as Record<string, unknown> | undefined,
+                );
               }
             } else if (event.type === "error") {
               agentText = event.message ?? "Something went wrong.";
@@ -283,6 +360,54 @@ export default function EditorPage() {
     }
   }
 
+  async function initPlaybackContext() {
+    if (playbackAudioCtxRef.current && playbackNodeRef.current) {
+      if (playbackAudioCtxRef.current.state === "suspended") {
+        await playbackAudioCtxRef.current.resume();
+      }
+      return;
+    }
+
+    const audioCtx = new AudioContext();
+    await audioCtx.audioWorklet.addModule("/audio/pcm-player.worklet.js");
+    const node = new AudioWorkletNode(audioCtx, "pcm-player-processor");
+    node.connect(audioCtx.destination);
+
+    playbackAudioCtxRef.current = audioCtx;
+    playbackNodeRef.current = node;
+
+    if (audioCtx.state === "suspended") {
+      await audioCtx.resume();
+    }
+  }
+
+  function queuePcmAudio(buffer: ArrayBuffer) {
+    const audioCtx = playbackAudioCtxRef.current;
+    const node = playbackNodeRef.current;
+    if (!audioCtx || !node) return;
+
+    const input = new Int16Array(buffer);
+    if (input.length === 0) return;
+
+    const inputRate = 24000;
+    const outputRate = audioCtx.sampleRate;
+    const ratio = outputRate / inputRate;
+    const outputLength = Math.max(1, Math.round(input.length * ratio));
+    const output = new Float32Array(outputLength);
+
+    for (let i = 0; i < outputLength; i++) {
+      const sourceIndex = i / ratio;
+      const leftIndex = Math.floor(sourceIndex);
+      const rightIndex = Math.min(leftIndex + 1, input.length - 1);
+      const mix = sourceIndex - leftIndex;
+      const left = input[leftIndex] / 32768;
+      const right = input[rightIndex] / 32768;
+      output[i] = left + (right - left) * mix;
+    }
+
+    node.port.postMessage({ type: "push", samples: output }, [output.buffer]);
+  }
+
   // ─── Voice edit (WebSocket) ──────────────────────────────────────────────────
 
   async function startVoiceEdit() {
@@ -306,9 +431,11 @@ export default function EditorPage() {
       setIsVoiceActive(true);
 
       ws.onopen = () => {
+        void initPlaybackContext();
         const audioCtx = new AudioContext({ sampleRate: 16000 });
-        audioCtxRef.current = audioCtx;
+        captureAudioCtxRef.current = audioCtx;
         const source = audioCtx.createMediaStreamSource(stream);
+        mediaSourceRef.current = source;
         const processor = audioCtx.createScriptProcessor(4096, 1, 1);
         processorRef.current = processor;
 
@@ -324,45 +451,66 @@ export default function EditorPage() {
 
         source.connect(processor);
         processor.connect(audioCtx.destination);
+        const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
+        const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
+        ws.send(JSON.stringify({
+          type: "editor_state",
+          project_json: currentProjectJson,
+          editor_context: agentPanelOpen
+            ? { ...editorContext, active_panel: "agent" }
+            : editorContext,
+        }));
       };
 
       ws.onmessage = (event) => {
         if (event.data instanceof Blob) {
           event.data.arrayBuffer().then((buf) => {
-            audioCtxRef.current?.decodeAudioData(buf).then((decoded) => {
-              const src = audioCtxRef.current!.createBufferSource();
-              src.buffer = decoded;
-              src.connect(audioCtxRef.current!.destination);
-              src.start();
-            }).catch(() => {});
+            queuePcmAudio(buf);
           });
           return;
         }
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "transcript_chunk") {
+          if (data.type === "agent_transcript") {
             setAgentMessages((prev) =>
               prev.map((m) =>
-                m.id === voiceMsgId ? { ...m, text: (m.text || "") + data.text } : m
+                m.id === voiceMsgId ? { ...m, text: data.text ?? m.text } : m
               )
             );
-          } else if (data.type === "creative_block" || data.type === "tool_call") {
-            const tool = data.block ?? data.tool ?? "";
+          } else if (data.type === "user_transcript") {
+            setAgentMessages((prev) => {
+              const userMessageId = `${voiceMsgId}-user`;
+              const existing = prev.find((m) => m.id === userMessageId);
+              if (existing) {
+                return prev.map((m) =>
+                  m.id === userMessageId ? { ...m, text: data.text ?? m.text } : m
+                );
+              }
+              return [...prev, { id: userMessageId, role: "user", text: data.text ?? "" }];
+            });
+          } else if (data.type === "creative_block" || data.type === "tool_event") {
+            const tool = data.name ?? data.block?.type ?? "creative_block";
             setAgentMessages((prev) =>
               prev.map((m) =>
                 m.id === voiceMsgId ? { ...m, actions: [...(m.actions ?? []), tool] } : m
               )
             );
-          } else if (data.type === "edit_complete") {
+          } else if (data.type === "complete") {
             setAgentMessages((prev) =>
               prev.map((m) =>
                 m.id === voiceMsgId
-                  ? { ...m, isThinking: false, text: m.text || "Edit complete! Video updated." }
+                  ? { ...m, isThinking: false, text: data.message ?? (m.text || "Live edits applied.") }
                   : m
               )
             );
-            fetchProject();
-            stopVoiceEdit();
+            if (data.project_json) {
+              applyLiveProjectJson(
+                data.project_json as ProjectJSON,
+                data.changes as Record<string, unknown> | undefined,
+              );
+            }
+          } else if (data.type === "interrupted") {
+            playbackNodeRef.current?.port.postMessage({ type: "clear" });
           } else if (data.type === "error") {
             setAgentMessages((prev) =>
               prev.map((m) =>
@@ -392,16 +540,47 @@ export default function EditorPage() {
       wsRef.current.close();
     }
     wsRef.current = null;
+    mediaSourceRef.current?.disconnect();
+    mediaSourceRef.current = null;
     processorRef.current?.disconnect();
     processorRef.current = null;
-    audioCtxRef.current?.close().catch(() => {});
-    audioCtxRef.current = null;
+    captureAudioCtxRef.current?.close().catch(() => {});
+    captureAudioCtxRef.current = null;
+    playbackNodeRef.current?.port.postMessage({ type: "clear" });
+    playbackNodeRef.current?.disconnect();
+    playbackNodeRef.current = null;
+    playbackAudioCtxRef.current?.close().catch(() => {});
+    playbackAudioCtxRef.current = null;
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     mediaStreamRef.current = null;
     setIsVoiceActive(false);
   }
 
-  useEffect(() => () => stopVoiceEdit(), []);
+  useEffect(() => () => {
+    if (persistTimeoutRef.current) {
+      clearTimeout(persistTimeoutRef.current);
+    }
+    stopVoiceEdit();
+  }, []);
+
+  useEffect(() => {
+    if (!isVoiceActive) return;
+
+    const intervalId = window.setInterval(() => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
+      const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
+      wsRef.current.send(JSON.stringify({
+        type: "editor_state",
+        project_json: currentProjectJson,
+        editor_context: agentPanelOpen
+          ? { ...editorContext, active_panel: "agent" }
+          : editorContext,
+      }));
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [agentPanelOpen, isVoiceActive]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -451,20 +630,42 @@ export default function EditorPage() {
         </div>
 
         {/* Center — project title */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-green-400" />
           <span className="text-sm text-white/70 truncate max-w-xs">
             {project?.hook ?? "Loading..."}
           </span>
+          <div className={cn(
+            "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] md:flex",
+            saveState === "error"
+              ? "border-red-500/20 bg-red-500/10 text-red-200"
+              : saveState === "saving"
+                ? "border-amber-400/20 bg-amber-400/10 text-amber-100"
+                : "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+          )}>
+            {saveState === "saving" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+            {saveStateLabel}
+          </div>
         </div>
 
         {/* Right */}
         <div className="flex items-center gap-2">
-          {/* Export dropdown */}
+          <button
+            type="button"
+            onClick={() => {
+              void exportCurrentTimeline();
+            }}
+            disabled={exportLoading || !project}
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {exportLoading ? "Exporting..." : "Export"}
+          </button>
+
           <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm font-medium transition-colors">
+            <button className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-white/15">
               <Download className="w-4 h-4" />
-              Export
+              Files
               <ChevronDown className="w-3 h-3" />
             </button>
             <div className="absolute right-0 top-full mt-1 w-48 bg-[#2a2a2a] border border-white/10 rounded-xl overflow-hidden opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-xl">
@@ -499,10 +700,16 @@ export default function EditorPage() {
         </div>
       </div>
 
+      {exportMessage && (
+        <div className="border-b border-white/10 bg-[#151823] px-4 py-2 text-xs text-white/65">
+          {exportMessage}
+        </div>
+      )}
+
       {/* ── Main area ──────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── Twick Studio ──────────────────────────────────────────────────── */}
+        {/* ── Custom Twick Shell ───────────────────────────────────────────── */}
         <div className="flex-1 overflow-hidden">
           {project ? (
             <LivePlayerProvider>
@@ -511,11 +718,19 @@ export default function EditorPage() {
                 contextId={projectId}
               >
                 <AgentBridge ref={editorBridgeRef} />
-                <TwickStudio
-                  studioConfig={{
-                    videoProps: { width: 576, height: 1024 },
-                    exportVideo: handleExportVideo,
-                  }}
+                <EditorShell
+                  project={project}
+                  agentPanelOpen={agentPanelOpen}
+                  agentMessages={agentMessages}
+                  agentInput={agentInput}
+                  agentLoading={agentLoading}
+                  isVoiceActive={isVoiceActive}
+                  agentBottomRef={agentBottomRef}
+                  setAgentPanelOpen={setAgentPanelOpen}
+                  setAgentInput={setAgentInput}
+                  sendAgentInstruction={sendAgentInstruction}
+                  startVoiceEdit={startVoiceEdit}
+                  onProjectJsonChange={syncProjectJson}
                 />
               </TimelineProvider>
             </LivePlayerProvider>
@@ -526,135 +741,6 @@ export default function EditorPage() {
           )}
         </div>
 
-        {/* ── AI Agent Panel ────────────────────────────────────────────────── */}
-        {agentPanelOpen && (
-          <div className="w-80 flex flex-col bg-[#1e1e1e] border-l border-white/10 shrink-0">
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-[#7c3aed] flex items-center justify-center">
-                  <Sparkles className="w-3.5 h-3.5 text-white" />
-                </div>
-                <span className="text-sm font-semibold">AI Editor</span>
-              </div>
-              <button
-                onClick={() => setAgentPanelOpen(false)}
-                className="text-white/40 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {agentMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={cn(
-                    "flex flex-col gap-1",
-                    msg.role === "user" ? "items-end" : "items-start"
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "max-w-[90%] rounded-2xl px-3 py-2 text-sm leading-relaxed",
-                      msg.role === "user"
-                        ? "bg-[#7c3aed] text-white rounded-br-sm"
-                        : msg.isError
-                          ? "bg-red-900/30 text-red-300 border border-red-500/20 rounded-bl-sm"
-                          : "bg-white/8 text-white/90 rounded-bl-sm"
-                    )}
-                  >
-                    {msg.isThinking && !msg.text ? (
-                      <div className="flex items-center gap-2 text-white/50">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Thinking...</span>
-                      </div>
-                    ) : (
-                      msg.text || <span className="text-white/30 italic">Processing...</span>
-                    )}
-                  </div>
-                  {/* Tool call badges */}
-                  {msg.actions && msg.actions.length > 0 && (
-                    <div className="flex flex-wrap gap-1 max-w-[90%]">
-                      {msg.actions.map((action, i) => (
-                        <span
-                          key={i}
-                          className="px-2 py-0.5 bg-[#7c3aed]/20 text-[#a78bfa] border border-[#7c3aed]/30 rounded-full text-[10px] font-mono"
-                        >
-                          {action}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div ref={agentBottomRef} />
-            </div>
-
-            {/* Quick actions */}
-            <div className="px-3 py-2 border-t border-white/10 grid grid-cols-2 gap-1.5">
-              {[
-                "Add B-rolls",
-                "Add Zooms",
-                "Change Theme",
-                "Add Music",
-              ].map((action) => (
-                <button
-                  key={action}
-                  onClick={() => sendAgentInstruction(action)}
-                  disabled={agentLoading}
-                  className="px-2 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs text-white/70 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {action}
-                </button>
-              ))}
-            </div>
-
-            {/* Input */}
-            <div className="p-3 border-t border-white/10">
-              <div className="flex items-end gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus-within:border-[#7c3aed]/50 transition-colors">
-                <textarea
-                  value={agentInput}
-                  onChange={(e) => setAgentInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendAgentInstruction(agentInput);
-                    }
-                  }}
-                  placeholder="Describe your edit..."
-                  rows={2}
-                  className="flex-1 bg-transparent text-sm text-white placeholder-white/30 resize-none focus:outline-none leading-relaxed"
-                />
-                <div className="flex items-center gap-1.5 pb-0.5">
-                  <button
-                    onClick={startVoiceEdit}
-                    className={cn(
-                      "p-1.5 rounded-lg transition-colors",
-                      isVoiceActive
-                        ? "bg-red-500/20 text-red-400 animate-pulse"
-                        : "text-white/40 hover:text-white hover:bg-white/10"
-                    )}
-                  >
-                    {isVoiceActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </button>
-                  <button
-                    onClick={() => sendAgentInstruction(agentInput)}
-                    disabled={!agentInput.trim() || agentLoading}
-                    className="p-1.5 bg-[#7c3aed] hover:bg-[#6d28d9] text-white rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {agentLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

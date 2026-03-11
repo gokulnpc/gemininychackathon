@@ -92,3 +92,68 @@ def test_patch_project_json_replaces_selected_media_url():
     )
 
     assert patched["tracks"][0]["elements"][0]["props"]["src"] == "https://new.example/darker-image.png"
+
+
+def test_patch_project_json_adds_background_music_track_for_static_preset():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-scene",
+                "name": "Scene 1",
+                "type": "element",
+                "elements": [
+                    {
+                        "id": "scene-1",
+                        "trackId": "track-scene",
+                        "type": "image",
+                        "s": 0,
+                        "e": 6,
+                        "props": {"src": "https://example.com/scene.png"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(
+        project_json,
+        {"background_music": "quiet_before_storm", "music_volume": 0.2},
+    )
+
+    music_track = next(track for track in patched["tracks"] if track["name"] == "Background Music")
+    music_element = music_track["elements"][0]
+
+    assert music_element["props"]["src"] == "/music/quiet_before_storm.mp3"
+    assert music_element["props"]["musicPreset"] == "quiet_before_storm"
+    assert music_element["props"]["volume"] == 0.2
+    assert music_element["e"] == 6
+
+
+def test_patch_project_json_removes_background_music_track_for_none():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-music",
+                "name": "Background Music",
+                "type": "element",
+                "elements": [
+                    {
+                        "id": "music-1",
+                        "trackId": "track-music",
+                        "type": "audio",
+                        "s": 0,
+                        "e": 6,
+                        "props": {
+                            "src": "/music/breathing_shadows.mp3",
+                            "musicPreset": "breathing_shadows",
+                            "volume": 0.15,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(project_json, {"background_music": "none"})
+
+    assert all(track["name"] != "Background Music" for track in patched["tracks"])

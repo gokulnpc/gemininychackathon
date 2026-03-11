@@ -156,6 +156,9 @@ class GenerateScriptRequest(BaseModel):
     # Optional — user-selected plot direction from generate-plot-options
     plot_summary: Optional[str] = Field(default=None, description="Brief story direction chosen by the user")
 
+    # Optional — titles/summaries of plot options already shown, used to avoid repeats on regenerate
+    previous_options: Optional[list[str]] = Field(default=None, description="Previously shown plot option strings to avoid")
+
     # Optional — character role when user uploads a reference photo
     user_character_role: Optional[str] = Field(
         default=None,
