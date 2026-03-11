@@ -1,9 +1,11 @@
 "use client";
 
 import type { RefObject } from "react";
-import { useCallback, useEffect, useId, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { AgentPanel } from "@/components/editor/agent-panel";
 import { EditorLeftRail } from "@/components/editor/editor-left-rail";
+import { ExportButton } from "@/components/editor/export-button";
 import { TimelineDock } from "@/components/editor/timeline-dock";
 import type { AgentMessage, Project } from "@/components/editor/types";
 import { useEditorShellState } from "@/components/editor/use-editor-shell-state";
@@ -19,6 +21,7 @@ import {
 import { useLivePlayerContext } from "@twick/live-player";
 
 const SCENE_SIZE = { width: 576, height: 1024 } as const;
+const MEDIA_TRACK_PREFIX = "Media Inserts";
 
 const clampEnd = (start: number, duration: number, totalDuration: number): number =>
   totalDuration > 0 ? Math.min(start + duration, totalDuration) : start + duration;
@@ -28,6 +31,9 @@ const sanitizeName = (name: string): string => {
   if (!trimmed) return "Untitled";
   return trimmed.replace(/\.[a-z0-9]+$/i, "");
 };
+
+const rangesOverlap = (start: number, end: number, otherStart: number, otherEnd: number): boolean =>
+  otherStart < end && otherEnd > start;
 
 interface EditorShellProps {
   project: Project;
@@ -42,6 +48,7 @@ interface EditorShellProps {
   sendAgentInstruction: (instruction: string) => void;
   startVoiceEdit: () => void | Promise<void>;
   onProjectJsonChange: (projectJson: ProjectJSON) => void;
+  exportPortalRef?: RefObject<HTMLDivElement | null>;
 }
 
 export function EditorShell({
@@ -57,8 +64,8 @@ export function EditorShell({
   sendAgentInstruction,
   startVoiceEdit,
   onProjectJsonChange,
+  exportPortalRef,
 }: EditorShellProps) {
-  const timelineId = useId();
   const { activeLeftPanel, setActiveLeftPanel } = useEditorShellState("media");
   const { editor, totalDuration } = useTimelineContext();
   const livePlayer = useLivePlayerContext() as { currentTime?: number } | null;
@@ -97,6 +104,41 @@ export function EditorShell({
     return editor.getTrackByName(name) ?? editor.addTrack(name, type);
   }, [editor]);
 
+  const getAvailableMediaTrack = useCallback((start: number, end: number) => {
+    const tracks = editor.getTimelineData()?.tracks ?? [];
+    const mediaTracks = tracks
+      .filter((track) => track.getType() === TRACK_TYPES.SCENE)
+      .filter((track) => {
+        const name = track.getName();
+        return new RegExp(`^${MEDIA_TRACK_PREFIX}(?: \\d+)?$`).test(name);
+      })
+      .sort((a, b) => {
+        const aMatch = a.getName().match(/(\d+)$/);
+        const bMatch = b.getName().match(/(\d+)$/);
+        const aIndex = aMatch ? Number(aMatch[1]) : 1;
+        const bIndex = bMatch ? Number(bMatch[1]) : 1;
+        return aIndex - bIndex;
+      });
+
+    const freeTrack = mediaTracks.find((track) =>
+      !track
+        .getElements()
+        .some((element) => rangesOverlap(start, end, element.getStart(), element.getEnd()))
+    );
+
+    if (freeTrack) {
+      return freeTrack;
+    }
+
+    const nextIndex = mediaTracks.reduce((max, track) => {
+      const match = track.getName().match(/(\d+)$/);
+      const index = match ? Number(match[1]) : 1;
+      return Math.max(max, index);
+    }, 0) + 1;
+
+    return editor.addTrack(`${MEDIA_TRACK_PREFIX} ${nextIndex}`, TRACK_TYPES.SCENE);
+  }, [editor]);
+
   const insertText = useCallback(async (text: string, variant: "hook" | "lower-third" | "callout") => {
     const track = ensureTrack("Text Overlays", TRACK_TYPES.ELEMENT);
     const start = currentTime;
@@ -127,16 +169,20 @@ export function EditorShell({
   }, [currentTime, editor, ensureTrack, totalDuration]);
 
   const insertImage = useCallback(async (src: string, label: string) => {
-    const track = ensureTrack("Media Inserts", TRACK_TYPES.SCENE);
     const start = currentTime;
     const end = clampEnd(start, 4.5, totalDuration);
+    const track = getAvailableMediaTrack(start, end);
     const element = new ImageElement(src, SCENE_SIZE)
       .setName(sanitizeName(label))
       .setStart(start)
       .setEnd(end);
 
-    await editor.addElementToTrack(track, element);
-  }, [currentTime, editor, ensureTrack, totalDuration]);
+    try {
+      await editor.addElementToTrack(track, element);
+    } catch (error) {
+      console.warn("[EditorShell] Failed to insert media element:", error);
+    }
+  }, [currentTime, editor, getAvailableMediaTrack, totalDuration]);
 
   const insertAudio = useCallback(async (src: string, label: string) => {
     const track = ensureTrack("Imported Audio", TRACK_TYPES.AUDIO);
@@ -152,54 +198,65 @@ export function EditorShell({
   }, [currentTime, editor, ensureTrack, totalDuration]);
 
   return (
-    <div className="h-full overflow-hidden bg-[#0a0d14]">
-      <VideoEditor
-        leftPanel={(
-          <EditorLeftRail
-            project={project}
-            activePanel={activeLeftPanel}
-            setActivePanel={setActiveLeftPanel}
-            agentLoading={agentLoading}
-            isVoiceActive={isVoiceActive}
-            onQuickAction={sendAgentInstruction}
-            onInsertText={insertText}
-            onInsertImage={insertImage}
-            onInsertAudio={insertAudio}
+    <div className="flex h-full min-h-0 overflow-hidden">
+      {/* Portal the ExportButton into the toolbar (outside provider tree) */}
+      {exportPortalRef?.current &&
+        createPortal(
+          <ExportButton projectId={project.project_id} projectHook={project.hook} />,
+          exportPortalRef.current,
+        )}
+
+      {/* Left rail */}
+      <EditorLeftRail
+        project={project}
+        activePanel={activeLeftPanel}
+        setActivePanel={setActiveLeftPanel}
+        agentLoading={agentLoading}
+        isVoiceActive={isVoiceActive}
+        onQuickAction={sendAgentInstruction}
+        onInsertText={insertText}
+        onInsertImage={insertImage}
+        onInsertAudio={insertAudio}
+      />
+
+      {/* Center column: canvas + timeline */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Canvas area */}
+        <div className="editor-canvas-wrapper flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-editor-bg">
+          <VideoEditor
+            defaultPlayControls={false}
+            editorConfig={{
+              canvasMode: true,
+              videoProps: {
+                width: SCENE_SIZE.width,
+                height: SCENE_SIZE.height,
+                backgroundColor: "var(--editor-bg)",
+              },
+              playerProps: {
+                maxWidth: 500,
+                maxHeight: 560,
+              },
+              fps: 30,
+            }}
           />
-        )}
-        rightPanel={(
-          <AgentPanel
-            agentPanelOpen={agentPanelOpen}
-            agentMessages={agentMessages}
-            agentInput={agentInput}
-            agentLoading={agentLoading}
-            isVoiceActive={isVoiceActive}
-            agentBottomRef={agentBottomRef}
-            setAgentPanelOpen={setAgentPanelOpen}
-            setAgentInput={setAgentInput}
-            sendAgentInstruction={sendAgentInstruction}
-            startVoiceEdit={startVoiceEdit}
-          />
-        )}
-        bottomPanel={(
-          <div className="h-[340px] min-h-[340px]">
-            <TimelineDock key={timelineId} />
-          </div>
-        )}
-        defaultPlayControls={false}
-        editorConfig={{
-          canvasMode: true,
-          videoProps: {
-            width: SCENE_SIZE.width,
-            height: SCENE_SIZE.height,
-            backgroundColor: "#05070c",
-          },
-          playerProps: {
-            maxWidth: 640,
-            maxHeight: 920,
-          },
-          fps: 30,
-        }}
+        </div>
+
+        {/* Timeline */}
+        <TimelineDock />
+      </div>
+
+      {/* Agent panel */}
+      <AgentPanel
+        agentPanelOpen={agentPanelOpen}
+        agentMessages={agentMessages}
+        agentInput={agentInput}
+        agentLoading={agentLoading}
+        isVoiceActive={isVoiceActive}
+        agentBottomRef={agentBottomRef}
+        setAgentPanelOpen={setAgentPanelOpen}
+        setAgentInput={setAgentInput}
+        sendAgentInstruction={sendAgentInstruction}
+        startVoiceEdit={startVoiceEdit}
       />
     </div>
   );

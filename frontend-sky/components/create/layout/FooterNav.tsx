@@ -100,7 +100,7 @@ export function FooterNav() {
   let buttonText = "Continue";
   if (isLastStep) {
     buttonText = "Launch";
-  } else if (state.currentStep === 3 && !state.uploadedPicture) {
+  } else if (state.currentStep === 2 && !state.uploadedPicture) {
     buttonText = "Skip";
   } else if (state.currentStep === 4 && !state.selectedVoice) {
     buttonText = "Skip";
@@ -114,7 +114,7 @@ export function FooterNav() {
 
   const cannotProceed =
     loading ||
-    (state.currentStep === 2 && !state.selectedPlotOption);
+    (state.currentStep === 3 && !state.selectedPlotOption);
 
   return (
     <motion.div

@@ -166,6 +166,12 @@ class GenerateScriptRequest(BaseModel):
                     "Injected as a character context hint for the script agent.",
     )
 
+    # Optional — base64 user photo, used for subject inference in plot options
+    user_reference_image_b64: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded user photo — used for subject inference in plot options",
+    )
+
     # Optional — load an existing saved series config (overrides the manual fields above)
     series_id: Optional[str] = Field(default=None, description="Saved series config ID from /api/v1/series")
 

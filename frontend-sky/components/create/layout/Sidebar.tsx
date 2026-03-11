@@ -25,8 +25,8 @@ import { motion } from "framer-motion";
 
 const createSubItems = [
   { id: 1, label: "Tell Your Story", icon: Mic },
-  { id: 2, label: "Choose the Plot", icon: BookOpen },
-  { id: 3, label: "Upload your Picture (opt.)", icon: ImageIcon },
+  { id: 2, label: "Upload your Picture (opt.)", icon: ImageIcon },
+  { id: 3, label: "Choose the Plot", icon: BookOpen },
   { id: 4, label: "Language & Voice (opt.)", icon: Volume2 },
   { id: 5, label: "Background Music (opt.)", icon: Music },
   { id: 6, label: "Video Style", icon: Palette },

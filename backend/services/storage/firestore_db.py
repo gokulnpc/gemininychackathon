@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 COLLECTION = "projects"
 USERS_COLLECTION = "users"
-DEFAULT_CREDITS = 1000
+DEFAULT_CREDITS = 300
 CREDIT_CHARGE = 100
 
 

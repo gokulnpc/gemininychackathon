@@ -371,11 +371,6 @@ export default function DashboardPage() {
                         </div>
                       )}
 
-                      {/* Top Left Badge */}
-                      <div className="absolute top-2 left-2 pointer-events-none">
-                        <StatusPill status={project.status} />
-                      </div>
-
                       {/* Top Right Options (Grid) */}
                       {viewMode === "grid" && (
                         <div

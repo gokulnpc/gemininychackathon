@@ -200,6 +200,34 @@ async def generate_plot_options(
             "Use these as fresh inspiration angles where relevant to the brief."
         )
 
+    # ── Image subject inference (non-fatal) ───────────────────────────────────
+    subject_section = ""
+    if request.user_reference_image_b64:
+        import base64
+        import os
+        import tempfile
+        from services.gemini.image import describe_reference_subject
+        tmp_path: str | None = None
+        try:
+            img_bytes = base64.b64decode(request.user_reference_image_b64)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                tmp.write(img_bytes)
+                tmp_path = tmp.name
+            subject_description = await describe_reference_subject(tmp_path)
+            if subject_description:
+                subject_section = (
+                    f"\n\nSubject context (person in user's reference photo): {subject_description}\n"
+                    "Tailor the plot directions to feature or involve this person naturally."
+                )
+        except Exception as _img_err:
+            logger.debug("Image inference skipped for plot options: %s", _img_err)
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
     avoid_section = ""
     if request.previous_options:
         joined = "\n".join(f"- {o}" for o in request.previous_options)
@@ -216,6 +244,7 @@ async def generate_plot_options(
         "tone, narrative hook, or emotional journey.\n\n"
         f"Content brief:\n{transcript}"
         f"{reddit_section}"
+        f"{subject_section}"
         f"{avoid_section}"
         "\n\nRespond ONLY with a valid JSON array, no markdown, no explanation:\n"
         '[{"id":1,"title":"Short title 4-6 words","summary":"2-3 sentence description."},'

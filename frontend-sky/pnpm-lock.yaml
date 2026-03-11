@@ -92,6 +92,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: 1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@twick/browser-render':
+        specifier: ^0.15.23
+        version: 0.15.25(@types/node@22.19.15)(lightningcss@1.31.1)(react@19.2.4)(typescript@5.7.3)
       '@twick/live-player':
         specifier: ^0.15.23
         version: 0.15.23(@types/node@22.19.15)(lightningcss@1.31.1)(react@19.2.4)(typescript@5.7.3)
@@ -412,6 +415,18 @@ packages:
     resolution: {integrity: sha512-Drt5u2vzDnIONf4ZEkKtFlbvwj6rI3kxw1Ck9fpudmtgaZIHD4ucsWB2lCZBXRxJgXR+2IMSti+4rtM4C4rXgg==}
     cpu: [x64]
     os: [win32]
+
+  '@ffmpeg/core@0.12.10':
+    resolution: {integrity: sha512-dzNplnn2Nxle2c2i2rrDhqcB19q9cglCkWnoMTDN9Q9l3PvdjZWd1HfSPjCNWc/p8Q3CT+Es9fWOR0UhAeYQZA==}
+    engines: {node: '>=16.x'}
+
+  '@ffmpeg/types@0.12.4':
+    resolution: {integrity: sha512-k9vJQNBGTxE5AhYDtOYR5rO5fKsspbg51gbcwtbkw2lCdoIILzklulcjJfIDwrtn7XhDeF2M+THwJ2FGrLeV6A==}
+    engines: {node: '>=16.x'}
+
+  '@ffmpeg/util@0.12.2':
+    resolution: {integrity: sha512-ouyoW+4JB7WxjeZ2y6KpRvB+dLp7Cp4ro8z0HIVpZVCM7AwFlHa0c4R8Y/a4M3wMqATpYKhC7lSFHQ0T11MEDw==}
+    engines: {node: '>=18.x'}
 
   '@ffprobe-installer/darwin-arm64@5.0.1':
     resolution: {integrity: sha512-vwNCNjokH8hfkbl6m95zICHwkSzhEvDC3GVBcUp5HX8+4wsX10SP3B+bGur7XUzTIZ4cQpgJmEIAx6TUwRepMg==}
@@ -1843,9 +1858,21 @@ packages:
   '@twick/2d@0.15.23':
     resolution: {integrity: sha512-N3J7ludbtPGb0Wi4AScXSnDL0FO6x6bKQjuxG913Pyau7uInVNdIZTBbS+yJwrxMDe0jYpm24KC53l76+3/rpA==}
 
+  '@twick/2d@0.15.25':
+    resolution: {integrity: sha512-hqTvIVe76hkjg5uHdV75+RUqiIUiHNorrtj8lyBnB+IKqBfSHb1B6RZck/K2mkcqFw89uq9Lo8sJOSdoqi79Zg==}
+
   '@twick/ai-models@0.15.23':
     resolution: {integrity: sha512-4xN54AFXk3J8gvgOIUj0yASCoN/SNoxRnSpltfaBBtR95qI4M4o++uikr5vFBGk2YuZnqatGpYkuo2ggrtmq1Q==}
     engines: {node: '>=20.0.0'}
+
+  '@twick/browser-render@0.15.25':
+    resolution: {integrity: sha512-dAxH72TdEFivJE/aDp2R2tMfMNKcDcpFqwyl9PMDRy50O3yJh1SBhPAYL0/NJOd3jh1BRtYc3AIYxz1gwv96ig==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      react: '>=17.0.0'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@twick/canvas@0.15.23':
     resolution: {integrity: sha512-+lxxa+If56KCQ5tfgc1xJjk/npu8ydh0L6yN9TIBf75nWK/JgKj1P5xkPY7kUcHsDKXMc7xgOShMbLeZ9xpZ3Q==}
@@ -1856,14 +1883,30 @@ packages:
   '@twick/core@0.15.23':
     resolution: {integrity: sha512-9HtexmmgGAW3oWWqP+6/W9zCsttVaWxcivv3y9cqeQLoPG0SsRLl1iLVczKzcaFsEgEpQAUM7tj67MiwAcHbOw==}
 
+  '@twick/core@0.15.25':
+    resolution: {integrity: sha512-IXSOVEgQ3L65FQ5ZYmHlPN79O3NcdwqLiHlKeuh0SVChGQ3h/e2lKeOLVwcDw808CEsoOqZFxuEcY1U4l3O+3g==}
+
   '@twick/effects@0.15.23':
     resolution: {integrity: sha512-joakjlDsvaL4AYASnvpJNes1TVUKL2tV1spZWzw1VnAfJOiBfoabsE8Cu0Lbg2E40p3axsVZ5L8VXZbYMG/xeA==}
+
+  '@twick/effects@0.15.25':
+    resolution: {integrity: sha512-cDSx9gZDKqtLF6aGFJCgx2AEcZUx2SUHZSqleboox66hpzqLKnzXKfOWxiPYkAJKC3UVDeJKzF+LZRTPFII3gg==}
+
+  '@twick/ffmpeg-web@0.15.25':
+    resolution: {integrity: sha512-+cQn8/WBLd/UhXrQUwDTQJjbL9dMxgoP4laaEGOJS/8/DmGADhZvTFgurXW/RD05UtTFvkpo4WFcZWf0OTTw0g==}
+    engines: {node: '>=18.x'}
 
   '@twick/ffmpeg@0.15.23':
     resolution: {integrity: sha512-6zxlEz8BXbKThiBEwsxybY+OqCnvuxGuA9mitBUO9jQsYRJ/vBfSY3HlQXJ0sHR2nFTyT44w1JJi/XeczGzxuQ==}
 
+  '@twick/ffmpeg@0.15.25':
+    resolution: {integrity: sha512-7gkdyxPvcNHw7E1hk70+ixj3Xx97NtVqNxsZMJEtaKPY+KEpvtRcHZhkmSyB/qWRcb8KwlmySoI3aZJG1yvwKQ==}
+
   '@twick/gl-runtime@0.15.23':
     resolution: {integrity: sha512-tSyaAeY2WsoBQkl11m/5Jk9OMl2Ski7I7qz8uHuHs6AB95aV2W0xhW5QQNJaICd8ZukDs3ZH8j3uZQMzk7LHpQ==}
+
+  '@twick/gl-runtime@0.15.25':
+    resolution: {integrity: sha512-6qWXk1xyWgSQvH/dw++DBHLsuF3Rbi5AevEhb339MZsvqRyNfQNPeNpJXgsDbhKGWYA3fCbObTyR8tohrOsTLQ==}
 
   '@twick/live-player@0.15.23':
     resolution: {integrity: sha512-udH0bXVos5sAXutTSqo02ZsGKpzfsCzNdVOaaqH/BAtKF+OBHTIxeXndq5ZMCWtX4noM/UTKsXkuQo2Ea+gQDA==}
@@ -1875,11 +1918,18 @@ packages:
     resolution: {integrity: sha512-rPZAwl7vQhpPo1I6Cgyg59EEzqGGl+dl1RxklRuq1+ivooHBio1Ykf+0TgA5Xh/LZ933En/v4sz6wPwzUjW3MQ==}
     engines: {node: '>=20.0.0'}
 
+  '@twick/media-utils@0.15.25':
+    resolution: {integrity: sha512-YeCSc9t86v9yU8sLH8wjOAbBXVclOWrpL1IMWptVDGjKqk5GSJI4iehrmcA1WMchSmbONNPQ+G60doHGMIG97w==}
+    engines: {node: '>=20.0.0'}
+
   '@twick/player-react@0.15.23':
     resolution: {integrity: sha512-zPMNDuBz33lL36mh/l1sStfpgI4XszLizVXfMKLIr3MPLmnbDJgh9Kcml/MisQagc37FDz3Q6OIytqYC/xXWAw==}
 
   '@twick/renderer@0.15.23':
     resolution: {integrity: sha512-/wnEPoWeQIZ6/8gqreqi1a/UcSvahdmLwvUjb+pLSIQgSlGf4Dp607fcOTMsyT0r2X6FaN1ySHu95dBOjfnP6A==}
+
+  '@twick/renderer@0.15.25':
+    resolution: {integrity: sha512-AmWDW4PXeHRMDFZtxPTGtQiokQVidPZ3pX9oOtzG4Z+HIDY3rdRKaT0TL7OlpHP9Lteaak8uinmAMDSNIpQMcQ==}
 
   '@twick/studio@0.15.23':
     resolution: {integrity: sha512-7Y9rXl0pyChRXAfsqm9zBvIMIYMDWJRzr7zhqyUUFfBSieKi3cEwDWo1pdltSS55ulKlK5KVG2zLehh2ckqLBA==}
@@ -1890,6 +1940,9 @@ packages:
 
   '@twick/telemetry@0.15.23':
     resolution: {integrity: sha512-2u9cKBQEvYDFF/4F7AyYrK6S9LTFsJL1SrYs4Q8xOVGxaMTDmBo6JRqqIug1XZj0KODcCcSGuGy8KltjxhjsVA==}
+
+  '@twick/telemetry@0.15.25':
+    resolution: {integrity: sha512-NmPgpm9cYrH0sD1M5RlZHrE7SzwLLzuVZe0R3n2HMydyjrnUr5pUo2v2mA/q9hbmFYJfRaCGCRGKuYQ4yZrwnQ==}
 
   '@twick/timeline@0.15.23':
     resolution: {integrity: sha512-Yzrld67bmjf3YwIMArxFJ/y/mODe/eqxdEyceQ2ob04V5HcGE4G+2sYg4vRQ6oxrPz3WPecIg/5o56/TMshstQ==}
@@ -1906,8 +1959,15 @@ packages:
     resolution: {integrity: sha512-H5T1EPS8Ma1PKAqjgUKoF/+wfz5NRh5YET+XsPnLnK8NpULl4quwL0YV2XJeloe7Iccb7z5DUZWG0bwINhUBrQ==}
     engines: {node: '>=20.0.0'}
 
+  '@twick/visualizer@0.15.25':
+    resolution: {integrity: sha512-En8TmvHrC2lQAnX1ilLuI49dFqIwTvcAth3RSPZZiUqf6lu7tGTEQDr90YWmigIixnV6KwEyVrCLrOp69xHBfg==}
+    engines: {node: '>=20.0.0'}
+
   '@twick/vite-plugin@0.15.23':
     resolution: {integrity: sha512-oW4AReK8MccJ6cQKwTRCVj4qG7F6YLBlH5Tkb05QGPbISXjlLIABfeKUFgBHs4RvQDIz+8y3YZv5VCXI+Gl0PQ==}
+
+  '@twick/vite-plugin@0.15.25':
+    resolution: {integrity: sha512-j0apiiIi6xGz3A6ixUBNeEGQvdAIOXKa2MSWTKxJMH5L8aEYPw3mAvBVxtKI6n6KPB0yUMKHhXY4TuE2pmPknQ==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -1935,6 +1995,12 @@ packages:
 
   '@types/d3-timer@3.0.2':
     resolution: {integrity: sha512-Ps3T8E8dZDam6fUyNiMkekK3XUsaUEik+idO9/YjPtfj2qruF8tFBXS7XhtE4iIXBLxhmLjP3SXpLhVf21I9Lw==}
+
+  '@types/dom-mediacapture-transform@0.1.11':
+    resolution: {integrity: sha512-Y2p+nGf1bF2XMttBnsVPHUWzRRZzqUoJAKmiP10b5umnO6DDrWI0BrGDJy1pOHoOULVmGSfFNkQrAlC5dcj6nQ==}
+
+  '@types/dom-webcodecs@0.1.13':
+    resolution: {integrity: sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==}
 
   '@types/hast@2.3.10':
     resolution: {integrity: sha512-McWspRw8xx8J9HurkVBfYj0xKoE25tOFlHGdx4MJ5xORQrMGZNqJhVQWaIbm6Oyla5kYOXtDiopzKRJzEOkwJw==}
@@ -2864,6 +2930,9 @@ packages:
     resolution: {integrity: sha512-+LfG9Fik+OuI8SLwsiR02IVdjcnRCy5MufYLi0C3TdMT56L/pjB0alMVGgoWJF8pN9Rc7FESycZB9BMNWIid5w==}
     deprecated: Version 4 replaces this package with the scoped package @mathjax/src
 
+  mediabunny@1.39.1:
+    resolution: {integrity: sha512-gaQKDWtfLhgSN9tRj37lgznHf9MOvey7sbT6GdQA7mWl1kaE5R+P1lfl9CDsgtzongx12IG9X/y2vgZmTHzGDg==}
+
   merge2@1.4.1:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
     engines: {node: '>= 8'}
@@ -3769,6 +3838,12 @@ snapshots:
 
   '@ffmpeg-installer/win32-x64@4.1.0':
     optional: true
+
+  '@ffmpeg/core@0.12.10': {}
+
+  '@ffmpeg/types@0.12.4': {}
+
+  '@ffmpeg/util@0.12.2': {}
 
   '@ffprobe-installer/darwin-arm64@5.0.1':
     optional: true
@@ -5292,7 +5367,52 @@ snapshots:
       mp4box: 0.5.4
       parse-svg-path: 0.1.2
 
+  '@twick/2d@0.15.25':
+    dependencies:
+      '@codemirror/language': 6.12.2
+      '@lezer/common': 1.5.1
+      '@lezer/highlight': 1.2.3
+      '@rive-app/canvas-advanced': 2.7.3
+      '@twick/core': 0.15.25
+      code-fns: 0.8.2
+      hls.js: 1.6.15
+      mathjax-full: 3.2.2
+      mp4box: 0.5.4
+      parse-svg-path: 0.1.2
+
   '@twick/ai-models@0.15.23': {}
+
+  '@twick/browser-render@0.15.25(@types/node@22.19.15)(lightningcss@1.31.1)(react@19.2.4)(typescript@5.7.3)':
+    dependencies:
+      '@ffmpeg/core': 0.12.10
+      '@ffmpeg/util': 0.12.2
+      '@twick/core': 0.15.25
+      '@twick/effects': 0.15.25
+      '@twick/ffmpeg-web': 0.15.25
+      '@twick/gl-runtime': 0.15.25
+      '@twick/media-utils': 0.15.25
+      '@twick/visualizer': 0.15.25(@types/node@22.19.15)(lightningcss@1.31.1)(typescript@5.7.3)
+      mediabunny: 1.39.1
+      mp4-wasm: 1.0.6
+      mp4box: 0.5.4
+    optionalDependencies:
+      react: 19.2.4
+    transitivePeerDependencies:
+      - '@types/node'
+      - bare-abort-controller
+      - bare-buffer
+      - bufferutil
+      - debug
+      - less
+      - lightningcss
+      - react-native-b4a
+      - sass
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - typescript
+      - utf-8-validate
 
   '@twick/canvas@0.15.23(react@19.2.4)':
     dependencies:
@@ -5311,9 +5431,23 @@ snapshots:
       culori: 4.0.2
       mp4-wasm: 1.0.6
 
+  '@twick/core@0.15.25':
+    dependencies:
+      '@twick/gl-runtime': 0.15.25
+      culori: 4.0.2
+      mp4-wasm: 1.0.6
+
   '@twick/effects@0.15.23':
     dependencies:
       '@twick/gl-runtime': 0.15.23
+
+  '@twick/effects@0.15.25':
+    dependencies:
+      '@twick/gl-runtime': 0.15.25
+
+  '@twick/ffmpeg-web@0.15.25':
+    dependencies:
+      '@ffmpeg/types': 0.12.4
 
   '@twick/ffmpeg@0.15.23':
     dependencies:
@@ -5326,7 +5460,20 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
+  '@twick/ffmpeg@0.15.25':
+    dependencies:
+      '@ffmpeg-installer/ffmpeg': 1.1.0
+      '@ffprobe-installer/ffprobe': 2.1.2
+      '@twick/core': 0.15.25
+      '@twick/telemetry': 0.15.25
+      fluent-ffmpeg: 2.1.3
+      uuid: 10.0.0
+    transitivePeerDependencies:
+      - debug
+
   '@twick/gl-runtime@0.15.23': {}
+
+  '@twick/gl-runtime@0.15.25': {}
 
   '@twick/live-player@0.15.23(@types/node@22.19.15)(lightningcss@1.31.1)(react@19.2.4)(typescript@5.7.3)':
     dependencies:
@@ -5356,6 +5503,10 @@ snapshots:
     dependencies:
       lamejs: 1.2.1
 
+  '@twick/media-utils@0.15.25':
+    dependencies:
+      lamejs: 1.2.1
+
   '@twick/player-react@0.15.23':
     dependencies:
       '@twick/core': 0.15.23
@@ -5369,6 +5520,31 @@ snapshots:
       '@twick/ffmpeg': 0.15.23
       '@twick/telemetry': 0.15.23
       '@twick/vite-plugin': 0.15.23
+      puppeteer: 23.11.1(typescript@5.7.3)
+      uuid: 10.0.0
+      vite: 4.5.2(@types/node@22.19.15)(lightningcss@1.31.1)
+    transitivePeerDependencies:
+      - '@types/node'
+      - bare-abort-controller
+      - bare-buffer
+      - bufferutil
+      - debug
+      - less
+      - lightningcss
+      - react-native-b4a
+      - sass
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - typescript
+      - utf-8-validate
+
+  '@twick/renderer@0.15.25(@types/node@22.19.15)(lightningcss@1.31.1)(typescript@5.7.3)':
+    dependencies:
+      '@twick/ffmpeg': 0.15.25
+      '@twick/telemetry': 0.15.25
+      '@twick/vite-plugin': 0.15.25
       puppeteer: 23.11.1(typescript@5.7.3)
       uuid: 10.0.0
       vite: 4.5.2(@types/node@22.19.15)(lightningcss@1.31.1)
@@ -5423,6 +5599,13 @@ snapshots:
       - utf-8-validate
 
   '@twick/telemetry@0.15.23':
+    dependencies:
+      posthog-node: 4.18.0
+      uuid: 9.0.1
+    transitivePeerDependencies:
+      - debug
+
+  '@twick/telemetry@0.15.25':
     dependencies:
       posthog-node: 4.18.0
       uuid: 9.0.1
@@ -5494,10 +5677,51 @@ snapshots:
       - typescript
       - utf-8-validate
 
+  '@twick/visualizer@0.15.25(@types/node@22.19.15)(lightningcss@1.31.1)(typescript@5.7.3)':
+    dependencies:
+      '@preact/signals': 1.3.4(preact@10.28.4)
+      '@twick/2d': 0.15.25
+      '@twick/core': 0.15.25
+      '@twick/effects': 0.15.25
+      '@twick/media-utils': 0.15.25
+      '@twick/renderer': 0.15.25(@types/node@22.19.15)(lightningcss@1.31.1)(typescript@5.7.3)
+      '@twick/vite-plugin': 0.15.25
+      crelt: 1.0.6
+      date-fns: 4.1.0
+      preact: 10.28.4
+    transitivePeerDependencies:
+      - '@types/node'
+      - bare-abort-controller
+      - bare-buffer
+      - bufferutil
+      - debug
+      - less
+      - lightningcss
+      - react-native-b4a
+      - sass
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - typescript
+      - utf-8-validate
+
   '@twick/vite-plugin@0.15.23':
     dependencies:
       '@twick/ffmpeg': 0.15.23
       '@twick/telemetry': 0.15.23
+      fast-glob: 3.3.3
+      follow-redirects: 1.15.11
+      formidable: 3.5.4
+      mime-types: 2.1.35
+      source-map: 0.6.1
+    transitivePeerDependencies:
+      - debug
+
+  '@twick/vite-plugin@0.15.25':
+    dependencies:
+      '@twick/ffmpeg': 0.15.25
+      '@twick/telemetry': 0.15.25
       fast-glob: 3.3.3
       follow-redirects: 1.15.11
       formidable: 3.5.4
@@ -5529,6 +5753,12 @@ snapshots:
   '@types/d3-time@3.0.4': {}
 
   '@types/d3-timer@3.0.2': {}
+
+  '@types/dom-mediacapture-transform@0.1.11':
+    dependencies:
+      '@types/dom-webcodecs': 0.1.13
+
+  '@types/dom-webcodecs@0.1.13': {}
 
   '@types/hast@2.3.10':
     dependencies:
@@ -6489,6 +6719,11 @@ snapshots:
       mhchemparser: 4.2.1
       mj-context-menu: 0.6.1
       speech-rule-engine: 4.1.2
+
+  mediabunny@1.39.1:
+    dependencies:
+      '@types/dom-mediacapture-transform': 0.1.11
+      '@types/dom-webcodecs': 0.1.13
 
   merge2@1.4.1: {}
 

@@ -50,8 +50,9 @@ async def list_assets(category: str = Query(..., description="images | music | v
     try:
         keys = await gcs.list_keys(prefix)
     except Exception as e:
-        logger.exception("Failed to list asset keys for category=%s uid=%s", category, uid)
-        raise HTTPException(status_code=500, detail=f"Failed to list assets: {e}")
+        # Asset browsing should degrade to an empty state rather than break the editor.
+        logger.exception("Failed to list asset keys for category=%s uid=%s: %s", category, uid, e)
+        return {"assets": []}
 
     meta_keys = [k for k in keys if k.endswith("/meta.json")]
 
@@ -65,7 +66,7 @@ async def list_assets(category: str = Query(..., description="images | music | v
     tasks = [_safe_load_json(mk) for mk in meta_keys]
     loaded_assets = await asyncio.gather(*tasks)
 
-    assets = [a for a in loaded_assets if a is not None]
+    assets = [a for a in loaded_assets if isinstance(a, dict)]
     assets.sort(key=lambda a: a.get("uploaded_at", ""), reverse=True)
     return {"assets": assets}
 

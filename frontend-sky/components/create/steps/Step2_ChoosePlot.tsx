@@ -53,6 +53,13 @@ export function Step2_ChoosePlot() {
         body.previous_options = previousOptions;
       }
 
+      if (state.uploadedPicture) {
+        const b64 = state.uploadedPicture.includes(",")
+          ? state.uploadedPicture.split(",")[1]
+          : state.uploadedPicture;
+        body.user_reference_image_b64 = b64;
+      }
+
       const data = await apiClient.post(`/api/v1/projects/${projectId}/generate-plot-options`, body).then(r => r.data);
       setOptions(data.options ?? []);
     } catch (e) {

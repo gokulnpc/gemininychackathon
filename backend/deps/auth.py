@@ -66,5 +66,5 @@ async def get_current_user(
         "email": email,
         "display_name": profile.get("display_name") or display_name,
         "photo_url": profile.get("photo_url") or photo_url,
-        "credits": profile.get("credits", 1000),
+        "credits": profile.get("credits", 300),
     }

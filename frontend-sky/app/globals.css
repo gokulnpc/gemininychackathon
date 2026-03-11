@@ -37,6 +37,24 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ── Editor design tokens ── */
+  --editor-bg: oklch(0.22 0 0);
+  --editor-surface: oklch(0.38 0 0);
+  --editor-surface-raised: oklch(0.35 0 0);
+  --editor-toolbar: oklch(0.24 0 0);
+  --editor-sidebar: oklch(0.26 0 0);
+  --editor-panel: oklch(0.39 0 0);
+  --editor-card: oklch(0.42 0 0);
+  --editor-card-strong: oklch(0.46 0 0);
+  --editor-control: oklch(0.31 0 0);
+  --editor-control-hover: oklch(0.36 0 0);
+  --editor-border: oklch(1 0 0 / 0.10);
+  --editor-text: oklch(1 0 0);
+  --editor-text-muted: oklch(1 0 0 / 0.45);
+  --editor-text-dim: oklch(1 0 0 / 0.35);
+  --editor-accent: oklch(0.62 0.08 210);
+  --editor-accent-glow: oklch(0.75 0.10 210);
 }
 
 .dark {
@@ -113,6 +131,22 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-editor-bg: var(--editor-bg);
+  --color-editor-surface: var(--editor-surface);
+  --color-editor-surface-raised: var(--editor-surface-raised);
+  --color-editor-toolbar: var(--editor-toolbar);
+  --color-editor-sidebar: var(--editor-sidebar);
+  --color-editor-panel: var(--editor-panel);
+  --color-editor-card: var(--editor-card);
+  --color-editor-card-strong: var(--editor-card-strong);
+  --color-editor-control: var(--editor-control);
+  --color-editor-control-hover: var(--editor-control-hover);
+  --color-editor-border: var(--editor-border);
+  --color-editor-text: var(--editor-text);
+  --color-editor-text-muted: var(--editor-text-muted);
+  --color-editor-text-dim: var(--editor-text-dim);
+  --color-editor-accent: var(--editor-accent);
+  --color-editor-accent-glow: var(--editor-accent-glow);
 }
 
 @layer base {
@@ -124,6 +158,31 @@
     scroll-behavior: smooth;
   }
 }
+
+/* ── Editor theme scope — overrides semantic tokens for dark editor context ── */
+.editor-theme {
+  --background: var(--editor-bg);
+  --foreground: var(--editor-text);
+  --primary: var(--editor-accent);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: var(--editor-control);
+  --secondary-foreground: var(--editor-text);
+  --muted: var(--editor-card);
+  --muted-foreground: var(--editor-text-muted);
+  --accent: var(--editor-accent);
+  --accent-foreground: oklch(1 0 0);
+  --border: var(--editor-border);
+  --input: var(--editor-control);
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(1 0 0);
+  color-scheme: dark;
+}
+
+/* ── Editor scrollbar ── */
+.editor-scroll::-webkit-scrollbar { width: 6px; }
+.editor-scroll::-webkit-scrollbar-track { background: transparent; }
+.editor-scroll::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 0.15); border-radius: 3px; }
+.editor-scroll::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 0.25); }
 
 /* ── Override browser autofill light background on dark inputs ── */
 input:-webkit-autofill,
@@ -248,6 +307,117 @@ input:-webkit-autofill:active {
 /* ── CTA parallax ── */
 .parallax-bg {
   will-change: transform;
+}
+
+/* ── Twick editor canvas styling ── */
+.editor-canvas-wrapper .twick-editor-container {
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Twick timeline element theming ── */
+.timeline-toolbar,
+.twick-timeline-header-container,
+.twick-seek-track-container {
+  background: var(--editor-card-strong);
+  color: var(--editor-text);
+}
+
+.twick-seek-track-empty-space,
+.twick-track-header {
+  background-color: color-mix(in oklab, var(--editor-control) 82%, white 18%) !important;
+  border-right: 1px solid var(--editor-border) !important;
+}
+
+.twick-seek-track {
+  background-color: color-mix(in oklab, var(--editor-bg) 58%, white 42%) !important;
+  border-top: 1px solid var(--editor-border) !important;
+  border-bottom: 1px solid var(--editor-border) !important;
+}
+
+.twick-track-header-default {
+  border: 1px solid color-mix(in oklab, var(--editor-border) 65%, white 35%) !important;
+}
+
+.twick-track-header-grip,
+.twick-track-header-content,
+.twick-track-header-lock {
+  color: var(--editor-text-dim) !important;
+}
+
+.player-controls {
+  background-color: var(--editor-card-strong) !important;
+  border-top: 1px solid var(--editor-border) !important;
+}
+
+.control-btn {
+  color: var(--editor-text-muted) !important;
+}
+
+.control-btn:hover {
+  color: var(--editor-text) !important;
+  background-color: var(--editor-control-hover) !important;
+}
+
+.control-btn:active {
+  background-color: var(--editor-control) !important;
+}
+
+.play-pause-btn {
+  color: var(--editor-text) !important;
+}
+
+.time-display,
+.zoom-level {
+  color: var(--editor-text-muted) !important;
+}
+
+.current-time {
+  color: var(--editor-text) !important;
+}
+
+.time-separator,
+.total-time {
+  color: var(--editor-text-dim) !important;
+}
+
+.timeline-toolbar button,
+.timeline-toolbar .btn,
+.twick-timeline-header-container button,
+.twick-seek-track-container button {
+  color: var(--editor-text);
+}
+
+.timeline-toolbar .time-display,
+.twick-timeline-header-container,
+.twick-seek-track-container {
+  color: var(--editor-text-muted);
+}
+
+.twick-timeline-scroll-container {
+  overflow-y: auto;
+}
+
+.timeline-element {
+  border-radius: 12px;
+}
+
+.timeline-element.selected,
+.timeline-element:hover {
+  box-shadow: 0 0 0 1px rgba(90, 154, 181, 0.45);
+}
+
+.btn-primary,
+button.btn-primary {
+  background: #5a9ab5;
+  border-color: transparent;
+  color: #fff;
+}
+
+.btn-primary:hover,
+button.btn-primary:hover {
+  background: #7ab0c8;
 }
 
 /* ── CTA photo column infinite scroll ── */

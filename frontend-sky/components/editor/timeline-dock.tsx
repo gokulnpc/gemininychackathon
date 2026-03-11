@@ -50,33 +50,17 @@ export function TimelineDock() {
   }, [livePlayer]);
 
   return (
-    <div className="flex h-full min-h-[320px] flex-col border-t border-white/10 bg-[#0b0e14]">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold text-white">Timeline Dock</p>
-          <p className="text-xs text-white/45">
-            {selectedIds.size > 0 ? `${selectedIds.size} selected` : "No selection"} · duration {formatSeconds(totalDuration)}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setTrackZoom((value) => Math.max(0.5, Number((value - 0.1).toFixed(2))))}
-            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/75 transition hover:bg-white/10"
-          >
-            Zoom -
-          </button>
-          <button
-            type="button"
-            onClick={() => setTrackZoom((value) => Math.min(3, Number((value + 0.1).toFixed(2))))}
-            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/75 transition hover:bg-white/10"
-          >
-            Zoom +
-          </button>
-        </div>
+    <div className="flex shrink-0 flex-col border-t border-editor-border bg-editor-panel" style={{ height: "300px" }}>
+      {/* Timeline header */}
+      <div className="shrink-0 border-b border-editor-border bg-editor-card px-4 py-1.5">
+        <p className="text-sm font-semibold text-editor-text">Timeline</p>
+        <p className="text-xs text-editor-text-muted">
+          {selectedIds.size > 0 ? `${selectedIds.size} selected` : "No selection"} · duration {formatSeconds(totalDuration)}
+        </p>
       </div>
 
-      <div className="border-b border-white/10 bg-white/[0.02] px-3 py-2">
+      {/* Control bar */}
+      <div className="shrink-0 border-b border-editor-border bg-editor-card-strong px-3 py-1">
         <PlayerControls
           selectedItem={selectedItem}
           selectedIds={selectedIds}
@@ -99,7 +83,8 @@ export function TimelineDock() {
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      {/* Track editor */}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-editor-surface">
         <TimelineManager trackZoom={trackZoom} />
       </div>
     </div>

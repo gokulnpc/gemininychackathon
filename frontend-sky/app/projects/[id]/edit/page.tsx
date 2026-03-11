@@ -13,8 +13,6 @@ import {
   AlertCircle,
   ArrowLeft,
   Bot,
-  ChevronDown,
-  Download,
   Loader2,
   Save,
 } from "lucide-react";
@@ -22,14 +20,17 @@ import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 import { apiFetch } from "@/lib/api";
 import { auth } from "@/lib/firebase";
-import { useAuth } from "@/context/AuthContext";
-import type { Result } from "@twick/studio";
 import type { ProjectJSON } from "@twick/timeline";
 import "@twick/studio/dist/studio.css";
 import { TimelineProvider, INITIAL_TIMELINE_DATA, useTimelineContext } from "@twick/timeline";
 import { LivePlayerProvider, useLivePlayerContext } from "@twick/live-player";
-import { EditorShell } from "@/components/editor/editor-shell";
+import dynamic from "next/dynamic";
 import type { AgentMessage, Project } from "@/components/editor/types";
+
+const EditorShell = dynamic(
+  () => import("@/components/editor/editor-shell").then((m) => ({ default: m.EditorShell })),
+  { ssr: false },
+);
 
 // ─── AgentBridge ───────────────────────────────────────────────────────────────
 // Zero-render child inside TimelineProvider — exposes editor API to parent via ref.
@@ -92,14 +93,12 @@ const AgentBridge = forwardRef<EditorBridgeHandle>((_, ref) => {
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_API = API.replace(/^http/, "ws");
 
-const PLATFORMS = ["instagram_reels", "tiktok", "youtube_shorts", "master"];
 // ─── Editor Page ──────────────────────────────────────────────────────────────
 
 export default function EditorPage() {
   const params = useParams();
   const projectId = params.id as string;
   const router = useRouter();
-  const { idToken } = useAuth();
 
   // Project data
   const [project, setProject] = useState<Project | null>(null);
@@ -117,8 +116,6 @@ export default function EditorPage() {
   const [agentInput, setAgentInput] = useState("");
   const [agentLoading, setAgentLoading] = useState(false);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
-  const [exportLoading, setExportLoading] = useState(false);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const agentBottomRef = useRef<HTMLDivElement>(null);
@@ -221,44 +218,7 @@ export default function EditorPage() {
     agentBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [agentMessages]);
 
-  // ─── Twick exportVideo callback ─────────────────────────────────────────────
-
-  const handleExportVideo = useCallback(async (projectData: ProjectJSON): Promise<Result> => {
-    try {
-      // 1. Persist timeline edits
-      await apiClient.put(`/api/v1/projects/${projectId}/timeline`, projectData);
-
-      // 2. Trigger full video recompose with current settings
-      const latest = await apiClient.get(`/api/v1/projects/${projectId}`).then((r) => r.data).catch(() => null);
-      await apiClient.post(`/api/v1/projects/${projectId}/recompose`, {
-        caption_style: latest?.caption_style ?? "bold_stroke",
-        background_music: latest?.background_music ?? "none",
-        music_volume: 0.15,
-        target_platforms: latest?.platforms ?? ["instagram_reels"],
-      });
-
-      return { status: true, message: "Video exported! Recompose started." };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Export failed";
-      console.error("Export failed:", e);
-      return { status: false, message };
-    }
-  }, [projectId]);
-
-  const exportCurrentTimeline = useCallback(async () => {
-    const currentProject = editorBridgeRef.current?.getProject() ?? project?.project_json ?? null;
-    if (!currentProject || exportLoading) return;
-    setExportLoading(true);
-    setSaveState("saving");
-    setExportMessage(null);
-    const result = await handleExportVideo(currentProject);
-    setExportMessage(result.message);
-    setExportLoading(false);
-    setSaveState(result.status ? "saved" : "error");
-    if (result.status) {
-      setLastSavedAt(new Date());
-    }
-  }, [exportLoading, handleExportVideo, project?.project_json]);
+  const exportPortalRef = useRef<HTMLDivElement>(null);
 
   const saveStateLabel = saveState === "saving"
     ? "Saving..."
@@ -584,26 +544,19 @@ export default function EditorPage() {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  const streamUrl = (platform: string) =>
-    `${API}/api/v1/projects/${projectId}/stream/${platform}${idToken ? `?token=${idToken}` : ''}`;
-
-  const availablePlatforms = project?.platforms?.length
-    ? project.platforms
-    : PLATFORMS.filter((p) => project?.video_urls?.[p]);
-
   const timelineData = project?.project_json ?? INITIAL_TIMELINE_DATA;
 
   // ─── Error state ─────────────────────────────────────────────────────────────
 
   if (loadError) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#1a1a1a] text-white/50">
+      <div className="flex h-screen items-center justify-center bg-editor-toolbar text-editor-text-muted">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-400/60" />
           <p className="text-lg mb-2">{loadError}</p>
           <button
             onClick={() => router.push(`/projects/${projectId}`)}
-            className="text-sm text-[#7c3aed] hover:underline"
+            className="text-sm text-primary hover:underline"
           >
             ← Back to project
           </button>
@@ -615,15 +568,15 @@ export default function EditorPage() {
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-screen bg-[#1a1a1a] text-white overflow-hidden">
+    <div className="editor-theme flex h-screen min-h-0 flex-col overflow-hidden bg-editor-bg text-foreground">
 
       {/* ── Toolbar ────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 h-12 bg-[#111111] border-b border-white/10 shrink-0 z-10">
+      <div className="flex items-center justify-between px-4 h-12 bg-editor-toolbar border-b border-editor-border shrink-0 z-10">
         {/* Left */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/projects/${projectId}`)}
-            className="flex items-center gap-1.5 text-white/50 hover:text-white transition-colors text-sm"
+            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors text-sm"
           >
             <ArrowLeft className="w-4 h-4" /> Back
           </button>
@@ -631,17 +584,17 @@ export default function EditorPage() {
 
         {/* Center — project title */}
         <div className="flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-green-400" />
-          <span className="text-sm text-white/70 truncate max-w-xs">
+          <div className="w-2 h-2 rounded-full bg-editor-accent" />
+          <span className="text-sm text-editor-text-muted truncate max-w-xs">
             {project?.hook ?? "Loading..."}
           </span>
-          <div className={cn(
+            <div className={cn(
             "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] md:flex",
             saveState === "error"
-              ? "border-red-500/20 bg-red-500/10 text-red-200"
+              ? "border-destructive/20 bg-destructive/10 text-destructive"
               : saveState === "saving"
-                ? "border-amber-400/20 bg-amber-400/10 text-amber-100"
-                : "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                ? "border-editor-border bg-editor-control text-muted-foreground"
+                : "border-primary/30 bg-primary/10 text-foreground"
           )}>
             {saveState === "saving" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
             {saveStateLabel}
@@ -650,39 +603,8 @@ export default function EditorPage() {
 
         {/* Right */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              void exportCurrentTimeline();
-            }}
-            disabled={exportLoading || !project}
-            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exportLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {exportLoading ? "Exporting..." : "Export"}
-          </button>
-
-          <div className="relative group">
-            <button className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-white/15">
-              <Download className="w-4 h-4" />
-              Files
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            <div className="absolute right-0 top-full mt-1 w-48 bg-[#2a2a2a] border border-white/10 rounded-xl overflow-hidden opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-xl">
-              {availablePlatforms.map((p) => (
-                <a
-                  key={p}
-                  href={streamUrl(p)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2.5 hover:bg-white/10 text-sm text-white/80 hover:text-white transition-colors capitalize"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  {p.replace(/_/g, " ")}
-                </a>
-              ))}
-            </div>
-          </div>
+          {/* Export button is portalled here from EditorShell (inside provider tree) */}
+          <div ref={exportPortalRef} />
 
           {/* Agent toggle */}
           <button
@@ -690,8 +612,8 @@ export default function EditorPage() {
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
               agentPanelOpen
-                ? "bg-[#7c3aed] text-white"
-                : "bg-white/10 hover:bg-white/15 text-white"
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:bg-editor-control-hover"
             )}
           >
             <Bot className="w-4 h-4" />
@@ -700,17 +622,11 @@ export default function EditorPage() {
         </div>
       </div>
 
-      {exportMessage && (
-        <div className="border-b border-white/10 bg-[#151823] px-4 py-2 text-xs text-white/65">
-          {exportMessage}
-        </div>
-      )}
-
       {/* ── Main area ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
 
         {/* ── Custom Twick Shell ───────────────────────────────────────────── */}
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {project ? (
             <LivePlayerProvider>
               <TimelineProvider
@@ -731,6 +647,7 @@ export default function EditorPage() {
                   sendAgentInstruction={sendAgentInstruction}
                   startVoiceEdit={startVoiceEdit}
                   onProjectJsonChange={syncProjectJson}
+                  exportPortalRef={exportPortalRef}
                 />
               </TimelineProvider>
             </LivePlayerProvider>
