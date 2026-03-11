@@ -10,3 +10,5 @@ __pycache__/
 /backend/mlflow.db
 PROJECT_STRUCTURE.md
 .claude/
+dev-backend/
+tweak-panel-pal-main/

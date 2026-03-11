@@ -25,7 +25,7 @@ class UserProfile(BaseModel):
     email: Optional[str] = None
     display_name: Optional[str] = None
     photo_url: Optional[str] = None
-    credits: int = 1000
+    credits: int = 300
     created_at: Optional[str] = None
     last_seen_at: Optional[str] = None
 
@@ -43,6 +43,20 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         # Should not happen (get_current_user auto-provisions), but handle gracefully
         profile = current_user
     return UserProfile(**{k: profile.get(k) for k in UserProfile.model_fields})
+
+
+class CreditsResponse(BaseModel):
+    credits: int
+    credit_cost_per_video: int = 100
+    starting_credits: int = 300
+
+
+@router.get("/credits", response_model=CreditsResponse)
+async def get_credits(current_user: dict = Depends(get_current_user)):
+    """Return the current user's credit balance."""
+    profile = await firestore_db.get_user(current_user["uid"])
+    credits = profile.get("credits", 300) if profile else current_user.get("credits", 300)
+    return CreditsResponse(credits=credits)
 
 
 @router.patch("/users/me", response_model=UserProfile)

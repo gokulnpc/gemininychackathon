@@ -2,7 +2,7 @@
 
 import type { ProjectJSON } from "@twick/timeline";
 
-export type EditorLeftPanelKey = "media" | "text" | "caption" | "audio" | "effects";
+export type EditorLeftPanelKey = "media" | "video" | "text" | "caption" | "audio" | "effects";
 
 export interface Project {
   project_id: string;

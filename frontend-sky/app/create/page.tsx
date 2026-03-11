@@ -51,9 +51,9 @@ function WizardContent() {
       case 1:
         return <Step1_Message />;
       case 2:
-        return <Step2_ChoosePlot />;
-      case 3:
         return <Step3_Picture />;
+      case 3:
+        return <Step2_ChoosePlot />;
       case 4:
         return <Step4_Language />;
       case 5:

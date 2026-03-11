@@ -66,58 +66,43 @@ export default function SettingsPage() {
             </p>
           </motion.div>
 
-          <div className="flex flex-col md:flex-row gap-8">
-            {/* Sidebar navigation for settings */}
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }} 
-              animate={{ opacity: 1, x: 0 }} 
-              transition={{ delay: 0.1 }}
-              className="w-full md:w-64 space-y-1"
-            >
+          {/* Horizontal tab bar */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="flex gap-1 border-b border-white/10 mb-8"
+          >
+            {[
+              { id: "profile", label: "Profile", icon: User },
+              { id: "preferences", label: "Preferences", icon: MonitorSmartphone },
+              { id: "notifications", label: "Notifications", icon: Bell },
+              { id: "api-keys", label: "API Keys", icon: Key },
+            ].map(({ id, label, icon: Icon }) => (
               <button
-                onClick={() => setActiveTab("profile")}
+                key={id}
+                onClick={() => setActiveTab(id)}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                  activeTab === "profile" ? "bg-white/10 text-white" : "text-white/60 hover:text-white hover:bg-white/5"
+                  "flex items-center gap-2 px-5 py-3 text-sm font-medium transition-all border-b-2 -mb-px",
+                  activeTab === id
+                    ? "border-[#5a9ab5] text-white"
+                    : "border-transparent text-white/50 hover:text-white hover:border-white/20"
                 )}
               >
-                <User className="w-4 h-4" /> Profile
+                <Icon className="w-4 h-4" />
+                {label}
               </button>
-              <button
-                onClick={() => setActiveTab("preferences")}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                  activeTab === "preferences" ? "bg-white/10 text-white" : "text-white/60 hover:text-white hover:bg-white/5"
-                )}
-              >
-                <MonitorSmartphone className="w-4 h-4" /> Preferences
-              </button>
-              <button
-                onClick={() => setActiveTab("notifications")}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                  activeTab === "notifications" ? "bg-white/10 text-white" : "text-white/60 hover:text-white hover:bg-white/5"
-                )}
-              >
-                <Bell className="w-4 h-4" /> Notifications
-              </button>
-              <button
-                onClick={() => setActiveTab("api-keys")}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                  activeTab === "api-keys" ? "bg-white/10 text-white" : "text-white/60 hover:text-white hover:bg-white/5"
-                )}
-              >
-                <Key className="w-4 h-4" /> API Keys
-              </button>
-            </motion.div>
+            ))}
+          </motion.div>
 
-            {/* Content area */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              transition={{ delay: 0.2 }}
-              className="flex-1 bg-[#333333] rounded-2xl border border-white/10 p-8"
+          {/* Content area */}
+          <div className="flex flex-col gap-8">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className="bg-[#333333] rounded-2xl border border-white/10 p-8"
             >
               {activeTab === "profile" && (
                 <div className="space-y-6">
