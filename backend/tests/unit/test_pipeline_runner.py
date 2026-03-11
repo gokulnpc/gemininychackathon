@@ -6,6 +6,7 @@ import pytest
 
 from models.schemas import CTA, Hook, Scene, ScriptGenerationResponse, SeriesConfig, VideoDurationRange
 from services.pipeline.runner import run_pipeline_stages
+from services.pipeline.stages.captions import CaptionsStageResult
 from services.pipeline.stages.export import ExportStageResult
 from services.pipeline.stages.voiceover import VoiceoverStageResult
 
@@ -62,7 +63,14 @@ async def test_runner_passes_image_canonical_assets_to_timeline(monkeypatch, tmp
         return "https://example.test/thumb.png"
 
     async def _captions_stage(**kwargs):
-        return str(tmp_path / "captions.srt")
+        return CaptionsStageResult(
+            path=str(tmp_path / "captions.ass"),
+            format="ass",
+            render_mode="advanced_ass",
+            style_requested="bold_stroke",
+            style_effective="karaoke",
+            degraded=False,
+        )
 
     async def _composition_stage(**kwargs):
         return str(tmp_path / "composed.mp4")
@@ -116,5 +124,8 @@ async def test_runner_passes_image_canonical_assets_to_timeline(monkeypatch, tmp
     assert timeline_calls[0]["scene_image_gcs_urls"][0].endswith("scene_1.png")
     assert timeline_calls[0]["voiceover_duration_seconds"] == 8.2
     assert timeline_calls[0]["caption_timing_source"] == "stt"
+    assert timeline_calls[0]["caption_render_mode"] == "advanced_ass"
+    assert timeline_calls[0]["caption_style_effective"] == "karaoke"
+    assert timeline_calls[0]["artifact_manifest"]["caption_assets"]["format"] == "ass"
     assert timeline_calls[0]["scene_motion_effects"] == ["effect:calm", "effect:exciting"]
     assert cleanup_calls, "expected cleanup_images to run after timeline build"

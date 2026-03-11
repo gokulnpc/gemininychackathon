@@ -14,8 +14,6 @@ steps:
       - $_IMAGE
 
 substitutions:
-  _REGION: us-central1
-  _PROJECT_ID: voicevid
   _IMAGE: us-central1-docker.pkg.dev/voicevid/voicevid/api:latest
 
 images:

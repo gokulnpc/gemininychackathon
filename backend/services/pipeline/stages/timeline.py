@@ -26,6 +26,9 @@ async def run_timeline_stage(
     scene_motion_effects: list[str | None],
     scene_transitions: list[str | None],
     artifact_manifest: dict | None = None,
+    caption_render_mode: str = "",
+    caption_style_effective: str = "",
+    caption_degraded: bool = False,
 ) -> dict:
     """Build Twick-compatible timeline JSON and upload to GCS.
 
@@ -56,6 +59,9 @@ async def run_timeline_stage(
         **builder_manifest,
     }
     project_json.setdefault("metadata", {})["artifact_manifest"] = merged_manifest
+    project_json["metadata"]["caption_render_mode"] = caption_render_mode or project_json["metadata"].get("caption_render_mode", "")
+    project_json["metadata"]["caption_style_effective"] = caption_style_effective or project_json["metadata"].get("caption_style_effective", "")
+    project_json["metadata"]["caption_degraded"] = caption_degraded
 
     await gcs.store_json(project_json, f"projects/{project_id}/project.json")
     await gcs.store_json(merged_manifest, f"projects/{project_id}/artifacts.json")

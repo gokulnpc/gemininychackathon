@@ -1,4 +1,4 @@
-"""Caption track model + SRT/WebVTT/Twick export.
+"""Caption track model + SRT/WebVTT/Twick/ASS export.
 
 Internal representation uses Pydantic models (Word, CaptionCue, CaptionTrack).
 Cues are grouped by time/duration — not fixed word count.
@@ -19,7 +19,9 @@ import logging
 import os
 import re
 import uuid
+from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel, field_validator
 
@@ -83,6 +85,17 @@ class CaptionTrack(BaseModel):
     cues: list[CaptionCue]
 
 
+@dataclass(frozen=True)
+class CaptionRenderArtifact:
+    path: str
+    format: str
+    render_mode: str
+    style_requested: str
+    style_effective: str
+    degraded: bool
+    track: CaptionTrack
+
+
 # ---------------------------------------------------------------------------
 # Token normalization
 # ---------------------------------------------------------------------------
@@ -128,6 +141,246 @@ _STYLE_LIMITS: dict[str, tuple[float, int]] = {
 }
 _DEFAULT_LIMITS = (3.0, 42)
 
+
+CAPTION_STYLE_REGISTRY: dict[str, dict] = {
+    "bold_stroke": {
+        "twick_cap_style": "text_bg",
+        "twick_props": {
+            "font": {"size": 52, "weight": 700, "family": "Arial Black"},
+            "colors": {"text": "#ffffff", "highlight": "#ff4081", "bgColor": "#00000080"},
+            "stroke": "#000000",
+            "shadowOffset": [-2, 2],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "basic_subtitle",
+        "ffmpeg_force_style": (
+            "force_style='FontName=Arial Black,FontSize=20,Bold=1,"
+            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "Outline=3,Shadow=0,Alignment=10,MarginV=60'"
+        ),
+        "ass_style": {
+            "fontname": "Arial Black",
+            "fontsize": 20,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H000000FF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H64000000",
+            "bold": 1,
+            "italic": 0,
+            "border_style": 1,
+            "outline": 3,
+            "shadow": 0,
+            "alignment": 2,
+            "margin_v": 60,
+        },
+    },
+    "hormozi": {
+        "inherits": "bold_stroke",
+    },
+    "clean": {
+        "twick_cap_style": "text_bg",
+        "twick_props": {
+            "font": {"size": 36, "weight": 400, "family": "Arial"},
+            "colors": {"text": "#ffffff", "highlight": "#ffffff", "bgColor": "transparent"},
+            "stroke": "#000000",
+            "shadowOffset": [0, 1],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "basic_subtitle",
+        "ffmpeg_force_style": (
+            "force_style='FontName=Arial,FontSize=14,Bold=0,"
+            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
+        ),
+        "ass_style": {
+            "fontname": "Arial",
+            "fontsize": 14,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H00FFFFFF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H00000000",
+            "bold": 0,
+            "italic": 0,
+            "border_style": 1,
+            "outline": 2,
+            "shadow": 1,
+            "alignment": 2,
+            "margin_v": 30,
+        },
+    },
+    "sleek": {
+        "inherits": "clean",
+    },
+    "clarity": {
+        "twick_cap_style": "text_bg",
+        "twick_props": {
+            "font": {"size": 36, "weight": 400, "family": "Arial"},
+            "colors": {"text": "#cccccc", "highlight": "#ffffff", "bgColor": "transparent"},
+            "stroke": "#000000",
+            "shadowOffset": [0, 1],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "basic_subtitle",
+        "ffmpeg_force_style": (
+            "force_style='FontName=Arial,FontSize=14,Bold=0,"
+            "PrimaryColour=&H00CCCCCC,OutlineColour=&H00000000,"
+            "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
+        ),
+        "ass_style": {
+            "fontname": "Arial",
+            "fontsize": 14,
+            "primary_colour": "&H00CCCCCC",
+            "secondary_colour": "&H00FFFFFF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H00000000",
+            "bold": 0,
+            "italic": 0,
+            "border_style": 1,
+            "outline": 2,
+            "shadow": 1,
+            "alignment": 2,
+            "margin_v": 30,
+        },
+    },
+    "karaoke": {
+        "twick_cap_style": "karaoke",
+        "twick_props": {
+            "font": {"size": 46, "weight": 700, "family": "Bangers"},
+            "colors": {"text": "#ffffff", "highlight": "#ffd700", "bgColor": "transparent"},
+            "stroke": "#000000",
+            "shadowOffset": [0, 2],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "advanced_ass",
+        "ass_style": {
+            "fontname": "Arial",
+            "fontsize": 16,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H0000D7FF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H00000000",
+            "bold": 1,
+            "italic": 0,
+            "border_style": 1,
+            "outline": 2,
+            "shadow": 1,
+            "alignment": 2,
+            "margin_v": 40,
+        },
+    },
+    "red_highlight": {
+        "twick_cap_style": "highlight_bg",
+        "twick_props": {
+            "font": {"size": 48, "weight": 700, "family": "Arial Black"},
+            "colors": {"text": "#ffffff", "highlight": "#ff0000", "bgColor": "#ff0000"},
+            "stroke": "#000000",
+            "shadowOffset": [0, 0],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "advanced_ass",
+        "ass_style": {
+            "fontname": "Arial Black",
+            "fontsize": 18,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H000000FF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H000000FF",
+            "bold": 1,
+            "italic": 0,
+            "border_style": 3,
+            "outline": 1,
+            "shadow": 0,
+            "alignment": 2,
+            "margin_v": 60,
+        },
+    },
+    "majestic": {
+        "twick_cap_style": "text_bg",
+        "twick_props": {
+            "font": {"size": 50, "weight": 700, "family": "Georgia"},
+            "colors": {"text": "#ffffff", "highlight": "#ffd700", "bgColor": "transparent"},
+            "stroke": "#000000",
+            "shadowOffset": [-2, 4],
+            "shadowColor": "#444444",
+        },
+        "export_mode": "advanced_ass",
+        "ass_style": {
+            "fontname": "Georgia",
+            "fontsize": 22,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H0000D7FF",
+            "outline_colour": "&H001C86EE",
+            "back_colour": "&H00000000",
+            "bold": 1,
+            "italic": 0,
+            "border_style": 1,
+            "outline": 2,
+            "shadow": 2,
+            "alignment": 2,
+            "margin_v": 50,
+        },
+    },
+    "beast": {
+        "twick_cap_style": "text_bg",
+        "twick_props": {
+            "font": {"size": 60, "weight": 900, "family": "Impact"},
+            "colors": {"text": "#ffffff", "highlight": "#ff0000", "bgColor": "transparent"},
+            "stroke": "#000000",
+            "shadowOffset": [0, 4],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "advanced_ass",
+        "ass_style": {
+            "fontname": "Impact",
+            "fontsize": 26,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H000000FF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H00000000",
+            "bold": 1,
+            "italic": 0,
+            "border_style": 1,
+            "outline": 4,
+            "shadow": 0,
+            "alignment": 10,
+            "margin_v": 80,
+        },
+    },
+    "elegant": {
+        "twick_cap_style": "text_bg",
+        "twick_props": {
+            "font": {"size": 40, "weight": 400, "family": "Georgia"},
+            "colors": {"text": "#ffffff", "highlight": "#ffffff", "bgColor": "transparent"},
+            "stroke": "#000000",
+            "shadowOffset": [0, 1],
+            "shadowColor": "#000000",
+        },
+        "export_mode": "basic_subtitle",
+        "ffmpeg_force_style": (
+            "force_style='FontName=Georgia,FontSize=16,Bold=0,Italic=1,"
+            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "Outline=1,Shadow=1,Alignment=2,MarginV=35'"
+        ),
+        "ass_style": {
+            "fontname": "Georgia",
+            "fontsize": 16,
+            "primary_colour": "&H00FFFFFF",
+            "secondary_colour": "&H00FFFFFF",
+            "outline_colour": "&H00000000",
+            "back_colour": "&H00000000",
+            "bold": 0,
+            "italic": -1,
+            "border_style": 1,
+            "outline": 1,
+            "shadow": 1,
+            "alignment": 2,
+            "margin_v": 35,
+        },
+    },
+}
+
+_DEFAULT_STYLE_KEY = "bold_stroke"
+
 # Minimum time a cue should stay on screen (seconds) — WCAG readability
 MIN_CUE_DURATION = 1.0
 
@@ -140,6 +393,29 @@ _SENTENCE_END = frozenset(".?!")
 
 def _limits(style: str) -> tuple[float, int]:
     return _STYLE_LIMITS.get(style, _DEFAULT_LIMITS)
+
+
+def resolve_caption_style(style: str) -> tuple[str, dict]:
+    style_key = (style or _DEFAULT_STYLE_KEY).lower()
+    definition = CAPTION_STYLE_REGISTRY.get(style_key)
+    if definition is None:
+        return _DEFAULT_STYLE_KEY, CAPTION_STYLE_REGISTRY[_DEFAULT_STYLE_KEY]
+    inherited = definition.get("inherits")
+    if inherited:
+        _, base = resolve_caption_style(inherited)
+        merged = {**base, **{k: v for k, v in definition.items() if k != "inherits"}}
+        if "twick_props" in base or "twick_props" in definition:
+            merged["twick_props"] = {
+                **base.get("twick_props", {}),
+                **definition.get("twick_props", {}),
+            }
+        if "ass_style" in base or "ass_style" in definition:
+            merged["ass_style"] = {
+                **base.get("ass_style", {}),
+                **definition.get("ass_style", {}),
+            }
+        return style_key, merged
+    return style_key, definition
 
 
 # ---------------------------------------------------------------------------
@@ -316,21 +592,132 @@ def cues_to_twick(cues: list[CaptionCue], track_id: str | None = None) -> list[d
             "type": "caption",
             "s": round(cue.start, 3),
             "e": round(cue.end, 3),
-            "props": {},
+            "props": {
+                "words": [
+                    {
+                        "text": word.word,
+                        "s": round(word.start, 3),
+                        "e": round(word.end, 3),
+                    }
+                    for word in cue.words
+                ],
+            },
             "t": cue.text,
         })
     return elements
 
 
-# ---------------------------------------------------------------------------
-# Public helpers
-# ---------------------------------------------------------------------------
-
-
 def build_track(word_timestamps: list[dict], style: str) -> CaptionTrack:
     """Build a full CaptionTrack from raw word timestamps."""
     cues = words_to_cues(word_timestamps, style)
-    return CaptionTrack(style=style, cues=cues)
+    resolved_style, _ = resolve_caption_style(style)
+    return CaptionTrack(style=resolved_style, cues=cues)
+
+
+def _ass_ts(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centiseconds = int(round((seconds - int(seconds)) * 100))
+    if centiseconds == 100:
+        secs += 1
+        centiseconds = 0
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centiseconds:02d}"
+
+
+def _ass_escape(text: str) -> str:
+    return text.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
+
+
+def _style_to_ass_line(style: dict) -> str:
+    ass = style["ass_style"]
+    return (
+        "Style: Default,"
+        f"{ass['fontname']},{ass['fontsize']},{ass['primary_colour']},{ass['secondary_colour']},"
+        f"{ass['outline_colour']},{ass['back_colour']},{ass['bold']},{ass['italic']},0,0,100,100,0,0,"
+        f"{ass['border_style']},{ass['outline']},{ass['shadow']},{ass['alignment']},20,20,{ass['margin_v']},1"
+    )
+
+
+def cues_to_ass(cues: list[CaptionCue], style: str) -> str:
+    """Serialize caption cues to ASS with support for styled advanced captions."""
+    resolved_style, style_def = resolve_caption_style(style)
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 576",
+        "PlayResY: 1024",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,"
+        "Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        _style_to_ass_line(style_def),
+        "",
+        "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+    ]
+
+    for cue in cues:
+        text = _ass_escape(cue.text)
+        if style_def["export_mode"] == "advanced_ass" and cue.words:
+            fragments: list[str] = []
+            for word in cue.words:
+                duration_cs = max(1, int(round((word.end - word.start) * 100)))
+                word_text = _ass_escape(word.word)
+                fragments.append(r"{\kf" + str(duration_cs) + "}" + word_text)
+            text = " ".join(fragments)
+        lines.append(
+            f"Dialogue: 0,{_ass_ts(cue.start)},{_ass_ts(cue.end)},Default,,0,0,0,,{text}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def generate_ass(
+    word_timestamps: list[dict],
+    style: str = "bold_stroke",
+    output_path: str | None = None,
+) -> str:
+    track = build_track(word_timestamps, style)
+    ass_content = cues_to_ass(track.cues, style)
+    if output_path is None:
+        output_path = f"/tmp/captions_{track.style}_{os.getpid()}.ass"
+    with open(output_path, "w", encoding="utf-8") as handle:
+        handle.write(ass_content)
+    logger.info("Generated %s ASS captions (%d cues) at %s", track.style, len(track.cues), output_path)
+    return output_path
+
+
+def generate_caption_asset(
+    word_timestamps: list[dict],
+    style: str = "clean",
+    output_path: str | None = None,
+) -> CaptionRenderArtifact:
+    track = build_track(word_timestamps, style)
+    style_effective, style_def = resolve_caption_style(style)
+    suffix = ".ass" if style_def["export_mode"] == "advanced_ass" else ".srt"
+    target_path = output_path or f"/tmp/captions_{style_effective}_{os.getpid()}{suffix}"
+    target_path = str(Path(target_path).with_suffix(suffix))
+    if style_def["export_mode"] == "advanced_ass":
+        path = generate_ass(word_timestamps, style_effective, target_path)
+        file_format = "ass"
+    else:
+        path = generate_srt(word_timestamps, style_effective, target_path)
+        file_format = "srt"
+    return CaptionRenderArtifact(
+        path=path,
+        format=file_format,
+        render_mode=style_def["export_mode"],
+        style_requested=style,
+        style_effective=style_effective,
+        degraded=False,
+        track=track,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
 
 
 def generate_srt(

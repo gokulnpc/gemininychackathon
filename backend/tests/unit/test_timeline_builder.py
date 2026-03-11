@@ -239,6 +239,16 @@ def test_caption_style_mapping(_build, style, expected_cap_style):
     assert cap_track.props["capStyle"] == expected_cap_style
 
 
+@pytest.mark.unit
+def test_caption_elements_include_word_level_props(_build):
+    project = _build(caption_style="karaoke")
+    cap_track = next(t for t in project.tracks if t.name == "Captions")
+    first_element = cap_track.elements[0]
+    assert first_element.props["words"]
+    assert set(first_element.props["words"][0]) == {"text", "s", "e"}
+    assert " " in first_element.t
+
+
 # ---------------------------------------------------------------------------
 # Metadata tests
 # ---------------------------------------------------------------------------
@@ -247,12 +257,16 @@ def test_caption_style_mapping(_build, style, expected_cap_style):
 @pytest.mark.unit
 def test_metadata_fields(_build):
     """Metadata contains correct project_id, total_duration, scene_count, and music_preset."""
-    project = _build(music_preset="chill")
+    project = _build(music_preset="chill", caption_style="karaoke")
     meta = project.metadata
     assert meta["project_id"] == "12345678-1234-5678-1234-567812345678"
     assert meta["total_duration"] == 10.0
     assert meta["scene_count"] == 2
     assert meta["music_preset"] == "chill"
+    assert meta["caption_payload_mode"] == "phrase_with_words"
+    assert meta["caption_render_mode"] == "advanced_ass"
+    assert meta["caption_style_effective"] == "karaoke"
+    assert meta["caption_degraded"] is False
 
 
 @pytest.mark.unit

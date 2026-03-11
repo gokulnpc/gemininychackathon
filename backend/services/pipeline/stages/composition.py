@@ -16,7 +16,7 @@ async def run_composition_stage(
     stages: list[PipelineStageStatus],
     chunk_clips: list[str],
     voiceover_path: str | None,
-    srt_path: str,
+    caption_asset_path: str,
     caption_style: str,
     scene_transitions: list[str | None],
     music_preset: str,
@@ -39,7 +39,7 @@ async def run_composition_stage(
     composed_path = await ffmpeg.compose_video(
         scene_videos=chunk_clips,
         voiceover_path=voiceover_path,
-        srt_path=srt_path,
+        srt_path=caption_asset_path,
         caption_style=caption_style,
         output_path=os.path.join(work_dir, "composed.mp4"),
         save_intermediate_to=with_audio_dest,

@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PipelineArtifacts:
     voiceover: voiceover.VoiceoverStageResult | None = None
+    caption_asset: captions.CaptionsStageResult | None = None
     reviewed_image_paths: list[str] = field(default_factory=list)
     scene_motion_effects: list[str | None] = field(default_factory=list)
     scene_transitions: list[str | None] = field(default_factory=list)
@@ -149,7 +150,7 @@ async def run_pipeline_stages(
     )
 
     # Stage 5: Captions
-    srt_path = await captions.run_captions_stage(
+    artifacts.caption_asset = await captions.run_captions_stage(
         stages=stages,
         word_timestamps=artifacts.voiceover.word_timestamps,
         caption_style=settings["caption_style"],
@@ -163,7 +164,7 @@ async def run_pipeline_stages(
         stages=stages,
         chunk_clips=artifacts.chunk_clips,
         voiceover_path=artifacts.voiceover.voiceover_path,
-        srt_path=srt_path,
+        caption_asset_path=artifacts.caption_asset.path,
         caption_style=settings["caption_style"],
         scene_transitions=artifacts.scene_transitions,
         music_preset=settings["music_preset"],
@@ -206,11 +207,24 @@ async def run_pipeline_stages(
             word_timestamps=artifacts.voiceover.word_timestamps,
             caption_timing_source=artifacts.voiceover.timing_source,
             caption_style=settings["caption_style"],
+            caption_render_mode=artifacts.caption_asset.render_mode,
+            caption_style_effective=artifacts.caption_asset.style_effective,
+            caption_degraded=artifacts.caption_asset.degraded,
             music_preset=settings["music_preset"],
             music_volume=settings["music_volume"],
             scene_motion_effects=artifacts.scene_motion_effects,
             scene_transitions=artifacts.scene_transitions,
-            artifact_manifest=artifacts.artifact_manifest,
+            artifact_manifest={
+                **artifacts.artifact_manifest,
+                "caption_assets": {
+                    "path": artifacts.caption_asset.path,
+                    "format": artifacts.caption_asset.format,
+                    "render_mode": artifacts.caption_asset.render_mode,
+                    "style_requested": artifacts.caption_asset.style_requested,
+                    "style_effective": artifacts.caption_asset.style_effective,
+                    "degraded": artifacts.caption_asset.degraded,
+                },
+            },
         )
     finally:
         images.cleanup_images(
