@@ -23,11 +23,12 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools import ToolContext
 
+from services.gemini.models import MODELS
 from services.gemini import reasoning as gemini_reasoning
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash"
+MODEL = MODELS.fast_text
 _MAX_SCRIPT_ATTEMPTS = 2
 _RETRY_DELAYS = [4]
 

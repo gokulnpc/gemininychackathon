@@ -26,7 +26,9 @@ import time
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-pro"
+from services.gemini.models import MODELS
+
+MODEL = MODELS.reasoning
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 

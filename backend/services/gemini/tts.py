@@ -22,7 +22,9 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash-preview-tts"
+from services.gemini.models import MODELS
+
+MODEL = MODELS.tts
 
 # Voice name → short description (used by GET /voices in catalog.py)
 VOICE_CATALOGUE: dict[str, str] = {

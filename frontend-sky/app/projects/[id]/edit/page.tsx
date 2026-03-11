@@ -32,7 +32,7 @@ import type { Result } from "@twick/studio";
 import type { ProjectJSON } from "@twick/timeline";
 import "@twick/studio/dist/studio.css";
 import { TimelineProvider, INITIAL_TIMELINE_DATA, useTimelineContext } from "@twick/timeline";
-import { LivePlayerProvider } from "@twick/live-player";
+import { LivePlayerProvider, useLivePlayerContext } from "@twick/live-player";
 
 // ─── AgentBridge ───────────────────────────────────────────────────────────────
 // Zero-render child inside TimelineProvider — exposes editor API to parent via ref.
@@ -40,14 +40,55 @@ import { LivePlayerProvider } from "@twick/live-player";
 interface EditorBridgeHandle {
   getProject: () => ProjectJSON;
   loadProject: (json: ProjectJSON) => void;
+  getEditorContext: () => {
+    mode: string | null;
+    active_panel: string | null;
+    playhead_seconds: number | null;
+    viewport_scale: number | null;
+    selected_element_ids: string[];
+    selected_track_ids: string[];
+    selected_element_types: string[];
+  };
 }
 
 const AgentBridge = forwardRef<EditorBridgeHandle>((_, ref) => {
-  const { editor } = useTimelineContext();
+  const { editor, selectedItem, selectedIds, timelineAction } = useTimelineContext();
+  const livePlayer = useLivePlayerContext();
   useImperativeHandle(ref, () => ({
     getProject: () => editor.getProject(),
     loadProject: (json) => editor.loadProject(json),
-  }), [editor]);
+    getEditorContext: () => {
+      const selectionIds = Array.from(selectedIds ?? []);
+      const selectedItemId =
+        selectedItem && typeof (selectedItem as { getId?: () => string }).getId === "function"
+          ? (selectedItem as { getId: () => string }).getId()
+          : null;
+      const selectedItemType =
+        selectedItem && typeof (selectedItem as { getType?: () => string }).getType === "function"
+          ? (selectedItem as { getType: () => string }).getType()
+          : null;
+
+      const elementIds = selectionIds.filter((id) => id.startsWith("e-"));
+      const trackIds = selectionIds.filter((id) => id.startsWith("t-"));
+
+      if (selectedItemId?.startsWith("e-") && !elementIds.includes(selectedItemId)) {
+        elementIds.push(selectedItemId);
+      }
+      if (selectedItemId?.startsWith("t-") && !trackIds.includes(selectedItemId)) {
+        trackIds.push(selectedItemId);
+      }
+
+      return {
+        mode: typeof timelineAction?.type === "string" && timelineAction.type ? timelineAction.type : null,
+        active_panel: "timeline",
+        playhead_seconds: typeof livePlayer?.currentTime === "number" ? livePlayer.currentTime : null,
+        viewport_scale: null,
+        selected_element_ids: elementIds,
+        selected_track_ids: trackIds,
+        selected_element_types: selectedItemType ? [selectedItemType] : [],
+      };
+    },
+  }), [editor, livePlayer, selectedIds, selectedItem, timelineAction]);
   return null;
 });
 
@@ -172,12 +213,19 @@ export default function EditorPage() {
 
     // Snapshot current Twick timeline state so the agent has full context
     const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
+    const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
 
     try {
       const res = await apiFetch(`/api/v1/projects/${projectId}/edit-agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction, current_project_json: currentProjectJson }),
+        body: JSON.stringify({
+          instruction,
+          current_project_json: currentProjectJson,
+          editor_context: agentPanelOpen
+            ? { ...editorContext, active_panel: "agent" }
+            : editorContext,
+        }),
       });
 
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);

@@ -568,6 +568,72 @@ class AssetMetadata(BaseModel):
 # ── Edit Agent (natural-language recompose) ────────────────────────────────────
 
 
+class EditorScreenshotContext(BaseModel):
+    """Optional screenshot payload metadata for screen-aware edit flows."""
+
+    mime_type: str = Field(
+        default="image/png",
+        description="Screenshot mime type, e.g. image/png.",
+    )
+    image_b64: str | None = Field(
+        default=None,
+        description="Optional base64-encoded screenshot payload for future vision-aware tooling.",
+    )
+    width: int | None = Field(
+        default=None,
+        ge=1,
+        description="Screenshot width in pixels.",
+    )
+    height: int | None = Field(
+        default=None,
+        ge=1,
+        description="Screenshot height in pixels.",
+    )
+    captured_at: str | None = Field(
+        default=None,
+        description="ISO-8601 timestamp when the screenshot was captured.",
+    )
+
+
+class EditorContextRequest(BaseModel):
+    """Live editor context to help the agent reason about the current editing surface."""
+
+    mode: str | None = Field(
+        default=None,
+        description="Current editor mode, e.g. select, trim, text, caption.",
+    )
+    active_panel: str | None = Field(
+        default=None,
+        description="Currently visible sidebar/panel, e.g. agent, captions, media.",
+    )
+    playhead_seconds: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Current playhead time in seconds.",
+    )
+    viewport_scale: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Current preview zoom scale.",
+    )
+    selected_element_ids: list[str] = Field(
+        default_factory=list,
+        description="Currently selected timeline element IDs.",
+    )
+    selected_track_ids: list[str] = Field(
+        default_factory=list,
+        description="Currently selected track IDs.",
+    )
+    selected_element_types: list[str] = Field(
+        default_factory=list,
+        description="Selected element types, e.g. text, image, audio, caption.",
+    )
+    screenshot: EditorScreenshotContext | None = Field(
+        default=None,
+        description="Optional screenshot payload metadata for future multimodal editor tooling.",
+    )
+
+
 class EditAgentRequest(BaseModel):
     """Natural-language instruction for the AI video edit agent."""
     instruction: str = Field(
@@ -577,4 +643,8 @@ class EditAgentRequest(BaseModel):
     current_project_json: Optional[dict] = Field(
         None,
         description="Current Twick timeline JSON from the editor — used to patch and return updated state.",
+    )
+    editor_context: EditorContextRequest | None = Field(
+        default=None,
+        description="Live editor state such as playhead, selection, active panel, and optional screenshot metadata.",
     )

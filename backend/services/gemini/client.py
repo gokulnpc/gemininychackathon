@@ -1,7 +1,8 @@
 """Shared Gemini client factory.
 
-On GCP (USE_VERTEX_AI=true): uses Vertex AI ADC for stable models (2.5 Pro).
-Locally / for preview models: uses GEMINI_API_KEY.
+On GCP (`USE_VERTEX_AI=true`): use Vertex AI ADC for stable text models.
+For Live native-audio, image generation, and TTS paths this codebase still
+intentionally routes via direct Gemini API key by passing `force_api_key=True`.
 
 Usage:
     from services.gemini.client import get_client
@@ -9,7 +10,7 @@ Usage:
     # Vertex AI on GCP, API key locally:
     client = get_client()
 
-    # Always use API key (preview models not yet on Vertex AI GA):
+    # Always use API key (for services that intentionally bypass Vertex routing):
     client = get_client(force_api_key=True)
 """
 

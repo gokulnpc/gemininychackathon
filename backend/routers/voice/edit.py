@@ -199,6 +199,7 @@ async def edit_agent_sse(project_id: str, req: EditAgentRequest, current_user: d
                 project_data=project_data,
                 instruction=req.instruction,
                 current_project_json=req.current_project_json,
+                editor_context=req.editor_context.model_dump(exclude_none=True) if req.editor_context else None,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:

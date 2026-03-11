@@ -24,10 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import os
 from collections.abc import AsyncIterator, Callable, Coroutine
 from uuid import UUID, uuid4
+from urllib.parse import urlparse
 
 try:
     from google.adk.tools import ToolContext  # needed at module level for nested tool function type annotations
@@ -36,8 +38,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_LIVE_MODEL = "gemini-2.0-flash-live-001"
-_TEXT_MODEL = "gemini-2.5-flash"  # faster than 2.5-pro for simple edit reasoning
+from services.gemini.models import MODELS
+
+_LIVE_MODEL = MODELS.live_audio
+_TEXT_MODEL = MODELS.fast_text  # faster than the reasoning model for simple edit reasoning
 
 # ── Scout edit system prompt ────────────────────────────────────────────────────
 
@@ -48,7 +52,7 @@ Your job:
 1. Greet the user warmly, mention the current video's hook in 1 sentence.
 2. Ask what they want to change — ONE question only.
 3. If they want to SEE visual options (style, mood, look) → call generate_style_preview first.
-4. Once you know what to change → call queue_edit with the new caption_style and/or background_music.
+4. Once you know what to change → call queue_edit with the supported edit fields.
 5. Confirm the changes in 1 sentence, then call apply_recompose.
 6. Tell the user their updated video is ready.
 
@@ -58,7 +62,13 @@ Rules:
 - generate_style_preview is for SHOWING options only — never for applying changes.
 - Only call apply_recompose ONCE per turn, after ALL edits are queued.
 - Valid caption styles: bold_stroke, red_highlight, sleek, karaoke, majestic, beast, elegant, clarity
-- Valid music presets: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria, none"""
+- Valid music presets: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria, none
+- Supported timeline edits in queue_edit:
+  - hook_title: add a short text hook near the current playhead or at the start
+  - move_selected_text_y_delta: move the selected text element up or down in pixels
+  - replace_selected_media_url: replace the selected image/video src when the user gives a direct URL
+- For selection-sensitive requests, call get_editor_context first.
+- Do not invent asset URLs. Only replace media when the user provides a usable URL."""
 
 # ── Fast single-image style preview ────────────────────────────────────────────
 
@@ -78,7 +88,7 @@ def _invoke_quick_preview(prompt: str) -> list[dict]:
 
     client = get_client(force_api_key=True)
     response = client.models.generate_content(
-        model="gemini-2.0-flash-preview-image-generation",
+        model=MODELS.image_generation,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_modalities=["IMAGE"],
@@ -138,6 +148,8 @@ _VALID_MUSIC_PRESETS = {
     "happy_rhythm", "quiet_before_storm", "peaceful_vibes",
     "brilliant_symphony", "breathing_shadows", "lyria", "none",
 }
+
+_SUPPORTED_MEDIA_URL_SCHEMES = {"http", "https", "gs", "data"}
 
 
 async def _apply_recompose(
@@ -245,10 +257,6 @@ def _build_voice_config(project_data: dict):
                 parameters=types.Schema(type="object", properties={}),
             ),
         ])],
-        context_window_compression=types.ContextWindowCompressionConfig(
-            trigger_tokens=100_000,
-            sliding_window=types.SlidingWindow(target_tokens=80_000),
-        ),
     )
 
 
@@ -322,6 +330,7 @@ async def run_edit_voice_agent(
     logger.info("Scout edit voice session starting: project=%s", project_id)
 
     async with client.aio.live.connect(model=_LIVE_MODEL, config=live_config) as session:
+        send_task: asyncio.Task | None = None
 
         async def _send_audio() -> None:
             async for chunk in audio_chunks:
@@ -332,62 +341,132 @@ async def run_edit_voice_agent(
 
         send_task = asyncio.create_task(_send_audio())
 
-        async for response in session.receive():
-            # ── Scout's voice → forward to browser ───────────────────────────
-            if response.data:
-                yield response.data
+        try:
+            async for response in session.receive():
+                # ── Scout's voice → forward to browser ───────────────────────
+                if response.data:
+                    yield response.data
 
-            # ── Text transcript → sidebar event ──────────────────────────────
-            text = getattr(response, "text", None)
-            if text and text.strip():
-                try:
-                    await on_event({"type": "agent_transcript", "text": text.strip()})
-                except Exception:
-                    pass
-
-            # ── Tool calls ────────────────────────────────────────────────────
-            tool_call = getattr(response, "tool_call", None)
-            if tool_call:
-                for fc in tool_call.function_calls:
-                    args = dict(fc.args) if fc.args else {}
-                    logger.info("Scout edit tool call: %s(%s)", fc.name, list(args.keys()))
-
-                    result = await _dispatch_voice_tool(
-                        fc.name, args, project_id, project_data, pending_edits, on_event
-                    )
-
+                # ── Text transcript → sidebar event ──────────────────────────
+                text = getattr(response, "text", None)
+                if text and text.strip():
                     try:
-                        await on_event({"type": "tool_event", "name": fc.name, **result})
+                        await on_event({"type": "agent_transcript", "text": text.strip()})
                     except Exception:
                         pass
 
-                    await session.send_tool_response(
-                        function_responses=[types.FunctionResponse(
-                            id=fc.id,
-                            name=fc.name,
-                            response={"result": result},
-                        )]
-                    )
+                # ── Tool calls ────────────────────────────────────────────────
+                tool_call = getattr(response, "tool_call", None)
+                if tool_call:
+                    for fc in tool_call.function_calls:
+                        args = dict(fc.args) if fc.args else {}
+                        logger.info("Scout edit tool call: %s(%s)", fc.name, list(args.keys()))
 
-            # ── End of session ────────────────────────────────────────────────
-            server_content = getattr(response, "server_content", None)
-            turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
-            if send_task.done() and turn_complete:
-                break
+                        result = await _dispatch_voice_tool(
+                            fc.name, args, project_id, project_data, pending_edits, on_event
+                        )
 
-        await send_task
+                        try:
+                            await on_event({"type": "tool_event", "name": fc.name, **result})
+                        except Exception:
+                            pass
+
+                        await session.send_tool_response(
+                            function_responses=[types.FunctionResponse(
+                                id=fc.id,
+                                name=fc.name,
+                                response={"result": result},
+                            )]
+                        )
+
+                # ── End of session ────────────────────────────────────────────
+                server_content = getattr(response, "server_content", None)
+                turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
+                if send_task.done() and turn_complete:
+                    break
+        except Exception as exc:
+            message = str(exc)
+            if "Operation is not implemented, or supported, or enabled" in message:
+                raise RuntimeError(
+                    "Gemini Live rejected the current voice session configuration. "
+                    "Retry once; if it persists, use the text agent while we keep the live session on the minimal supported config."
+                ) from exc
+            raise
+        finally:
+            if send_task is not None:
+                if not send_task.done():
+                    send_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await send_task
 
     logger.info("Scout edit voice session ended: project=%s", project_id)
 
 
 # ── Timeline JSON patcher ────────────────────────────────────────────────────────
 
-def _patch_project_json(project_json: dict, changes: dict) -> dict:
+def _make_id(prefix: str) -> str:
+    return f"{prefix}-{uuid4().hex[:12]}"
+
+
+def _coerce_playhead_seconds(editor_context: dict | None) -> float:
+    if not editor_context:
+        return 0.0
+    try:
+        return max(0.0, float(editor_context.get("playhead_seconds") or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _find_selected_elements(project_json: dict, editor_context: dict | None) -> list[tuple[dict, dict]]:
+    if not editor_context:
+        return []
+
+    selected_ids = set(editor_context.get("selected_element_ids") or [])
+    if not selected_ids:
+        return []
+
+    matches: list[tuple[dict, dict]] = []
+    for track in project_json.get("tracks", []):
+        for element in track.get("elements", []):
+            if element.get("id") in selected_ids:
+                matches.append((track, element))
+    return matches
+
+
+def _ensure_overlay_track(project_json: dict) -> dict:
+    for track in project_json.get("tracks", []):
+        if track.get("type") == "element" and track.get("name") == "Overlays":
+            track.setdefault("props", {})
+            track.setdefault("elements", [])
+            return track
+
+    track = {
+        "id": _make_id("track"),
+        "name": "Overlays",
+        "type": "element",
+        "props": {},
+        "elements": [],
+    }
+    project_json.setdefault("tracks", []).append(track)
+    return track
+
+
+def _looks_like_media_url(value: str) -> bool:
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https", "gs"}:
+        return True
+    return value.startswith("data:")
+
+
+def _patch_project_json(project_json: dict, changes: dict, editor_context: dict | None = None) -> dict:
     """Patch caption style and music settings in a Twick project_json without re-rendering.
 
     Updates:
     - Caption track props.capStyle when caption_style changes
     - Music element props.musicPreset / props.volume when background_music / music_volume changes
+    - Selected text position when move_selected_text_y_delta is provided
+    - Selected image/video src when replace_selected_media_url is provided
+    - Overlay text hook insertion when hook_title is provided
     """
     import copy
     from services.content.timeline_builder import _CAP_STYLE_MAP
@@ -406,7 +485,97 @@ def _patch_project_json(project_json: dict, changes: dict) -> dict:
                     elem["props"]["musicPreset"] = changes["background_music"]
                 if "music_volume" in changes:
                     elem["props"]["volume"] = changes["music_volume"]
+
+    if "move_selected_text_y_delta" in changes:
+        delta = float(changes["move_selected_text_y_delta"])
+        for _, elem in _find_selected_elements(patched, editor_context):
+            if elem.get("type") != "text":
+                continue
+            frame = elem.get("frame")
+            if isinstance(frame, dict):
+                frame["y"] = float(frame.get("y", 0.0)) + delta
+            else:
+                props = elem.setdefault("props", {})
+                props["y"] = float(props.get("y", 0.0)) + delta
+
+    if "replace_selected_media_url" in changes:
+        src = changes["replace_selected_media_url"]
+        for _, elem in _find_selected_elements(patched, editor_context):
+            if elem.get("type") not in {"image", "video"}:
+                continue
+            elem.setdefault("props", {})["src"] = src
+
+    if "hook_title" in changes:
+        start = _coerce_playhead_seconds(editor_context)
+        duration = max(0.5, min(5.0, float(changes.get("hook_duration_seconds") or 2.0)))
+        overlay_track = _ensure_overlay_track(patched)
+        overlay_track["elements"].append(
+            {
+                "id": _make_id("text"),
+                "trackId": overlay_track["id"],
+                "type": "text",
+                "name": "Hook Title",
+                "s": start,
+                "e": start + duration,
+                "zIndex": 100,
+                "t": changes["hook_title"],
+                "props": {
+                    "text": changes["hook_title"],
+                    "fontSize": 82,
+                    "fontFamily": "Inter",
+                    "fontWeight": 800,
+                    "color": "#FFFFFF",
+                    "textAlign": "center",
+                    "stroke": "#000000",
+                    "strokeWidth": 4,
+                    "shadowColor": "rgba(0,0,0,0.35)",
+                },
+                "frame": {
+                    "size": [900, 220],
+                    "x": 0,
+                    "y": -540,
+                    "rotation": 0,
+                },
+                "frameEffects": [],
+            }
+        )
     return patched
+
+
+def _summarize_editor_context(editor_context: dict | None) -> dict:
+    """Return a compact, model-safe summary of the current editor state."""
+    if not editor_context:
+        return {
+            "mode": None,
+            "active_panel": None,
+            "playhead_seconds": None,
+            "viewport_scale": None,
+            "selected_element_ids": [],
+            "selected_track_ids": [],
+            "selected_element_types": [],
+            "has_screenshot": False,
+            "screenshot_dimensions": None,
+        }
+
+    screenshot = editor_context.get("screenshot") or {}
+    width = screenshot.get("width")
+    height = screenshot.get("height")
+
+    return {
+        "mode": editor_context.get("mode"),
+        "active_panel": editor_context.get("active_panel"),
+        "playhead_seconds": editor_context.get("playhead_seconds"),
+        "viewport_scale": editor_context.get("viewport_scale"),
+        "selected_element_ids": editor_context.get("selected_element_ids", []),
+        "selected_track_ids": editor_context.get("selected_track_ids", []),
+        "selected_element_types": editor_context.get("selected_element_types", []),
+        "has_screenshot": bool(screenshot),
+        "screenshot_dimensions": (
+            {"width": width, "height": height}
+            if width is not None or height is not None
+            else None
+        ),
+    }
 
 
 # ── Text / SSE mode (ADK) ───────────────────────────────────────────────────────
@@ -416,6 +585,7 @@ async def run_edit_text_agent(
     project_data: dict,
     instruction: str,
     current_project_json: dict | None = None,
+    editor_context: dict | None = None,
 ):
     """Async generator — yields SSE-ready dicts for the text-based quick-action editor.
 
@@ -447,13 +617,27 @@ async def run_edit_text_agent(
             "platforms":        data.get("platforms", ["instagram_reels"]),
         }
 
+    def get_editor_context(tool_context: ToolContext) -> dict:  # noqa: F841
+        """Return current editor selection/playhead state for context-aware edits."""
+        context = _summarize_editor_context(tool_context.state.get("editor_context"))
+        if context["has_screenshot"]:
+            context["screenshot_note"] = (
+                "Screenshot metadata is attached for future multimodal tooling; "
+                "this text edit flow currently uses the structured editor state only."
+            )
+        return context
+
     def queue_edit(
         caption_style: str | None = None,
         background_music: str | None = None,
         music_volume: float | None = None,
+        hook_title: str | None = None,
+        hook_duration_seconds: float | None = None,
+        move_selected_text_y_delta: float | None = None,
+        replace_selected_media_url: str | None = None,
         tool_context: ToolContext = None,
     ) -> dict:
-        """Queue caption style and/or background music change.
+        """Queue supported metadata and timeline edits.
 
         Changes are saved to project metadata immediately.
         The actual video re-render only happens when the user exports.
@@ -469,6 +653,29 @@ async def run_edit_text_agent(
             return {"error": f"Unknown music preset '{background_music}'. Valid: {', '.join(sorted(_VALID_MUSIC_PRESETS))}"}
         if music_volume is not None:
             edits["music_volume"] = max(0.0, min(1.0, float(music_volume)))
+        if hook_title:
+            cleaned_title = hook_title.strip()
+            if not cleaned_title:
+                return {"error": "hook_title cannot be empty."}
+            edits["hook_title"] = cleaned_title[:120]
+            if hook_duration_seconds is not None:
+                edits["hook_duration_seconds"] = max(0.5, min(5.0, float(hook_duration_seconds)))
+        if move_selected_text_y_delta is not None:
+            context = _summarize_editor_context(tool_context.state.get("editor_context") if tool_context else {})
+            selected_types = set(context.get("selected_element_types") or [])
+            if "text" not in selected_types:
+                return {"error": "move_selected_text_y_delta requires a selected text element."}
+            edits["move_selected_text_y_delta"] = float(move_selected_text_y_delta)
+        if replace_selected_media_url is not None:
+            media_url = replace_selected_media_url.strip()
+            if not _looks_like_media_url(media_url):
+                schemes = ", ".join(sorted(_SUPPORTED_MEDIA_URL_SCHEMES))
+                return {"error": f"replace_selected_media_url must be a direct media URL using one of: {schemes}."}
+            context = _summarize_editor_context(tool_context.state.get("editor_context") if tool_context else {})
+            selected_types = set(context.get("selected_element_types") or [])
+            if not (selected_types & {"image", "video"}):
+                return {"error": "replace_selected_media_url requires a selected image or video element."}
+            edits["replace_selected_media_url"] = media_url
         if tool_context:
             tool_context.state["pending_edits"] = {
                 **tool_context.state.get("pending_edits", {}),
@@ -481,14 +688,24 @@ async def run_edit_text_agent(
     hook = project_data.get("hook", "your video")
     caption_style = project_data.get("caption_style", "beast")
     background_music = project_data.get("background_music", "none")
+    editor_context_summary = _summarize_editor_context(editor_context)
 
     system = (
         f"{_EDIT_SYSTEM}\n\n"
         f"Current project state:\n"
         f"  Hook: \"{hook}\"\n"
         f"  Caption style: {caption_style}\n"
-        f"  Background music: {background_music}\n\n"
-        "Workflow: call get_project_info → queue_edit.\n"
+        f"  Background music: {background_music}\n"
+        f"  Editor mode: {editor_context_summary['mode']}\n"
+        f"  Active panel: {editor_context_summary['active_panel']}\n"
+        f"  Playhead seconds: {editor_context_summary['playhead_seconds']}\n"
+        f"  Selected element ids: {editor_context_summary['selected_element_ids']}\n"
+        f"  Selected element types: {editor_context_summary['selected_element_types']}\n"
+        f"  Screenshot attached: {editor_context_summary['has_screenshot']}\n\n"
+        "Workflow: call get_project_info and call get_editor_context whenever selection/playhead state matters, then call queue_edit.\n"
+        "Use hook_title for requests like 'add a hook title' or 'add a title at the beginning'.\n"
+        "Use move_selected_text_y_delta for requests like 'move this selected text up/down'. Negative moves up, positive moves down.\n"
+        "Use replace_selected_media_url only when the user provides a direct URL and has selected an image/video element.\n"
         "Do NOT try to render or export — the user will export when ready."
     )
 
@@ -500,6 +717,7 @@ async def run_edit_text_agent(
             "project_data": project_data,
             "pending_edits": {},
             "current_project_json": current_project_json or {},
+            "editor_context": editor_context or {},
         },
     )
 
@@ -507,7 +725,7 @@ async def run_edit_text_agent(
         name="video_edit_agent",
         model=_TEXT_MODEL,
         instruction=system,
-        tools=[get_project_info, queue_edit],
+        tools=[get_project_info, get_editor_context, queue_edit],
     )
 
     runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
@@ -518,7 +736,8 @@ async def run_edit_text_agent(
 
     _LABELS: dict[str, str] = {
         "get_project_info": "Checking your current video settings…",
-        "queue_edit":        "Applying edit to timeline…",
+        "get_editor_context": "Checking your current editor selection…",
+        "queue_edit": "Applying edit to timeline…",
     }
 
     logger.info("ADK edit agent starting: project=%s instruction=%.60s", project_id, instruction)
@@ -556,7 +775,11 @@ async def run_edit_text_agent(
             if "music_volume" in pending:
                 updates["music_volume"] = pending["music_volume"]
             if current_project_json:
-                patched_json = _patch_project_json(current_project_json, pending)
+                patched_json = _patch_project_json(
+                    current_project_json,
+                    pending,
+                    editor_context=editor_context,
+                )
                 updates["project_json"] = patched_json
             await _fdb.save_project(project_id, updates)
         except Exception as _save_exc:
@@ -569,6 +792,7 @@ async def run_edit_text_agent(
             "message": f"Done! Applied: {change_summary}. Click Export to render the updated video.",
             "changes": pending,
             "project_json": patched_json,
+            "editor_context": editor_context_summary,
         }
 
     except Exception as exc:

@@ -2,7 +2,7 @@
 
 Drop one reference image per art style here. The filename must match the art style enum value exactly.
 
-The image is passed to `gemini-3.1-flash-image-preview` alongside the scene prompt for true visual style transfer — Gemini will match the colour palette, textures, and rendering technique of the reference image.
+The image is passed to the configured Gemini image-generation model alongside the scene prompt for true visual style transfer — Gemini will match the colour palette, textures, and rendering technique of the reference image.
 
 If an image is missing for a style, the system falls back to text-only style guidance (the prompt suffix still applies).
 

@@ -16,11 +16,12 @@ import os
 import re
 from uuid import uuid4
 
+from services.gemini.models import MODELS
 from services.infra.retry import call_with_retry
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-pro"
+MODEL = MODELS.reasoning
 
 
 def _get_client():
