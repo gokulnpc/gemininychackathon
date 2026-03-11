@@ -14,7 +14,7 @@ from uuid import UUID
 
 from models.project_timeline import ElementFrame, TimelineElement, TimelineProject, TimelineTrack
 from models.schemas import ScriptGenerationResponse
-from services.media.captions import words_to_cues
+from services.media.captions import CAPTION_STYLE_REGISTRY, build_track, resolve_caption_style
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -22,66 +22,12 @@ from services.media.captions import words_to_cues
 SCENE_WIDTH = 576
 SCENE_HEIGHT = 1024
 
-
-# Map pipeline caption_style → Twick capStyle
 _CAP_STYLE_MAP: dict[str, str] = {
-    "bold_stroke": "text_bg",
-    "beast": "text_bg",
-    "karaoke": "karaoke",
-    "red_highlight": "highlight_bg",
-    "clarity": "text_bg",
-    "majestic": "text_bg",
-    "sleek": "text_bg",
-    "clean": "text_bg",
-    "elegant": "text_bg",
+    style: definition.get("twick_cap_style", "text_bg")
+    for style, definition in CAPTION_STYLE_REGISTRY.items()
+    if "inherits" not in definition
 }
 
-# Default font/color props per caption style
-_CAP_PROPS: dict[str, dict] = {
-    "beast": {
-        "font": {"size": 60, "weight": 900, "family": "Impact"},
-        "colors": {"text": "#ffffff", "highlight": "#ff0000", "bgColor": "transparent"},
-        "stroke": "#000000",
-        "shadowOffset": [0, 4],
-        "shadowColor": "#000000",
-    },
-    "bold_stroke": {
-        "font": {"size": 52, "weight": 700, "family": "Arial Black"},
-        "colors": {"text": "#ffffff", "highlight": "#ff4081", "bgColor": "#00000080"},
-        "stroke": "#000000",
-        "shadowOffset": [-2, 2],
-        "shadowColor": "#000000",
-    },
-    "karaoke": {
-        "font": {"size": 46, "weight": 700, "family": "Bangers"},
-        "colors": {"text": "#ffffff", "highlight": "#ffd700", "bgColor": "transparent"},
-        "stroke": "#000000",
-        "shadowOffset": [0, 2],
-        "shadowColor": "#000000",
-    },
-    "red_highlight": {
-        "font": {"size": 48, "weight": 700, "family": "Arial Black"},
-        "colors": {"text": "#ffffff", "highlight": "#ff0000", "bgColor": "#ff0000"},
-        "stroke": "#000000",
-        "shadowOffset": [0, 0],
-        "shadowColor": "#000000",
-    },
-    "clarity": {
-        "font": {"size": 36, "weight": 400, "family": "Arial"},
-        "colors": {"text": "#cccccc", "highlight": "#ffffff", "bgColor": "transparent"},
-        "stroke": "#000000",
-        "shadowOffset": [0, 1],
-        "shadowColor": "#000000",
-    },
-    "majestic": {
-        "font": {"size": 50, "weight": 700, "family": "Georgia"},
-        "colors": {"text": "#ffffff", "highlight": "#ffd700", "bgColor": "transparent"},
-        "stroke": "#000000",
-        "shadowOffset": [-2, 4],
-        "shadowColor": "#444444",
-    },
-}
-_DEFAULT_CAP_PROPS = _CAP_PROPS["bold_stroke"]
 
 # ── Spec dataclasses ───────────────────────────────────────────────────────────
 
@@ -216,6 +162,8 @@ def _build_from_spec(
     tracks: list[TimelineTrack] = []
     scene_image_assets: list[dict[str, Any]] = []
     scene_video_assets: list[dict[str, Any]] = []
+    caption_style_key = ""
+    caption_style_def: dict[str, Any] = {}
 
     # ── 1. Scene tracks ───────────────────────────────────────────────────────
     cursor = 0.0
@@ -351,10 +299,14 @@ def _build_from_spec(
     # ── 4. Caption track ──────────────────────────────────────────────────────
     if spec.captions and spec.captions.word_timestamps:
         caption_words = _clamp_caption_timestamps(spec.captions.word_timestamps, audio_duration)
-        cues = words_to_cues(caption_words, spec.captions.style)
+        caption_track = build_track(caption_words, spec.captions.style)
+        style_key, style_def = resolve_caption_style(spec.captions.style)
+        caption_style_key = style_key
+        caption_style_def = style_def
+        cues = caption_track.cues
 
-        cap_style_key = _CAP_STYLE_MAP.get(spec.captions.style, "text_bg")
-        cap_props_template = _CAP_PROPS.get(spec.captions.style, _DEFAULT_CAP_PROPS)
+        cap_style_key = style_def["twick_cap_style"]
+        cap_props_template = style_def["twick_props"]
 
         cap_track_id = f"t-captions-{id_factory()}"
         caption_elements: list[TimelineElement] = []
@@ -370,7 +322,16 @@ def _build_from_spec(
                 type="caption",
                 s=cue_start,
                 e=cue_end,
-                props={},
+                props={
+                    "words": [
+                        {
+                            "text": word.word,
+                            "s": _safe_round(word.start),
+                            "e": _safe_round(word.end),
+                        }
+                        for word in cue.words
+                    ],
+                },
                 t=cue.text,
             ))
 
@@ -424,6 +385,11 @@ def _build_from_spec(
         "actual_voiceover_duration": _safe_round(audio_duration) if audio_duration else None,
         "caption_timing_source": spec.captions.timing_source if spec.captions else "",
         "timeline_build_mode": timeline_build_mode,
+        "caption_payload_mode": "phrase_with_words" if spec.captions and spec.captions.word_timestamps else "",
+        "caption_render_mode": caption_style_def.get("export_mode", "") if spec.captions else "",
+        "caption_style_requested": spec.captions.style if spec.captions else "",
+        "caption_style_effective": caption_style_key if spec.captions else "",
+        "caption_degraded": False,
         "final_visual_extended": final_visual_extended,
         "final_visual_original_end": final_visual_original_end,
         "final_visual_effective_end": final_visual_effective_end,
@@ -445,6 +411,11 @@ def _build_from_spec(
             "voiceover_duration": _safe_round(audio_duration) if audio_duration else None,
             "caption_timing_source": spec.captions.timing_source if spec.captions else "",
             "timeline_build_mode": timeline_build_mode,
+            "caption_payload_mode": "phrase_with_words" if spec.captions and spec.captions.word_timestamps else "",
+            "caption_render_mode": caption_style_def.get("export_mode", "") if spec.captions else "",
+            "caption_style_requested": spec.captions.style if spec.captions else "",
+            "caption_style_effective": caption_style_key if spec.captions else "",
+            "caption_degraded": False,
             "final_visual_extended": final_visual_extended,
             "final_visual_original_end": final_visual_original_end,
             "final_visual_effective_end": final_visual_effective_end,

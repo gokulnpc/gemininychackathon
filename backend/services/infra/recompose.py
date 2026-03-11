@@ -39,7 +39,7 @@ async def recompose_video(
 
     Stages run (all fast — no Gemini calls, no TTS):
       1. download_source   — fetch with_audio.mp4 from GCS/local
-      2. captions          — regenerate SRT with new style (pure Python)
+      2. captions          — regenerate caption asset with new style (pure Python)
       3. burn_captions     — FFmpeg subtitle burn
       4. background_music  — FFmpeg audio mix (skipped if background_music="none")
       5. export_upload     — platform resize + GCS upload
@@ -88,7 +88,7 @@ async def recompose_video(
     stages[-1].status = "completed"
     stages[-1].detail = "Downloaded with_audio.mp4"
 
-    # ── Stage 2: Regenerate SRT with new caption style ────────────────────────
+    # ── Stage 2: Regenerate caption asset with new caption style ──────────────
 
     stages.append(PipelineStageStatus(
         stage="captions",
@@ -100,14 +100,17 @@ async def recompose_video(
         voiceover_text=voiceover_full_script,
         total_duration=float(video_duration),
     )
-    srt_path = captions.generate_srt(
+    caption_artifact = captions.generate_caption_asset(
         word_timestamps=word_timestamps,
         style=caption_style,
-        output_path=os.path.join(work_dir, "captions.srt"),
+        output_path=os.path.join(work_dir, "captions"),
     )
 
     stages[-1].status = "completed"
-    stages[-1].detail = f"Generated {caption_style} captions ({len(word_timestamps)} words)"
+    stages[-1].detail = (
+        f"Generated {caption_artifact.style_effective} captions "
+        f"({caption_artifact.render_mode}, {len(word_timestamps)} words)"
+    )
 
     # ── Stage 3: Burn captions ────────────────────────────────────────────────
 
@@ -118,7 +121,7 @@ async def recompose_video(
     ))
 
     captioned_path = os.path.join(work_dir, "captioned.mp4")
-    await ffmpeg.add_captions(local_with_audio, srt_path, caption_style, captioned_path)
+    await ffmpeg.add_captions(local_with_audio, caption_artifact.path, caption_style, captioned_path)
 
     stages[-1].status = "completed"
     stages[-1].detail = f"Burned {caption_style} captions"

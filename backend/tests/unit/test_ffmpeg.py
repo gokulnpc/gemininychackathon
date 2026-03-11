@@ -277,6 +277,21 @@ def test_add_captions_runs_ffmpeg(monkeypatch, tmp_path):
 
 
 @pytest.mark.unit
+def test_add_captions_uses_plain_ass_filter(monkeypatch, tmp_path):
+    video = tmp_path / "video.mp4"
+    ass = tmp_path / "captions.ass"
+    video.write_bytes(b"x")
+    ass.write_text("[Script Info]\n", encoding="utf-8")
+    run_mock = AsyncMock(return_value="")
+    monkeypatch.setattr(ffmpeg, "_run_ffmpeg", run_mock)
+
+    asyncio.run(ffmpeg.add_captions(str(video), str(ass), style="karaoke", output_path=str(tmp_path / "out.mp4")))
+
+    filter_value = run_mock.await_args.args[0][run_mock.await_args.args[0].index("-vf") + 1]
+    assert filter_value == f"subtitles='{ffmpeg._escape_srt_path(str(ass))}'"
+
+
+@pytest.mark.unit
 def test_extend_video_to_duration_copy_path(monkeypatch, tmp_path):
     video = tmp_path / "video.mp4"
     video.write_bytes(b"x")

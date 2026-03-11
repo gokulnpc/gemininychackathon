@@ -136,8 +136,9 @@ export default function WelcomePage() {
 
     apiClient.get("/api/v1/projects")
       .then((r) => {
-        setRecents((r.data.projects ?? []).filter((p: Project) => p.status === "completed").slice(0, 5));
-        setTotalVideos(r.data.total ?? 0);
+        const completedProjects = (r.data.projects ?? []).filter((p: Project) => p.status === "completed");
+        setRecents(completedProjects.slice(0, 5));
+        setTotalVideos(completedProjects.length);
       })
       .catch(() => setRecents([]))
       .finally(() => setRecentsLoading(false));

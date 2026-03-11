@@ -18,7 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from pydantic import ValidationError
 
 from services.media.captions import (
+    CAPTION_STYLE_REGISTRY,
     CaptionCue,
+    CaptionRenderArtifact,
     CaptionStyle,
     CaptionTrack,
     Word,
@@ -26,11 +28,15 @@ from services.media.captions import (
     _srt_ts,
     _webvtt_ts,
     build_track,
+    cues_to_ass,
     cues_to_srt,
     cues_to_twick,
     cues_to_webvtt,
+    generate_ass,
+    generate_caption_asset,
     generate_srt,
     generate_word_timestamps_from_script,
+    resolve_caption_style,
     words_to_cues,
 )
 
@@ -254,6 +260,21 @@ def test_twick_elements_timing_matches_srt():
     print("  ✓ Twick timing matches SRT timestamps exactly")
 
 
+def test_twick_elements_include_word_props():
+    cues = [
+        CaptionCue(
+            start=0.0,
+            end=1.0,
+            text="Hello world",
+            words=[Word(word="Hello", start=0.0, end=0.4), Word(word="world", start=0.4, end=1.0)],
+        ),
+    ]
+    elements = cues_to_twick(cues, track_id="t-test")
+    assert elements[0]["props"]["words"][0]["text"] == "Hello"
+    assert elements[0]["props"]["words"][1]["text"] == "world"
+    print("  ✓ Twick elements include word timing props")
+
+
 # ── generate_word_timestamps_from_script ─────────────────────────────────────
 
 def test_even_distribution():
@@ -308,6 +329,63 @@ def test_generate_srt_writes_file():
     finally:
         if os.path.exists(output_path):
             os.unlink(output_path)
+
+
+def test_resolve_caption_style_registry_consistent():
+    style_key, style_def = resolve_caption_style("karaoke")
+    assert style_key == "karaoke"
+    assert style_def["twick_cap_style"] == "karaoke"
+    assert style_def["export_mode"] == "advanced_ass"
+    assert "karaoke" in CAPTION_STYLE_REGISTRY
+    print("  ✓ caption style registry resolves Twick/export metadata together")
+
+
+def test_cues_to_ass_karaoke_includes_k_tags():
+    track = build_track(_SAMPLE_WORDS, "karaoke")
+    ass = cues_to_ass(track.cues, "karaoke")
+    assert r"{\kf" in ass
+    assert "[V4+ Styles]" in ass
+    print("  ✓ ASS output includes karaoke timing tags")
+
+
+def test_generate_ass_writes_file():
+    output_path = f"/tmp/test_captions_{os.getpid()}.ass"
+    try:
+        result_path = generate_ass(_SAMPLE_WORDS, "karaoke", output_path)
+        assert os.path.exists(result_path)
+        with open(result_path, encoding="utf-8") as handle:
+            content = handle.read()
+        assert "[Events]" in content
+        assert r"{\kf" in content
+        print(f"  ✓ ASS file written to {result_path}")
+    finally:
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+
+
+def test_generate_caption_asset_advanced_style_uses_ass():
+    artifact = generate_caption_asset(_SAMPLE_WORDS, "karaoke", "/tmp/caption_asset")
+    try:
+        assert isinstance(artifact, CaptionRenderArtifact)
+        assert artifact.format == "ass"
+        assert artifact.render_mode == "advanced_ass"
+        assert artifact.style_effective == "karaoke"
+        assert artifact.degraded is False
+        print("  ✓ advanced caption asset routes to ASS")
+    finally:
+        if os.path.exists(artifact.path):
+            os.unlink(artifact.path)
+
+
+def test_generate_caption_asset_basic_style_uses_srt():
+    artifact = generate_caption_asset(_SAMPLE_WORDS, "clean", "/tmp/caption_asset_basic")
+    try:
+        assert artifact.format == "srt"
+        assert artifact.render_mode == "basic_subtitle"
+        print("  ✓ basic caption asset routes to SRT")
+    finally:
+        if os.path.exists(artifact.path):
+            os.unlink(artifact.path)
 
 
 # ── Production hardening tests ────────────────────────────────────────────────

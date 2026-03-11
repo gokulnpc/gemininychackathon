@@ -8,6 +8,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from services.media.captions import resolve_caption_style
+
 logger = logging.getLogger(__name__)
 
 FPS = 25
@@ -496,14 +498,16 @@ async def compose_video(
 
 async def add_captions(
     video_path: str,
-    srt_path: str,
+    subtitle_path: str,
     style: str = "clean",
     output_path: str | None = None,
 ) -> str:
     _validate_existing_file(video_path, "video_path")
-    _validate_existing_file(srt_path, "srt_path")
+    _validate_existing_file(subtitle_path, "subtitle_path")
     if output_path is None:
         output_path = _generate_temp_output("voicevid_captioned_", ".mp4")
+
+    subtitle_filter = _build_subtitles_filter(subtitle_path, style)
 
     await _run_ffmpeg(
         [
@@ -511,7 +515,7 @@ async def add_captions(
             "-i",
             video_path,
             "-vf",
-            f"subtitles='{_escape_srt_path(srt_path)}':{_get_caption_style_options(style)}",
+            subtitle_filter,
             "-c:a",
             "copy",
             "-c:v",
@@ -527,56 +531,17 @@ async def add_captions(
     return output_path
 
 
+def _build_subtitles_filter(subtitle_path: str, style: str) -> str:
+    escaped_path = _escape_srt_path(subtitle_path)
+    if Path(subtitle_path).suffix.lower() == ".ass":
+        return f"subtitles='{escaped_path}'"
+    return f"subtitles='{escaped_path}':{_get_caption_style_options(style)}"
+
+
 def _get_caption_style_options(style: str) -> str:
-    styles = {
-        "bold_stroke": (
-            "force_style='FontName=Arial Black,FontSize=20,Bold=1,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=3,Shadow=0,Alignment=10,MarginV=60'"
-        ),
-        "hormozi": (
-            "force_style='FontName=Arial Black,FontSize=20,Bold=1,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=3,Shadow=0,Alignment=10,MarginV=60'"
-        ),
-        "red_highlight": (
-            "force_style='FontName=Arial Black,FontSize=18,Bold=1,"
-            "PrimaryColour=&H00FFFFFF,BackColour=&H000000FF,"
-            "BorderStyle=4,Outline=0,Shadow=0,Alignment=10,MarginV=60'"
-        ),
-        "sleek": (
-            "force_style='FontName=Arial,FontSize=14,Bold=0,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
-        ),
-        "clean": (
-            "force_style='FontName=Arial,FontSize=14,Bold=0,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=2,Shadow=1,Alignment=2,MarginV=30'"
-        ),
-        "karaoke": (
-            "force_style='FontName=Arial,FontSize=16,Bold=1,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=2,Shadow=1,Alignment=2,MarginV=40'"
-        ),
-        "majestic": (
-            "force_style='FontName=Georgia,FontSize=22,Bold=1,Italic=0,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H001C86EE,"
-            "Outline=2,Shadow=2,Alignment=2,MarginV=50'"
-        ),
-        "beast": (
-            "force_style='FontName=Impact,FontSize=26,Bold=1,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=4,Shadow=0,Alignment=10,MarginV=80'"
-        ),
-        "elegant": (
-            "force_style='FontName=Georgia,FontSize=16,Bold=0,Italic=1,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "Outline=1,Shadow=1,Alignment=2,MarginV=35'"
-        ),
-    }
-    return styles.get(
-        style,
+    _, style_def = resolve_caption_style(style)
+    return style_def.get(
+        "ffmpeg_force_style",
         "force_style='FontName=Arial,FontSize=14,Bold=0,"
         "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
         "Outline=2,Shadow=1,Alignment=2,MarginV=30'",

@@ -215,10 +215,10 @@ function CompletedPanel({ project }: { project: Project }) {
         )}
       </div>
 
-      {platforms.length > 0 && (
+      {platforms.filter(p => p !== 'master').length > 0 && (
         <div className="flex flex-col gap-2">
           <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Download</label>
-          {platforms.map((platform) => (
+          {platforms.filter(p => p !== 'master').map((platform) => (
             <a
               key={platform}
               href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}${idToken ? `?token=${idToken}` : ''}`}
@@ -246,12 +246,16 @@ function VideoConfigPanel({ project }: { project: Project }) {
   
   // Group configuration items
   const visualSettings = [];
-  if (cfg.niche) visualSettings.push({ label: 'Niche', value: cfg.niche });
-  if (cfg.style) visualSettings.push({ label: 'Style', value: cfg.style });
+  if (cfg.art_style_override) visualSettings.push({ label: 'Art Style', value: cfg.art_style_override });
+  if (cfg.caption_style) visualSettings.push({ label: 'Captions', value: cfg.caption_style });
   
   const contentSettings = [];
-  if (cfg.duration) contentSettings.push({ label: 'Duration', value: cfg.duration });
-  if (cfg.language) contentSettings.push({ label: 'Language', value: cfg.language });
+  if (cfg.video_duration) contentSettings.push({ label: 'Duration', value: `${cfg.video_duration}s` });
+  if (cfg.voice_id) contentSettings.push({ label: 'Voice Profile', value: cfg.voice_id });
+  const platforms = cfg.target_platforms as string[] | undefined;
+  if (platforms && platforms.length > 0) {
+      contentSettings.push({ label: 'Platforms', value: platforms.join(', ') });
+  }
 
   return (
     <div className="flex flex-col gap-6">
