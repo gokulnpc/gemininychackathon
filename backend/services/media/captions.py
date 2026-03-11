@@ -245,7 +245,7 @@ CAPTION_STYLE_REGISTRY: dict[str, dict] = {
     "karaoke": {
         "twick_cap_style": "karaoke",
         "twick_props": {
-            "font": {"size": 46, "weight": 700, "family": "Bangers"},
+            "font": {"size": 58, "weight": 700, "family": "Bangers"},
             "colors": {"text": "#ffffff", "highlight": "#ffd700", "bgColor": "transparent"},
             "stroke": "#000000",
             "shadowOffset": [0, 2],
@@ -254,7 +254,7 @@ CAPTION_STYLE_REGISTRY: dict[str, dict] = {
         "export_mode": "advanced_ass",
         "ass_style": {
             "fontname": "Arial",
-            "fontsize": 16,
+            "fontsize": 26,
             "primary_colour": "&H00FFFFFF",
             "secondary_colour": "&H0000D7FF",
             "outline_colour": "&H00000000",
@@ -262,10 +262,10 @@ CAPTION_STYLE_REGISTRY: dict[str, dict] = {
             "bold": 1,
             "italic": 0,
             "border_style": 1,
-            "outline": 2,
+            "outline": 3,
             "shadow": 1,
             "alignment": 2,
-            "margin_v": 40,
+            "margin_v": 55,
         },
     },
     "red_highlight": {
