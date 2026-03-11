@@ -47,6 +47,12 @@ def test_settings():
         google_cloud_project="test-project",
         # Gemini
         gemini_api_key="fake-api-key-for-testing",
+        gemini_live_model="gemini-2.5-flash-native-audio-preview-12-2025",
+        gemini_fast_text_model="gemini-2.5-flash",
+        gemini_reasoning_model="gemini-2.5-pro",
+        gemini_image_model="gemini-2.5-flash-image",
+        gemini_tts_model="gemini-2.5-flash-preview-tts",
+        gemini_premium_tts_model="gemini-2.5-pro-preview-tts",
         vertex_ai_location="us-central1",
         use_vertex_ai=False,
         # Email
@@ -82,10 +88,12 @@ def patch_settings(test_settings, monkeypatch):
     a service module (most service tests need this).
     """
     import config
-    config.get_settings.cache_clear()
+    if hasattr(config.get_settings, "cache_clear"):
+        config.get_settings.cache_clear()
     monkeypatch.setattr(config, "get_settings", lambda: test_settings)
     yield test_settings
-    config.get_settings.cache_clear()
+    if hasattr(config.get_settings, "cache_clear"):
+        config.get_settings.cache_clear()
 
 
 # ===========================================================================

@@ -185,13 +185,39 @@ async def generate_plot_options(
     else:
         raise HTTPException(status_code=422, detail=f"Unknown source: {request.source}")
 
+    # ── Reddit context (non-fatal) ─────────────────────────────────────────────
+    reddit_ctx: dict = {}
+    try:
+        reddit_ctx = await reddit.fetch_trending(niche=None, transcript=transcript)
+    except Exception as _reddit_err:
+        logger.debug("Reddit fetch skipped for plot options: %s", _reddit_err)
+
+    reddit_section = ""
+    if reddit_ctx.get("top_topics"):
+        topics = "\n".join(f"- {t}" for t in reddit_ctx["top_topics"][:6])
+        reddit_section = (
+            f"\n\nTRENDING TOPICS RIGHT NOW (from Reddit):\n{topics}\n"
+            "Use these as fresh inspiration angles where relevant to the brief."
+        )
+
+    avoid_section = ""
+    if request.previous_options:
+        joined = "\n".join(f"- {o}" for o in request.previous_options)
+        avoid_section = (
+            f"\n\nThe following plot directions were ALREADY shown to the user — "
+            f"do NOT repeat or closely resemble them:\n{joined}\n"
+            "Generate 3 COMPLETELY DIFFERENT angles."
+        )
+
     prompt = (
         "You are a creative director for short-form video content.\n\n"
         "Based on the following content brief, generate exactly 3 DISTINCT story/plot directions "
         "for a short-form video. Each option must be meaningfully different — vary the angle, "
         "tone, narrative hook, or emotional journey.\n\n"
-        f"Content brief:\n{transcript}\n\n"
-        "Respond ONLY with a valid JSON array, no markdown, no explanation:\n"
+        f"Content brief:\n{transcript}"
+        f"{reddit_section}"
+        f"{avoid_section}"
+        "\n\nRespond ONLY with a valid JSON array, no markdown, no explanation:\n"
         '[{"id":1,"title":"Short title 4-6 words","summary":"2-3 sentence description."},'
         '{"id":2,"title":"Short title 4-6 words","summary":"2-3 sentence description."},'
         '{"id":3,"title":"Short title 4-6 words","summary":"2-3 sentence description."}]'

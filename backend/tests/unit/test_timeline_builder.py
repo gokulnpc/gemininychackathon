@@ -20,6 +20,7 @@ from services.content.timeline_builder import (
     TimelineBuildSpec,
     _build_from_spec,
     build_project_timeline,
+    get_music_preview_src,
 )
 
 # ---------------------------------------------------------------------------
@@ -200,6 +201,33 @@ def test_no_voiceover_url_omits_track(_build):
     project = _build(voiceover_gcs_url=None)
     track_names = [t.name for t in project.tracks]
     assert "Voiceover" not in track_names
+
+
+@pytest.mark.unit
+def test_static_music_preset_adds_background_music_track(_build):
+    project = _build(music_preset="breathing_shadows", music_volume=0.15)
+
+    music_track = next(t for t in project.tracks if t.name == "Background Music")
+    element = music_track.elements[0]
+    assert element.type == "audio"
+    assert element.props["src"] == "/music/breathing_shadows.mp3"
+    assert element.props["musicPreset"] == "breathing_shadows"
+    assert element.props["volume"] == 0.15
+    assert element.props["loop"] is True
+
+
+@pytest.mark.unit
+def test_non_preview_music_preset_omits_background_music_track(_build):
+    project = _build(music_preset="lyria")
+    track_names = [t.name for t in project.tracks]
+    assert "Background Music" not in track_names
+
+
+@pytest.mark.unit
+def test_music_preview_src_for_static_and_dynamic_presets():
+    assert get_music_preview_src("happy_rhythm") == "/music/happy_rhythm.mp3"
+    assert get_music_preview_src("lyria") is None
+    assert get_music_preview_src("none") is None
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """Gemini Live API — real-time audio transcription with tone detection.
 
-Model: gemini-2.0-flash-live-001
+Model: Gemini Live native-audio model from `services.gemini.models`
 Uses bidirectional streaming: audio in → transcript text out.
 Tone classification is a follow-up turn after transcription completes.
 
@@ -18,7 +18,9 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
+from services.gemini.models import MODELS
+
+MODEL = MODELS.live_audio
 
 _TRANSCRIPTION_SYSTEM = (
     "You are a real-time transcription service. "

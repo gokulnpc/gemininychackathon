@@ -96,23 +96,7 @@ function thumbnails(projectId: string, platform: string, token: string | null) {
   return token ? `${base}&token=${token}` : base;
 }
 
-function StatusPill({ status }: { status: string }) {
-  const config: Record<string, { label: string; className: string }> = {
-    queued: { label: "Queued", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    generating_script: { label: "Scripting", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    script_ready: { label: "Script Ready", className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
-    generating_video: { label: "Generating", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    in_progress: { label: "Generating", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    completed: { label: "Completed", className: "bg-green-500/20 text-green-300 border-green-500/30" },
-    failed: { label: "Failed", className: "bg-red-500/20 text-red-300 border-red-500/30" },
-  };
-  const { label, className } = config[status] ?? config.failed;
-  return (
-    <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap", className)}>
-      {label}
-    </span>
-  );
-}
+import { StatusPill } from "@/components/shared/StatusPill";
 
 // ── Page ────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
@@ -129,15 +113,24 @@ export default function DashboardPage() {
 
   // Publish flow
   type PlatformKey = "youtube" | "instagram" | "tiktok";
-  type PublishResult = { platform: string; status: string; post_url?: string; error?: string };
+  type PublishResult = {
+    platform: string;
+    status: string;
+    post_url?: string;
+    error?: string;
+  };
   const [publishing, setPublishing] = useState(false);
-  const [publishPlatforms, setPublishPlatforms] = useState<Record<PlatformKey, boolean>>({
+  const [publishPlatforms, setPublishPlatforms] = useState<
+    Record<PlatformKey, boolean>
+  >({
     youtube: false,
     instagram: true,
     tiktok: true,
   });
   const [publishLoading, setPublishLoading] = useState(false);
-  const [publishResults, setPublishResults] = useState<PublishResult[] | null>(null);
+  const [publishResults, setPublishResults] = useState<PublishResult[] | null>(
+    null,
+  );
 
   function togglePlatform(p: PlatformKey) {
     setPublishPlatforms((prev) => ({ ...prev, [p]: !prev[p] }));
@@ -145,16 +138,21 @@ export default function DashboardPage() {
 
   async function handlePublish(projectId: string) {
     const platforms = (Object.keys(publishPlatforms) as PlatformKey[]).filter(
-      (p) => publishPlatforms[p]
+      (p) => publishPlatforms[p],
     );
     if (!platforms.length) return;
     setPublishLoading(true);
     setPublishResults(null);
     try {
-      const resp = await apiClient.post(`/api/v1/projects/${projectId}/publish`, { platforms });
+      const resp = await apiClient.post(
+        `/api/v1/projects/${projectId}/publish`,
+        { platforms },
+      );
       setPublishResults(resp.data.posts ?? []);
     } catch (e) {
-      setPublishResults([{ platform: "all", status: "failed", error: String(e) }]);
+      setPublishResults([
+        { platform: "all", status: "failed", error: String(e) },
+      ]);
     } finally {
       setPublishLoading(false);
     }
@@ -174,7 +172,8 @@ export default function DashboardPage() {
   useEffect(() => {
     if (authLoading || !user) return;
 
-    apiClient.get("/api/v1/projects")
+    apiClient
+      .get("/api/v1/projects")
       .then((r) => setProjects(r.data.projects ?? []))
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
@@ -194,11 +193,15 @@ export default function DashboardPage() {
     <div className="flex min-h-screen bg-[#2B2B2B]">
       <AppSidebar />
 
-      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-300", isCollapsed ? "ml-[80px]" : "ml-[280px]")}>
+      <div
+        className={cn(
+          "flex-1 flex flex-col min-h-screen transition-all duration-300",
+          isCollapsed ? "ml-[80px]" : "ml-[280px]",
+        )}
+      >
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="flex items-center justify-between px-8 h-[80px] border-b border-white/10">
           <div /> {/* spacer */}
-
           <div className="flex items-center gap-4">
             <Button
               onClick={() => router.push("/create")}
@@ -214,10 +217,18 @@ export default function DashboardPage() {
         {/* ── Main ────────────────────────────────────────────────────────── */}
         <main className="px-8 py-8 w-full">
           {/* Title */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-            <h1 className="text-3xl font-medium text-white mb-2">Your Videos</h1>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8"
+          >
+            <h1 className="text-3xl font-medium text-white mb-2">
+              Your Videos
+            </h1>
             <p className="text-white/50">
-              You have <span className="font-medium text-white">{projects.length}</span> videos in your library
+              You have{" "}
+              <span className="font-medium text-white">{projects.length}</span>{" "}
+              videos in your library
             </p>
           </motion.div>
 
@@ -238,7 +249,10 @@ export default function DashboardPage() {
                   className="pl-12 h-12 rounded-xl bg-[#333333] border-white/10 text-white placeholder:text-white/30 focus:border-[#5a9ab5] focus:ring-[#5a9ab5]/20"
                 />
               </div>
-              <Button variant="outline" className="h-12 px-4 rounded-xl bg-transparent border-white/10 text-white/70 hover:bg-white/10 hover:text-white">
+              <Button
+                variant="outline"
+                className="h-12 px-4 rounded-xl bg-transparent border-white/10 text-white/70 hover:bg-white/10 hover:text-white"
+              >
                 <Filter className="w-4 h-4 mr-2" /> Filter
               </Button>
             </div>
@@ -262,7 +276,8 @@ export default function DashboardPage() {
           {/* States: loading / error / empty */}
           {loading && (
             <div className="flex items-center justify-center py-24 text-white/40">
-              <Loader2 className="w-6 h-6 animate-spin mr-3" /> Loading your videos…
+              <Loader2 className="w-6 h-6 animate-spin mr-3" /> Loading your
+              videos…
             </div>
           )}
           {!loading && fetchError && (
@@ -288,7 +303,9 @@ export default function DashboardPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className={viewMode === "grid" ? "grid grid-cols-5 gap-4" : "space-y-4"}
+              className={
+                viewMode === "grid" ? "grid grid-cols-5 gap-4" : "space-y-4"
+              }
             >
               {filtered.map((project, index) => {
                 const t = title(project);
@@ -303,7 +320,9 @@ export default function DashboardPage() {
                     transition={{ delay: 0.3 + index * 0.05 }}
                     className={cn(
                       "group relative transition-all duration-200",
-                      viewMode === "list" ? "flex items-center gap-4 p-4 bg-[#333333] rounded-2xl border border-white/10" : ""
+                      viewMode === "list"
+                        ? "flex items-center gap-4 p-4 bg-[#333333] rounded-2xl border border-white/10"
+                        : "",
                     )}
                   >
                     {/* Thumbnail Container */}
@@ -312,17 +331,28 @@ export default function DashboardPage() {
                         "relative overflow-hidden bg-[#1a1a1a] transition-all duration-300",
                         viewMode === "grid"
                           ? "aspect-9/16 rounded-2xl border border-white/10 group-hover:border-[#5a9ab5]/50 group-hover:shadow-xl cursor-pointer"
-                          : "w-32 h-20 rounded-xl shrink-0"
+                          : "w-32 h-20 rounded-xl shrink-0",
                       )}
-                      onClick={viewMode === "grid" ? () => setSelected(project) : undefined}
+                      onClick={
+                        viewMode === "grid"
+                          ? () => setSelected(project)
+                          : undefined
+                      }
                     >
                       {ready ? (
                         <>
                           <img
-                            src={thumbnails(project.project_id, platform, idToken)}
+                            src={thumbnails(
+                              project.project_id,
+                              platform,
+                              idToken,
+                            )}
                             alt={t}
                             className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display =
+                                "none";
+                            }}
                           />
                           {/* Play overlay */}
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -348,7 +378,10 @@ export default function DashboardPage() {
 
                       {/* Top Right Options (Grid) */}
                       {viewMode === "grid" && (
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        <div
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <button className="p-1.5 rounded-lg bg-black/60 text-white/70 hover:text-white hover:bg-black/80 transition-colors">
@@ -358,19 +391,41 @@ export default function DashboardPage() {
                             <DropdownMenuContent align="end" className="w-40">
                               {ready && (
                                 <DropdownMenuItem asChild>
-                                  <a href={streamUrl(project.project_id, platform, idToken)} target="_blank" rel="noreferrer">
+                                  <a
+                                    href={streamUrl(
+                                      project.project_id,
+                                      platform,
+                                      idToken,
+                                    )}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
                                     <Play className="w-4 h-4 mr-2" /> Preview
                                   </a>
                                 </DropdownMenuItem>
                               )}
                               {ready && (
                                 <DropdownMenuItem asChild>
-                                  <a href={streamUrl(project.project_id, platform, idToken)} download>
-                                    <Download className="w-4 h-4 mr-2" /> Download
+                                  <a
+                                    href={streamUrl(
+                                      project.project_id,
+                                      platform,
+                                      idToken,
+                                    )}
+                                    download
+                                  >
+                                    <Download className="w-4 h-4 mr-2" />{" "}
+                                    Download
                                   </a>
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem onClick={() => router.push(`/projects/${project.project_id}/edit`)}>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  router.push(
+                                    `/projects/${project.project_id}/edit`,
+                                  )
+                                }
+                              >
                                 <Pencil className="w-4 h-4 mr-2" /> Edit project
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={openShare}>
@@ -378,7 +433,9 @@ export default function DashboardPage() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-red-400"
-                                onClick={() => deleteProject(project.project_id)}
+                                onClick={() =>
+                                  deleteProject(project.project_id)
+                                }
                               >
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                               </DropdownMenuItem>
@@ -393,57 +450,106 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Info */}
-                    <div className={cn(
-                      viewMode === "grid" ? "mt-2 px-1" : "flex-1 min-w-0"
-                    )}>
+                    <div
+                      className={cn(
+                        viewMode === "grid" ? "mt-2 px-1" : "flex-1 min-w-0",
+                      )}
+                    >
                       <div className="flex items-start justify-between">
                         <div className="min-w-0 flex-1">
-                          <h3 className={cn(
-                            "text-white font-medium line-clamp-2",
-                            viewMode === "grid" ? "text-sm" : "text-base mb-1"
-                          )}>{t}</h3>
-                          <p className="text-xs text-white/40">{timeAgo(project.created_at)}</p>
+                          <h3
+                            className={cn(
+                              "text-white font-medium line-clamp-2",
+                              viewMode === "grid"
+                                ? "text-sm"
+                                : "text-base mb-1",
+                            )}
+                          >
+                            {t}
+                          </h3>
+                          <p className="text-xs text-white/40">
+                            {timeAgo(project.created_at)}
+                          </p>
                         </div>
 
                         {viewMode === "list" && (
                           <div className="flex items-center gap-2 shrink-0">
                             {ready && (
                               <>
-                                <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/10" asChild>
-                                  <a href={streamUrl(project.project_id, platform, idToken)} target="_blank" rel="noreferrer">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-white/60 hover:text-white hover:bg-white/10"
+                                  asChild
+                                >
+                                  <a
+                                    href={streamUrl(
+                                      project.project_id,
+                                      platform,
+                                      idToken,
+                                    )}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
                                     <Play className="w-4 h-4 mr-2" /> Preview
                                   </a>
                                 </Button>
-                                <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/10" asChild>
-                                  <a href={streamUrl(project.project_id, platform, idToken)} download>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-white/60 hover:text-white hover:bg-white/10"
+                                  asChild
+                                >
+                                  <a
+                                    href={streamUrl(
+                                      project.project_id,
+                                      platform,
+                                      idToken,
+                                    )}
+                                    download
+                                  >
                                     <Download className="w-4 h-4" />
                                   </a>
                                 </Button>
                               </>
                             )}
                             <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button className="p-2 rounded-lg hover:bg-white/10 transition-colors">
-                                    <MoreVertical className="w-4 h-4 text-white/50" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-40">
-                                  <DropdownMenuItem onClick={() => router.push(`/projects/${project.project_id}`)}>
-                                    <p>View detail</p>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => router.push(`/projects/${project.project_id}/edit`)}>
-                                    <p>Edit in studio</p>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={openShare}>
-                                    <Share2 className="w-4 h-4 mr-2" /> Share
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    className="text-red-400"
-                                    onClick={() => deleteProject(project.project_id)}
-                                  >
-                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
+                              <DropdownMenuTrigger asChild>
+                                <button className="p-2 rounded-lg hover:bg-white/10 transition-colors">
+                                  <MoreVertical className="w-4 h-4 text-white/50" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    router.push(
+                                      `/projects/${project.project_id}`,
+                                    )
+                                  }
+                                >
+                                  <p>View detail</p>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    router.push(
+                                      `/projects/${project.project_id}/edit`,
+                                    )
+                                  }
+                                >
+                                  <p>Edit in studio</p>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={openShare}>
+                                  <Share2 className="w-4 h-4 mr-2" /> Share
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-red-400"
+                                  onClick={() =>
+                                    deleteProject(project.project_id)
+                                  }
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
                         )}
@@ -458,128 +564,168 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Video dialog ─────────────────────────────────────────────────── */}
-      <Dialog open={!!selected} onOpenChange={() => { setSelected(null); closeShare(); }}>
+      <Dialog
+        open={!!selected}
+        onOpenChange={() => {
+          setSelected(null);
+          closeShare();
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{selected ? title(selected) : ""}</DialogTitle>
           </DialogHeader>
 
-          {selected && (() => {
-            const platform = (selected.platforms ?? [])[0] ?? "master";
-            const src = streamUrl(selected.project_id, platform, idToken);
-            return (
-              <>
-                <div className="aspect-9/16 max-h-[60vh] bg-gray-900 rounded-xl overflow-hidden">
-                  <video key={src} src={src} controls className="w-full h-full object-contain" />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-[#9B9B9B]">Scenes: {selected.scenes_count}</p>
-                    <p className="text-sm text-[#9B9B9B]">Created: {timeAgo(selected.created_at)}</p>
-                    <p className="text-sm text-[#9B9B9B]">Platforms: {(selected.platforms ?? []).join(", ")}</p>
+          {selected &&
+            (() => {
+              const platform = (selected.platforms ?? [])[0] ?? "master";
+              const src = streamUrl(selected.project_id, platform, idToken);
+              return (
+                <>
+                  <div className="aspect-9/16 max-h-[60vh] bg-gray-900 rounded-xl overflow-hidden">
+                    <video
+                      key={src}
+                      src={src}
+                      controls
+                      className="w-full h-full object-contain"
+                    />
                   </div>
-                  <div className="flex gap-2 flex-wrap justify-end">
-                    {(selected.platforms ?? []).map((p) => (
-                      <Button key={p} variant="outline" asChild>
-                        <a href={streamUrl(selected.project_id, p, idToken)} target="_blank" rel="noreferrer">
-                          <Download className="w-4 h-4 mr-2" />
-                          {p.replace("_", " ")}
-                        </a>
-                      </Button>
-                    ))}
-                    {!publishing && (
-                      <Button className="bg-[#5a9ab5] hover:bg-[#7ab0c8]" onClick={openShare}>
-                        <Share2 className="w-4 h-4 mr-2" /> Share
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* ── Publish panel ─────────────────────────────────────── */}
-                {publishing && (
-                  <div className="p-4 bg-gray-50 rounded-xl border border-[#E8E0DC] space-y-4">
-                    <p className="text-sm font-medium text-[#1A1A1A]">Publish to</p>
-
-                    {/* Platform toggles */}
-                    <div className="flex gap-3">
-                      {(
-                        [
-                          { key: "youtube" as PlatformKey, label: "YouTube" },
-                          { key: "instagram" as PlatformKey, label: "Instagram" },
-                          { key: "tiktok" as PlatformKey, label: "TikTok" },
-                        ]
-                      ).map(({ key, label }) => (
-                        <button
-                          key={key}
-                          onClick={() => togglePlatform(key)}
-                          className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
-                            publishPlatforms[key]
-                              ? "bg-[#5a9ab5]/10 border-[#5a9ab5] text-[#5a9ab5]"
-                              : "bg-white border-[#E8E0DC] text-[#9B9B9B] hover:border-[#5a9ab5]/50"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm text-[#9B9B9B]">
+                        Scenes: {selected.scenes_count}
+                      </p>
+                      <p className="text-sm text-[#9B9B9B]">
+                        Created: {timeAgo(selected.created_at)}
+                      </p>
+                      <p className="text-sm text-[#9B9B9B]">
+                        Platforms: {(selected.platforms ?? []).join(", ")}
+                      </p>
                     </div>
+                    <div className="flex gap-2 flex-wrap justify-end">
+                      {(selected.platforms ?? []).map((p) => (
+                        <Button key={p} variant="outline" asChild>
+                          <a
+                            href={streamUrl(selected.project_id, p, idToken)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            {p.replace("_", " ")}
+                          </a>
+                        </Button>
+                      ))}
+                      {!publishing && (
+                        <Button
+                          className="bg-[#5a9ab5] hover:bg-[#7ab0c8]"
+                          onClick={openShare}
+                        >
+                          <Share2 className="w-4 h-4 mr-2" /> Share
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-                    {/* Per-platform results */}
-                    {publishResults && (
-                      <div className="space-y-1.5">
-                        {publishResults.map((r) => (
-                          <div key={r.platform} className="flex items-center gap-2 text-sm">
-                            {r.status === "success" ? (
-                              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                            ) : (
-                              <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                            )}
-                            <span className="capitalize font-medium">{r.platform}</span>
-                            {r.post_url && (
-                              <a
-                                href={r.post_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[#5a9ab5] underline text-xs ml-auto"
-                              >
-                                View post
-                              </a>
-                            )}
-                            {r.error && (
-                              <span className="text-red-400 text-xs ml-auto truncate max-w-[140px]" title={r.error}>
-                                {r.error}
-                              </span>
-                            )}
-                          </div>
+                  {/* ── Publish panel ─────────────────────────────────────── */}
+                  {publishing && (
+                    <div className="p-4 bg-gray-50 rounded-xl border border-[#E8E0DC] space-y-4">
+                      <p className="text-sm font-medium text-[#1A1A1A]">
+                        Publish to
+                      </p>
+
+                      {/* Platform toggles */}
+                      <div className="flex gap-3">
+                        {[
+                          { key: "youtube" as PlatformKey, label: "YouTube" },
+                          {
+                            key: "instagram" as PlatformKey,
+                            label: "Instagram",
+                          },
+                          { key: "tiktok" as PlatformKey, label: "TikTok" },
+                        ].map(({ key, label }) => (
+                          <button
+                            key={key}
+                            onClick={() => togglePlatform(key)}
+                            className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                              publishPlatforms[key]
+                                ? "bg-[#5a9ab5]/10 border-[#5a9ab5] text-[#5a9ab5]"
+                                : "bg-white border-[#E8E0DC] text-[#9B9B9B] hover:border-[#5a9ab5]/50"
+                            }`}
+                          >
+                            {label}
+                          </button>
                         ))}
                       </div>
-                    )}
 
-                    {/* Actions */}
-                    <div className="flex gap-2">
-                      <Button
-                        className="bg-[#5a9ab5] hover:bg-[#7ab0c8] flex-1"
-                        disabled={
-                          publishLoading ||
-                          !Object.values(publishPlatforms).some(Boolean)
-                        }
-                        onClick={() => handlePublish(selected.project_id)}
-                      >
-                        {publishLoading ? (
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        ) : (
-                          <Share2 className="w-4 h-4 mr-2" />
-                        )}
-                        {publishLoading ? "Publishing…" : "Publish"}
-                      </Button>
-                      <Button variant="outline" onClick={closeShare} disabled={publishLoading}>
-                        Cancel
-                      </Button>
+                      {/* Per-platform results */}
+                      {publishResults && (
+                        <div className="space-y-1.5">
+                          {publishResults.map((r) => (
+                            <div
+                              key={r.platform}
+                              className="flex items-center gap-2 text-sm"
+                            >
+                              {r.status === "success" ? (
+                                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                              ) : (
+                                <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                              )}
+                              <span className="capitalize font-medium">
+                                {r.platform}
+                              </span>
+                              {r.post_url && (
+                                <a
+                                  href={r.post_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[#5a9ab5] underline text-xs ml-auto"
+                                >
+                                  View post
+                                </a>
+                              )}
+                              {r.error && (
+                                <span
+                                  className="text-red-400 text-xs ml-auto truncate max-w-[140px]"
+                                  title={r.error}
+                                >
+                                  {r.error}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-2">
+                        <Button
+                          className="bg-[#5a9ab5] hover:bg-[#7ab0c8] flex-1"
+                          disabled={
+                            publishLoading ||
+                            !Object.values(publishPlatforms).some(Boolean)
+                          }
+                          onClick={() => handlePublish(selected.project_id)}
+                        >
+                          {publishLoading ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Share2 className="w-4 h-4 mr-2" />
+                          )}
+                          {publishLoading ? "Publishing…" : "Publish"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={closeShare}
+                          disabled={publishLoading}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
+                  )}
+                </>
+              );
+            })()}
         </DialogContent>
       </Dialog>
     </div>

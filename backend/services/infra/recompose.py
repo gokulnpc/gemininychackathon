@@ -23,7 +23,9 @@ from services.storage import gcs
 
 logger = logging.getLogger(__name__)
 
-_MUSIC_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "music")
+_MUSIC_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "assets", "music")
+)
 
 
 async def recompose_video(

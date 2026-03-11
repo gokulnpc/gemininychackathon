@@ -22,13 +22,16 @@ Audio protocol (same as gemini_live.py for the user side):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Coroutine
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.0-flash-live-001"
+from services.gemini.models import MODELS
+
+MODEL = MODELS.live_audio
 
 # ── Scout system prompt ────────────────────────────────────────────────────────
 
@@ -156,10 +159,6 @@ def _build_live_config():
                 ),
             ),
         ])],
-        context_window_compression=types.ContextWindowCompressionConfig(
-            trigger_tokens=100_000,
-            sliding_window=types.SlidingWindow(target_tokens=80_000),
-        ),
     )
 
 
@@ -471,6 +470,7 @@ async def run_voice_agent(
     logger.info("Scout voice agent session starting")
 
     async with client.aio.live.connect(model=MODEL, config=live_config) as session:
+        send_task: asyncio.Task | None = None
 
         async def _send_audio() -> None:
             async for chunk in audio_chunks:
@@ -481,49 +481,62 @@ async def run_voice_agent(
 
         send_task = asyncio.create_task(_send_audio())
 
-        async for response in session.receive():
-            # ── Scout's voice audio → forward to browser as binary WS frames ──
-            if response.data:
-                yield response.data
+        try:
+            async for response in session.receive():
+                # ── Scout's voice audio → forward to browser as binary WS frames ──
+                if response.data:
+                    yield response.data
 
-            # ── Scout's text transcript → JSON event for UI sidebar ───────────
-            text = getattr(response, "text", None)
-            if text and text.strip():
-                try:
-                    await on_event({"type": "agent_transcript", "text": text.strip()})
-                except Exception:
-                    pass
-
-            # ── Tool calls ────────────────────────────────────────────────────
-            tool_call = getattr(response, "tool_call", None)
-            if tool_call:
-                for fc in tool_call.function_calls:
-                    args = dict(fc.args) if fc.args else {}
-                    logger.info("Scout tool call: %s(%s)", fc.name, list(args.keys()))
-
-                    result = await _dispatch_tool(fc.name, args, on_event)
-
-                    # Notify browser of tool event
+                # ── Scout's text transcript → JSON event for UI sidebar ───────
+                text = getattr(response, "text", None)
+                if text and text.strip():
                     try:
-                        await on_event({"type": "tool_event", "name": fc.name, **result})
+                        await on_event({"type": "agent_transcript", "text": text.strip()})
                     except Exception:
                         pass
 
-                    # Return result to Scout so it can continue the conversation
-                    await session.send_tool_response(
-                        function_responses=[types.FunctionResponse(
-                            id=fc.id,
-                            name=fc.name,
-                            response={"result": result},
-                        )]
-                    )
+                # ── Tool calls ────────────────────────────────────────────────
+                tool_call = getattr(response, "tool_call", None)
+                if tool_call:
+                    for fc in tool_call.function_calls:
+                        args = dict(fc.args) if fc.args else {}
+                        logger.info("Scout tool call: %s(%s)", fc.name, list(args.keys()))
 
-            # ── End of session ────────────────────────────────────────────────
-            server_content = getattr(response, "server_content", None)
-            turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
-            if send_task.done() and turn_complete:
-                break
+                        result = await _dispatch_tool(fc.name, args, on_event)
 
-        await send_task
+                        # Notify browser of tool event
+                        try:
+                            await on_event({"type": "tool_event", "name": fc.name, **result})
+                        except Exception:
+                            pass
+
+                        # Return result to Scout so it can continue the conversation
+                        await session.send_tool_response(
+                            function_responses=[types.FunctionResponse(
+                                id=fc.id,
+                                name=fc.name,
+                                response={"result": result},
+                            )]
+                        )
+
+                # ── End of session ────────────────────────────────────────────
+                server_content = getattr(response, "server_content", None)
+                turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
+                if send_task.done() and turn_complete:
+                    break
+        except Exception as exc:
+            message = str(exc)
+            if "Operation is not implemented, or supported, or enabled" in message:
+                raise RuntimeError(
+                    "Gemini Live rejected the current voice session configuration. "
+                    "Retry once; if it persists, keep using the text flow while we narrow the unsupported Live capability."
+                ) from exc
+            raise
+        finally:
+            if send_task is not None:
+                if not send_task.done():
+                    send_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await send_task
 
     logger.info("Scout voice agent session ended")

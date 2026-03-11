@@ -21,22 +21,6 @@ export function Step9_VideoDetails() {
       transition={{ duration: 0.3 }}
       className="space-y-6"
     >
-      {/* Video Name */}
-      <div>
-        <label className="block text-sm font-medium text-white mb-2">
-          Video Name
-        </label>
-        <input
-          type="text"
-          value={state.seriesName}
-          onChange={(e) =>
-            dispatch({ type: "SET_SERIES_NAME", payload: e.target.value })
-          }
-          placeholder="Enter a name for your series"
-          className="w-full p-4 rounded-xl border border-white/20 bg-white/20 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#5a9ab5]/30 focus:border-[#5a9ab5] transition-all duration-200"
-        />
-      </div>
-
       {/* Video Duration */}
       <div>
         <label className="block text-sm font-medium text-white mb-3">

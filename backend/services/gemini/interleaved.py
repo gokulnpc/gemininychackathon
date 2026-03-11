@@ -10,7 +10,7 @@ Supported modes:
   educational      — narration sections + concept/diagram images
   social_content   — caption + post image + hashtag cloud
 
-Model: gemini-2.0-flash-preview-image-generation
+Model: Gemini image-capable model from `services.gemini.models`
   response_modalities=["TEXT", "IMAGE"] enables native interleaved output.
   A single prompt yields alternating text blocks and generated images.
 """
@@ -23,7 +23,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.0-flash-preview-image-generation"
+from services.gemini.models import MODELS
+
+MODEL = MODELS.image_generation
 
 # ── Mode-specific creative director prompts ────────────────────────────────────
 

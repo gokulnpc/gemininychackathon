@@ -19,6 +19,12 @@ class Settings(BaseSettings):
 
     # Google Gemini (script agent + reasoning + image generation)
     gemini_api_key: str = ""
+    gemini_live_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
+    gemini_fast_text_model: str = "gemini-2.5-flash"
+    gemini_reasoning_model: str = "gemini-2.5-pro"
+    gemini_image_model: str = "gemini-2.5-flash-image"
+    gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
+    gemini_premium_tts_model: str = "gemini-2.5-pro-preview-tts"
 
     # Google Cloud / Vertex AI
     google_cloud_project: str = ""          # GCP project ID, e.g. my-project-123

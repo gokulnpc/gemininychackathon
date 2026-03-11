@@ -19,8 +19,10 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-3.1-flash-image-preview"
-_TEXT_MODEL = "gemini-2.0-flash"
+from services.gemini.models import MODELS
+
+MODEL = MODELS.image_generation
+_TEXT_MODEL = MODELS.fast_text
 
 _STYLES_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "styles")
 
