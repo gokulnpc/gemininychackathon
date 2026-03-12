@@ -23,7 +23,7 @@ import { auth } from "@/lib/firebase";
 import type { ProjectJSON } from "@twick/timeline";
 import "@twick/studio/dist/studio.css";
 import { TimelineProvider, INITIAL_TIMELINE_DATA, useTimelineContext } from "@twick/timeline";
-import { LivePlayerProvider, useLivePlayerContext } from "@twick/live-player";
+import { LivePlayerProvider, PLAYER_STATE, useLivePlayerContext } from "@twick/live-player";
 import dynamic from "next/dynamic";
 import type { AgentMessage, Project } from "@/components/editor/types";
 
@@ -48,6 +48,281 @@ interface EditorBridgeHandle {
     selected_element_types: string[];
   };
 }
+
+type TimelineTrackJson = NonNullable<ProjectJSON["tracks"]>[number];
+type TimelineElementJson = TimelineTrackJson["elements"][number];
+
+interface MediaTransformRecord {
+  canonicalSrc: string;
+  editorSrc: string;
+  canonicalElementObjectFit: string | null;
+  canonicalPropsObjectFit: string | null;
+  editorElementObjectFit: string | null;
+  editorPropsObjectFit: string | null;
+}
+
+interface SkippedEditorElement {
+  element: TimelineElementJson;
+  index: number;
+}
+
+interface PlaybackWarning {
+  elementId: string;
+  trackId: string;
+  type: string;
+  src: string | null;
+  editorSrc: string | null;
+  reason: string;
+}
+
+interface MediaSourceReference {
+  elementId: string;
+  trackId: string;
+  type: string;
+  canonicalSrc: string;
+}
+
+interface EditorProjectSession {
+  editorProjectJson: ProjectJSON;
+  canonicalMediaByElementId: Record<string, MediaTransformRecord>;
+  skippedElementsByTrackId: Record<string, SkippedEditorElement[]>;
+  playbackWarnings: PlaybackWarning[];
+  mediaIndexByEditorSrc: Record<string, MediaSourceReference[]>;
+}
+
+const ABSOLUTE_SRC_PATTERN = /^(?:[a-z]+:)?\/\//i;
+const DATA_OR_BLOB_SRC_PATTERN = /^(?:data:|blob:)/i;
+const GS_MEDIA_SRC_PATTERN = /^gs:\/\/([^/]+)\/(.+)$/i;
+const REFRESH_STALL_TIMEOUT_MS = 8000;
+
+const isAbsoluteMediaSrc = (src: string): boolean =>
+  ABSOLUTE_SRC_PATTERN.test(src) || DATA_OR_BLOB_SRC_PATTERN.test(src);
+
+const cloneTimelineElement = (element: TimelineElementJson): TimelineElementJson => {
+  const frame = element.frame
+    ? {
+        ...element.frame,
+        size: Array.isArray(element.frame.size) ? [...element.frame.size] : element.frame.size,
+      }
+    : element.frame;
+
+  return {
+    ...element,
+    props: typeof element.props === "object" && element.props ? { ...element.props } : element.props,
+    frame,
+    frameEffects: Array.isArray(element.frameEffects) ? [...element.frameEffects] : element.frameEffects,
+  };
+};
+
+const cloneTimelineTrack = (track: TimelineTrackJson): TimelineTrackJson => ({
+  ...track,
+  props: typeof track.props === "object" && track.props ? { ...track.props } : track.props,
+  elements: (track.elements ?? []).map((element) => cloneTimelineElement(element)),
+});
+
+const resolveGsMediaSrc = (src: string): string | null => {
+  const match = src.match(GS_MEDIA_SRC_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  return `https://storage.googleapis.com/${match[1]}/${match[2]}`;
+};
+
+const normalizeEditorMediaSrc = (src: string): { editorSrc: string | null; reason?: string } => {
+  if (!src) {
+    return { editorSrc: null, reason: "Missing media source." };
+  }
+
+  if (DATA_OR_BLOB_SRC_PATTERN.test(src) || ABSOLUTE_SRC_PATTERN.test(src)) {
+    return { editorSrc: src };
+  }
+
+  if (src.startsWith("gs://")) {
+    const resolvedSrc = resolveGsMediaSrc(src);
+    return resolvedSrc
+      ? { editorSrc: resolvedSrc }
+      : { editorSrc: null, reason: "Unsupported gs:// media source." };
+  }
+
+  if (src.startsWith("/assets/") || src.startsWith("/outputs/")) {
+    return { editorSrc: `${API}${src}` };
+  }
+
+  if (src.startsWith("/")) {
+    if (typeof window === "undefined") {
+      return { editorSrc: src };
+    }
+
+    return { editorSrc: `${window.location.origin}${src}` };
+  }
+
+  return { editorSrc: null, reason: "Unsupported media source for browser playback." };
+};
+
+const isSceneImageElement = (element: TimelineElementJson): boolean => {
+  if (element.type !== "image") {
+    return false;
+  }
+
+  const props = typeof element.props === "object" && element.props ? element.props : null;
+  return typeof props?.sceneId === "number" || typeof props?.sceneId === "string";
+};
+
+const buildEditorProjectSession = (json: ProjectJSON | null): EditorProjectSession | null => {
+  if (!json) {
+    return null;
+  }
+
+  const canonicalMediaByElementId: Record<string, MediaTransformRecord> = {};
+  const skippedElementsByTrackId: Record<string, SkippedEditorElement[]> = {};
+  const playbackWarnings: PlaybackWarning[] = [];
+  const mediaIndexByEditorSrc: Record<string, MediaSourceReference[]> = {};
+
+  const editorTracks = (json.tracks ?? []).map((track) => {
+    const editorTrack = cloneTimelineTrack(track);
+    const nextElements: TimelineElementJson[] = [];
+
+    for (const [index, rawElement] of (editorTrack.elements ?? []).entries()) {
+      const element = cloneTimelineElement(rawElement);
+      const props = typeof element.props === "object" && element.props ? { ...element.props } : {};
+      const src = typeof props.src === "string" ? props.src : null;
+      const shouldForceContain = isSceneImageElement(element);
+      const canonicalElementObjectFit = typeof element.objectFit === "string" ? element.objectFit : null;
+      const canonicalPropsObjectFit = typeof props.objectFit === "string" ? props.objectFit : null;
+
+      if (src) {
+        const { editorSrc, reason } = normalizeEditorMediaSrc(src);
+        if (!editorSrc) {
+          playbackWarnings.push({
+            elementId: element.id,
+            trackId: track.id,
+            type: element.type,
+            src,
+            editorSrc: null,
+            reason: reason ?? "Media source could not be normalized for browser playback.",
+          });
+          skippedElementsByTrackId[track.id] = [
+            ...(skippedElementsByTrackId[track.id] ?? []),
+            { element: cloneTimelineElement(rawElement), index },
+          ];
+          continue;
+        }
+
+        props.src = editorSrc;
+        canonicalMediaByElementId[element.id] = {
+          canonicalSrc: src,
+          editorSrc,
+          canonicalElementObjectFit,
+          canonicalPropsObjectFit,
+          editorElementObjectFit: shouldForceContain ? "contain" : canonicalElementObjectFit,
+          editorPropsObjectFit: shouldForceContain ? "contain" : canonicalPropsObjectFit,
+        };
+        mediaIndexByEditorSrc[editorSrc] = [
+          ...(mediaIndexByEditorSrc[editorSrc] ?? []),
+          {
+            elementId: element.id,
+            trackId: track.id,
+            type: element.type,
+            canonicalSrc: src,
+          },
+        ];
+      }
+
+      if (shouldForceContain) {
+        element.objectFit = "contain";
+        props.objectFit = "contain";
+      }
+
+      element.props = props;
+      nextElements.push(element);
+    }
+
+    editorTrack.elements = nextElements;
+    return editorTrack;
+  });
+
+  return {
+    editorProjectJson: {
+      ...json,
+      tracks: editorTracks,
+    },
+    canonicalMediaByElementId,
+    skippedElementsByTrackId,
+    playbackWarnings,
+    mediaIndexByEditorSrc,
+  };
+};
+
+const restoreCanonicalElement = (
+  element: TimelineElementJson,
+  transformRecord: MediaTransformRecord | undefined,
+): TimelineElementJson => {
+  if (!transformRecord) {
+    return cloneTimelineElement(element);
+  }
+
+  const restored = cloneTimelineElement(element);
+  const props = typeof restored.props === "object" && restored.props ? { ...restored.props } : {};
+
+  if (typeof props.src === "string" && props.src === transformRecord.editorSrc) {
+    props.src = transformRecord.canonicalSrc;
+  }
+
+  if (transformRecord.editorElementObjectFit && restored.objectFit === transformRecord.editorElementObjectFit) {
+    if (transformRecord.canonicalElementObjectFit) {
+      restored.objectFit = transformRecord.canonicalElementObjectFit;
+    } else {
+      delete restored.objectFit;
+    }
+  }
+
+  if (transformRecord.editorPropsObjectFit && props.objectFit === transformRecord.editorPropsObjectFit) {
+    if (transformRecord.canonicalPropsObjectFit) {
+      props.objectFit = transformRecord.canonicalPropsObjectFit;
+    } else {
+      delete props.objectFit;
+    }
+  }
+
+  restored.props = props;
+  return restored;
+};
+
+const serializeProjectJsonForPersistence = (
+  editorProjectJson: ProjectJSON | null,
+  session: EditorProjectSession | null,
+): ProjectJSON | null => {
+  if (!editorProjectJson) {
+    return null;
+  }
+
+  const canonicalMediaByElementId = session?.canonicalMediaByElementId ?? {};
+  const skippedElementsByTrackId = session?.skippedElementsByTrackId ?? {};
+
+  return {
+    ...editorProjectJson,
+    tracks: (editorProjectJson.tracks ?? []).map((track) => {
+      const restoredElements = (track.elements ?? []).map((element) =>
+        restoreCanonicalElement(element, canonicalMediaByElementId[element.id])
+      );
+      const mergedElements = [...restoredElements];
+
+      for (const skipped of (skippedElementsByTrackId[track.id] ?? []).sort((left, right) => left.index - right.index)) {
+        mergedElements.splice(
+          Math.min(skipped.index, mergedElements.length),
+          0,
+          cloneTimelineElement(skipped.element),
+        );
+      }
+
+      return {
+        ...track,
+        elements: mergedElements,
+      };
+    }),
+  };
+};
 
 const AgentBridge = forwardRef<EditorBridgeHandle>((_, ref) => {
   const { editor, selectedItem, selectedIds, timelineAction } = useTimelineContext();
@@ -93,6 +368,58 @@ const AgentBridge = forwardRef<EditorBridgeHandle>((_, ref) => {
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_API = API.replace(/^http/, "ws");
 
+function PlaybackDebugBridge() {
+  const { timelineAction } = useTimelineContext();
+  const livePlayer = useLivePlayerContext() as {
+    playerState?: keyof typeof PLAYER_STATE | string;
+    currentTime?: number;
+  } | null;
+  const refreshTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const nextPlayerState = livePlayer?.playerState ?? "unknown";
+    if (nextPlayerState === PLAYER_STATE.REFRESH) {
+      console.info("[EditorPlayback] player entered REFRESH", {
+        currentTime: livePlayer?.currentTime ?? 0,
+      });
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        console.warn("[EditorPlayback] player refresh is stalled", {
+          currentTime: livePlayer?.currentTime ?? 0,
+          timeoutMs: REFRESH_STALL_TIMEOUT_MS,
+        });
+      }, REFRESH_STALL_TIMEOUT_MS);
+      return;
+    }
+
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
+    }
+  }, [livePlayer?.currentTime, livePlayer?.playerState]);
+
+  useEffect(() => {
+    if (timelineAction?.type === "updatePlayerData") {
+      console.info("[EditorPlayback] timeline requested player refresh");
+    }
+    if (timelineAction?.type === "onPlayerUpdated") {
+      console.info("[EditorPlayback] player reported ON_PLAYER_UPDATED");
+    }
+  }, [timelineAction]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  return null;
+}
+
 // ─── Editor Page ──────────────────────────────────────────────────────────────
 
 export default function EditorPage() {
@@ -102,6 +429,8 @@ export default function EditorPage() {
 
   // Project data
   const [project, setProject] = useState<Project | null>(null);
+  const [editorProjectJson, setEditorProjectJson] = useState<ProjectJSON | null>(null);
+  const [playbackWarnings, setPlaybackWarnings] = useState<PlaybackWarning[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Agent panel
@@ -128,23 +457,28 @@ export default function EditorPage() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorRootRef = useRef<HTMLDivElement>(null);
+  const editorSessionRef = useRef<EditorProjectSession | null>(null);
 
-  const normalizeProjectJson = useCallback((json: ProjectJSON | null): ProjectJSON | null => {
-    if (!json) return null;
-    return {
-      ...json,
-      tracks: (json.tracks ?? []).map((track) => ({
-        ...track,
-        elements: (track.elements ?? []).map((element) => {
-          const props = typeof element.props === "object" && element.props ? { ...element.props } : element.props;
-          const src = typeof props?.src === "string" ? props.src : null;
-          if (src && src.startsWith("/assets/")) {
-            props.src = `${API}${src}`;
-          }
-          return props ? { ...element, props } : element;
-        }),
+  const applyEditorSession = useCallback((json: ProjectJSON | null, label: string): ProjectJSON | null => {
+    const session = buildEditorProjectSession(json);
+    editorSessionRef.current = session;
+    setEditorProjectJson(session?.editorProjectJson ?? null);
+    setPlaybackWarnings(session?.playbackWarnings ?? []);
+    console.info(`[EditorPlayback] media session (${label})`, {
+      projectId,
+      count: Object.keys(session?.mediaIndexByEditorSrc ?? {}).length,
+      sources: Object.entries(session?.mediaIndexByEditorSrc ?? {}).map(([editorSrc, refs]) => ({
+        editorSrc,
+        elements: refs,
       })),
-    };
+      warnings: session?.playbackWarnings ?? [],
+    });
+    return session?.editorProjectJson ?? null;
+  }, [projectId]);
+
+  const serializeProjectJson = useCallback((json: ProjectJSON | null): ProjectJSON | null => {
+    return serializeProjectJsonForPersistence(json, editorSessionRef.current);
   }, []);
 
   const saveTimelineDebounced = useCallback((json: ProjectJSON | null) => {
@@ -167,49 +501,52 @@ export default function EditorPage() {
   }, [projectId]);
 
   const syncProjectJson = useCallback((json: ProjectJSON | null) => {
-    const normalized = normalizeProjectJson(json);
-    if (!normalized) return;
-    setProject((prev) => prev ? { ...prev, project_json: normalized } : prev);
-    saveTimelineDebounced(normalized);
-  }, [normalizeProjectJson, saveTimelineDebounced]);
+    const canonical = serializeProjectJson(json);
+    if (!canonical) return;
+    applyEditorSession(canonical, "editor_mutation");
+    setProject((prev) => prev ? { ...prev, project_json: canonical } : prev);
+    saveTimelineDebounced(canonical);
+  }, [applyEditorSession, saveTimelineDebounced, serializeProjectJson]);
 
   const applyLiveProjectJson = useCallback((json: ProjectJSON | null, changes?: Record<string, unknown>) => {
-    const normalized = normalizeProjectJson(json);
-    if (!normalized) return;
-    editorBridgeRef.current?.loadProject(normalized);
-    saveTimelineDebounced(normalized);
+    if (!json) return;
+    const editorJson = applyEditorSession(json, "live_update");
+    editorBridgeRef.current?.loadProject(editorJson ?? INITIAL_TIMELINE_DATA);
+    saveTimelineDebounced(json);
     setProject((prev) => prev ? ({
       ...prev,
       ...(changes?.caption_style ? { caption_style: String(changes.caption_style) } : {}),
       ...(changes?.background_music ? { background_music: String(changes.background_music) } : {}),
-      project_json: normalized,
+      project_json: json,
     }) : prev);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
       wsRef.current.send(JSON.stringify({
         type: "editor_state",
-        project_json: normalized,
+        project_json: json,
         editor_context: agentPanelOpen
           ? { ...editorContext, active_panel: "agent" }
           : editorContext,
       }));
     }
-  }, [agentPanelOpen, normalizeProjectJson, saveTimelineDebounced]);
+  }, [agentPanelOpen, applyEditorSession, saveTimelineDebounced]);
 
   // Load project
   const fetchProject = useCallback(async () => {
     try {
       const res = await apiClient.get(`/api/v1/projects/${projectId}`);
       const data = res.data as Project;
+      const canonicalProjectJson = (data.project_json as ProjectJSON | null) ?? null;
+      applyEditorSession(canonicalProjectJson, "initial_load");
       setProject({
         ...data,
-        project_json: normalizeProjectJson((data.project_json as ProjectJSON | null) ?? null),
+        project_json: canonicalProjectJson,
       });
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load project");
     }
-  }, [normalizeProjectJson, projectId]);
+  }, [applyEditorSession, projectId]);
 
   useEffect(() => { fetchProject(); }, [fetchProject]);
 
@@ -217,6 +554,73 @@ export default function EditorPage() {
   useEffect(() => {
     agentBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [agentMessages]);
+
+  useEffect(() => {
+    const root = editorRootRef.current;
+    if (!root) return;
+
+    const logMediaEvent = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLMediaElement || target instanceof HTMLImageElement)) {
+        return;
+      }
+
+      const src = target instanceof HTMLMediaElement
+        ? target.currentSrc || target.src
+        : target.currentSrc || target.src;
+      const linkedElements = src
+        ? (editorSessionRef.current?.mediaIndexByEditorSrc[src] ?? [])
+        : [];
+
+      console.warn(`[EditorPlayback] media ${event.type}`, {
+        src,
+        linkedElements,
+        ...(target instanceof HTMLMediaElement
+          ? {
+              readyState: target.readyState,
+              networkState: target.networkState,
+              error: target.error?.message ?? target.error?.code ?? null,
+            }
+          : {}),
+      });
+
+      if (event.type === "error" && linkedElements.length > 0) {
+        setPlaybackWarnings((previousWarnings) => {
+          const nextWarnings = [...previousWarnings];
+          for (const elementRef of linkedElements) {
+            const alreadyTracked = nextWarnings.some((warning) =>
+              warning.elementId === elementRef.elementId && warning.reason === "Browser reported a media load error."
+            );
+            if (!alreadyTracked) {
+              nextWarnings.push({
+                elementId: elementRef.elementId,
+                trackId: elementRef.trackId,
+                type: elementRef.type,
+                src: elementRef.canonicalSrc,
+                editorSrc: src,
+                reason: "Browser reported a media load error.",
+              });
+            }
+          }
+          return nextWarnings;
+        });
+      }
+    };
+
+    root.addEventListener("error", logMediaEvent, true);
+    root.addEventListener("stalled", logMediaEvent, true);
+    root.addEventListener("waiting", logMediaEvent, true);
+
+    return () => {
+      root.removeEventListener("error", logMediaEvent, true);
+      root.removeEventListener("stalled", logMediaEvent, true);
+      root.removeEventListener("waiting", logMediaEvent, true);
+    };
+  }, []);
+
+  const getCurrentCanonicalProjectJson = useCallback(() => {
+    return serializeProjectJson(editorBridgeRef.current?.getProject() ?? null);
+  }, [serializeProjectJson]);
 
   const exportPortalRef = useRef<HTMLDivElement>(null);
 
@@ -242,7 +646,7 @@ export default function EditorPage() {
     setAgentLoading(true);
 
     // Snapshot current Twick timeline state so the agent has full context
-    const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
+    const currentProjectJson = getCurrentCanonicalProjectJson();
     const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
 
     try {
@@ -411,7 +815,7 @@ export default function EditorPage() {
 
         source.connect(processor);
         processor.connect(audioCtx.destination);
-        const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
+        const currentProjectJson = getCurrentCanonicalProjectJson();
         const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
         ws.send(JSON.stringify({
           type: "editor_state",
@@ -528,7 +932,7 @@ export default function EditorPage() {
 
     const intervalId = window.setInterval(() => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) return;
-      const currentProjectJson = editorBridgeRef.current?.getProject() ?? null;
+      const currentProjectJson = getCurrentCanonicalProjectJson();
       const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
       wsRef.current.send(JSON.stringify({
         type: "editor_state",
@@ -540,11 +944,11 @@ export default function EditorPage() {
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [agentPanelOpen, isVoiceActive]);
+  }, [agentPanelOpen, getCurrentCanonicalProjectJson, isVoiceActive]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  const timelineData = project?.project_json ?? INITIAL_TIMELINE_DATA;
+  const timelineData = editorProjectJson ?? INITIAL_TIMELINE_DATA;
 
   // ─── Error state ─────────────────────────────────────────────────────────────
 
@@ -568,7 +972,7 @@ export default function EditorPage() {
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="editor-theme flex h-screen min-h-0 flex-col overflow-hidden bg-editor-bg text-foreground">
+    <div ref={editorRootRef} className="editor-theme flex h-screen min-h-0 flex-col overflow-hidden bg-editor-bg text-foreground">
 
       {/* ── Toolbar ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 h-12 bg-editor-toolbar border-b border-editor-border shrink-0 z-10">
@@ -588,6 +992,15 @@ export default function EditorPage() {
           <span className="text-sm text-editor-text-muted truncate max-w-xs">
             {project?.hook ?? "Loading..."}
           </span>
+          {playbackWarnings.length > 0 && (
+            <div
+              title={playbackWarnings.map((warning) => `${warning.elementId}: ${warning.reason}`).join("\n")}
+              className="hidden items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-100 md:flex"
+            >
+              <AlertCircle className="h-3 w-3" />
+              {playbackWarnings.length} playback issue{playbackWarnings.length === 1 ? "" : "s"}
+            </div>
+          )}
             <div className={cn(
             "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] md:flex",
             saveState === "error"
@@ -634,6 +1047,7 @@ export default function EditorPage() {
                 contextId={projectId}
               >
                 <AgentBridge ref={editorBridgeRef} />
+                <PlaybackDebugBridge />
                 <EditorShell
                   project={project}
                   agentPanelOpen={agentPanelOpen}
@@ -647,6 +1061,7 @@ export default function EditorPage() {
                   sendAgentInstruction={sendAgentInstruction}
                   startVoiceEdit={startVoiceEdit}
                   onProjectJsonChange={syncProjectJson}
+                  serializeProjectJson={(json) => serializeProjectJson(json) ?? json}
                   exportPortalRef={exportPortalRef}
                 />
               </TimelineProvider>
