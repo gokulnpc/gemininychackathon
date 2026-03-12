@@ -209,6 +209,24 @@ async def key_exists(gcs_key: str) -> bool:
     return os.path.exists(_local_path(gcs_key))
 
 
+async def get_asset_url(uid: str, category: str, asset_id: str) -> str | None:
+    """Resolve a user-owned asset ID to a presigned playback URL.
+
+    Reads user_assets/{uid}/{category}/{asset_id}/meta.json, extracts the
+    stored gcs_key, and returns a presigned (or public) URL.  Returns None
+    when the asset doesn't exist or the meta.json has no gcs_key.
+    """
+    meta_key = f"user_assets/{uid}/{category}/{asset_id}/meta.json"
+    try:
+        meta = await load_json(meta_key)
+    except Exception:
+        return None
+    gcs_key = meta.get("gcs_key")
+    if not gcs_key:
+        return None
+    return await generate_presigned_url(gcs_key)
+
+
 async def delete_object(gcs_key: str) -> None:
     """Delete an object from GCS or local outputs/."""
     settings = get_settings()

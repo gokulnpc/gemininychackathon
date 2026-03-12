@@ -22,6 +22,7 @@ interface EditorLeftRailProps {
   setActivePanel: (panel: EditorLeftPanelKey) => void;
   agentLoading: boolean;
   isVoiceActive: boolean;
+  focusedAssetRef?: React.MutableRefObject<{ id: string; category: string } | null>;
   onInsertText: (config: TextInsertConfig) => void | Promise<TextElement | null> | TextElement | null;
   onInsertImage: (src: string, label: string) => void | Promise<void>;
   onInsertAudio: (src: string, label: string) => void | Promise<void>;
@@ -33,6 +34,7 @@ export function EditorLeftRail({
   setActivePanel,
   agentLoading,
   isVoiceActive,
+  focusedAssetRef,
   onInsertText,
   onInsertImage,
   onInsertAudio,
@@ -104,11 +106,11 @@ export function EditorLeftRail({
         </div>
 
         <div className="editor-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          {activePanel === "media" ? <MediaPanel onInsertImage={onInsertImage} /> : null}
-          {activePanel === "video" ? <VideoPanel onInsertImage={onInsertImage} /> : null}
+          {activePanel === "media" ? <MediaPanel onInsertImage={onInsertImage} focusedAssetRef={focusedAssetRef} /> : null}
+          {activePanel === "video" ? <VideoPanel onInsertImage={onInsertImage} focusedAssetRef={focusedAssetRef} /> : null}
           {activePanel === "text" ? <TextPanel onInsertText={onInsertText} /> : null}
           {activePanel === "caption" ? <CaptionPanel agentLoading={agentLoading} /> : null}
-          {activePanel === "audio" ? <AudioPanel onInsertAudio={onInsertAudio} /> : null}
+          {activePanel === "audio" ? <AudioPanel onInsertAudio={onInsertAudio} focusedAssetRef={focusedAssetRef} /> : null}
           {activePanel === "effects" ? <EffectsPanel agentLoading={agentLoading} /> : null}
         </div>
 

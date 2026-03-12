@@ -1,8 +1,11 @@
 FROM node:20-bookworm-slim
 
 ENV NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=6144 \
     PUPPETEER_SKIP_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    FFMPEG_PATH=/usr/bin/ffmpeg \
+    FFPROBE_PATH=/usr/bin/ffprobe
 
 WORKDIR /app
 
@@ -13,8 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY . .
 

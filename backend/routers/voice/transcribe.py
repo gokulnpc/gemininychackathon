@@ -1,10 +1,11 @@
 """Endpoint for audio transcription and tone detection."""
 
-import base64
+import asyncio
+import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from services.gemini.live import transcribe_base64_audio_live, transcribe_live
+from services.gemini.live import transcribe_live
 from services.gemini.audio import transcribe_with_tone
 
 router = APIRouter(prefix="/api/v1", tags=["transcribe"])
@@ -34,29 +35,49 @@ async def transcribe(request: TranscribeRequest):
 
 @router.websocket("/transcribe/ws")
 async def transcribe_websocket(websocket: WebSocket):
-    """Real-time streaming transcription endpoint.
-    
-    Expects JSON messages:
-      { "type": "audio", "data": "<base64_pcm16_16kHz_mono>" }
-      { "type": "stop" }
-      
-    Sends JSON messages:
-      { "type": "transcript_chunk", "text": "partial text" }
-      { "type": "final_result", "transcript": "...", "detected_tone": "..." }
-      { "type": "error", "message": "..." }
+    """Real-time streaming transcription endpoint (live-voice binary protocol).
+
+    Expects:
+      → binary frames   raw PCM16 audio (16kHz mono, no container)
+      → JSON {"type":"done"}   recording stopped, no more audio
+
+    Sends:
+      ← {"type":"transcript_chunk","text":"..."}   incremental transcript
+      ← {"type":"complete","transcript":"...","detected_tone":"..."}
+      ← {"type":"error","message":"..."}
     """
     await websocket.accept()
 
-    async def audio_generator():
+    audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=100)
+
+    async def _audio_stream():
+        while True:
+            chunk = await audio_queue.get()
+            if chunk is None:
+                return
+            yield chunk
+
+    async def _receive_loop() -> None:
         try:
             while True:
-                msg = await websocket.receive_json()
-                if msg.get("type") == "stop":
-                    break
-                elif msg.get("type") == "audio" and "data" in msg:
-                    yield base64.b64decode(msg["data"])
+                message = await websocket.receive()
+                if "bytes" in message and message["bytes"]:
+                    if audio_queue.full():
+                        try:
+                            audio_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                    audio_queue.put_nowait(message["bytes"])
+                elif "text" in message and message["text"]:
+                    try:
+                        data = json.loads(message["text"])
+                    except json.JSONDecodeError:
+                        continue
+                    if data.get("type") == "done":
+                        await audio_queue.put(None)
+                        return
         except WebSocketDisconnect:
-            pass
+            await audio_queue.put(None)
 
     async def on_transcript_chunk(text: str):
         try:
@@ -65,15 +86,13 @@ async def transcribe_websocket(websocket: WebSocket):
             pass
 
     try:
+        receive_task = asyncio.create_task(_receive_loop())
         final_result = await transcribe_live(
-            audio_chunks=audio_generator(),
+            audio_chunks=_audio_stream(),
             on_transcript_chunk=on_transcript_chunk,
         )
-        await websocket.send_json({
-            "type": "final_result",
-            "transcript": final_result["transcript"],
-            "detected_tone": final_result["detected_tone"]
-        })
+        await receive_task
+        await websocket.send_json({"type": "complete", **final_result})
     except WebSocketDisconnect:
         pass
     except Exception as e:

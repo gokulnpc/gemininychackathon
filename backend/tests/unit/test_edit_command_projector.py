@@ -194,6 +194,29 @@ def test_patch_insert_media_asset():
     assert abs(el["e"] - 4.5) < 0.01
 
 
+def test_patch_insert_media_asset_overlap():
+    from services.gemini.edit_voice import _patch_project_json
+    pj = _base_project()
+    # First insert
+    patched1 = _patch_project_json(
+        pj,
+        {"insert_media_asset": {"resolved_src": "https://example.com/1.mp4", "media_kind": "video", "start_seconds": 1.0, "duration_seconds": 3.0}},
+        editor_context={"playhead_seconds": 1.0},
+    )
+    # Second insert overlapping
+    patched2 = _patch_project_json(
+        patched1,
+        {"insert_media_asset": {"resolved_src": "https://example.com/2.mp4", "media_kind": "video", "start_seconds": 2.0, "duration_seconds": 3.0}},
+        editor_context={"playhead_seconds": 2.0},
+    )
+    insert_tracks = [t for t in patched2["tracks"] if t["name"].startswith("Media Inserts")]
+    assert len(insert_tracks) == 2
+    assert insert_tracks[0]["name"] == "Media Inserts 1"
+    assert insert_tracks[1]["name"] == "Media Inserts 2"
+    assert insert_tracks[0]["elements"][0]["props"]["src"] == "https://example.com/1.mp4"
+    assert insert_tracks[1]["elements"][0]["props"]["src"] == "https://example.com/2.mp4"
+
+
 # ── _project_commands tests ────────────────────────────────────────────────────
 
 async def test_project_commands_set_caption_style():
@@ -378,6 +401,7 @@ if __name__ == "__main__":
     _run("patch_delete_selected_element", test_patch_delete_selected_element)
     _run("patch_delete_no_selection_is_noop", test_patch_delete_no_selection_is_noop)
     _run("patch_insert_media_asset", test_patch_insert_media_asset)
+    _run("patch_insert_media_asset_overlap", test_patch_insert_media_asset_overlap)
 
     # _project_commands tests (async)
     _run("project_commands_set_caption_style", test_project_commands_set_caption_style)

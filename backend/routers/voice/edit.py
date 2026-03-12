@@ -162,6 +162,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
             get_live_state=lambda: dict(live_state),
             on_event=_on_event,
             decision_queue=decision_queue,
+            uid=uid,
         ):
             await websocket.send_bytes(audio_chunk)
 
@@ -215,6 +216,7 @@ async def edit_agent_sse(project_id: str, req: EditAgentRequest, current_user: d
                 editor_context=req.editor_context.model_dump(exclude_none=True) if req.editor_context else None,
                 mode=req.mode,
                 commands=[c.model_dump() for c in req.commands] if req.commands else None,
+                uid=current_user["uid"],
             ):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:

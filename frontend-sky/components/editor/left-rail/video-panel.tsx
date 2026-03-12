@@ -26,9 +26,10 @@ type MediaTab = "my-assets" | "upload" | "public";
 
 interface VideoPanelProps {
   onInsertImage: (src: string, label: string) => void | Promise<void>;
+  focusedAssetRef?: React.MutableRefObject<{ id: string; category: string } | null>;
 }
 
-export function VideoPanel({ onInsertImage }: VideoPanelProps) {
+export function VideoPanel({ onInsertImage, focusedAssetRef }: VideoPanelProps) {
   const [videoTab, setVideoTab] = useState<MediaTab>("public");
   const [search, setSearch] = useState("");
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -206,6 +207,12 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
                 <div
                   key={asset.id}
                   className="group relative overflow-hidden rounded-xl border border-editor-border transition hover:border-primary/40"
+                  onMouseEnter={() => {
+                    if (focusedAssetRef) focusedAssetRef.current = { id: asset.id, category: "videos" };
+                  }}
+                  onMouseLeave={() => {
+                    if (focusedAssetRef && focusedAssetRef.current?.id === asset.id) focusedAssetRef.current = null;
+                  }}
                 >
                   <div className="block w-full">
                     {urls[asset.id] ? (

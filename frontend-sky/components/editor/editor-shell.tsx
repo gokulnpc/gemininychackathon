@@ -99,6 +99,7 @@ interface EditorShellProps {
   agentInput: string;
   agentLoading: boolean;
   isVoiceActive: boolean;
+  focusedAssetRef?: React.MutableRefObject<{ id: string; category: string } | null>;
   agentBottomRef: RefObject<HTMLDivElement | null>;
   setAgentPanelOpen: (open: boolean) => void;
   setAgentInput: (value: string) => void;
@@ -120,6 +121,7 @@ export function EditorShell({
   agentInput,
   agentLoading,
   isVoiceActive,
+  focusedAssetRef,
   agentBottomRef,
   setAgentPanelOpen,
   setAgentInput,
@@ -379,6 +381,7 @@ export function EditorShell({
         setActivePanel={setActiveLeftPanel}
         agentLoading={agentLoading}
         isVoiceActive={isVoiceActive}
+        focusedAssetRef={focusedAssetRef}
         onInsertText={insertText}
         onInsertImage={insertImage}
         onInsertAudio={insertAudio}

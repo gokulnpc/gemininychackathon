@@ -38,9 +38,10 @@ const PUBLIC_MUSIC_TRACKS: PublicMusicTrack[] = musicTracks
 
 interface AudioPanelProps {
   onInsertAudio: (src: string, label: string) => void | Promise<void>;
+  focusedAssetRef?: React.MutableRefObject<{ id: string; category: string } | null>;
 }
 
-export function AudioPanel({ onInsertAudio }: AudioPanelProps) {
+export function AudioPanel({ onInsertAudio, focusedAssetRef }: AudioPanelProps) {
   const [audioTab, setAudioTab] = useState<AudioTab>("public");
   const [search, setSearch] = useState("");
   const [musicAssets, setMusicAssets] = useState<Asset[]>([]);
@@ -302,6 +303,12 @@ export function AudioPanel({ onInsertAudio }: AudioPanelProps) {
                 <div
                   key={asset.id}
                   className="flex items-center gap-3 rounded-xl border border-editor-border bg-editor-card px-3 py-3 transition hover:border-primary/35"
+                  onMouseEnter={() => {
+                    if (focusedAssetRef) focusedAssetRef.current = { id: asset.id, category: "music" };
+                  }}
+                  onMouseLeave={() => {
+                    if (focusedAssetRef && focusedAssetRef.current?.id === asset.id) focusedAssetRef.current = null;
+                  }}
                 >
                   <button
                     type="button"

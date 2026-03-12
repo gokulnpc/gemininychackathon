@@ -319,9 +319,8 @@ export function Step1_Message() {
         if (msg.type === "transcript_chunk") {
           setTranscribing(true); // just to show it's working
           setTranscript((prev) => (prev ? prev + " " + msg.text : msg.text));
-        } else if (msg.type === "final_result") {
+        } else if (msg.type === "complete") {
           setTranscript(msg.transcript);
-          // msg.detected_tone could be logged or used later
           setTranscribing(false);
           setAudioReady(true);
         } else if (msg.type === "error") {
@@ -341,23 +340,13 @@ export function Step1_Message() {
           if (ws.readyState !== WebSocket.OPEN) return;
           const inputData = e.inputBuffer.getChannelData(0);
           
-          // Convert Float32 to Int16
+          // Convert Float32 to Int16 and send as raw binary (same as live-voice protocol)
           const pcmData = new Int16Array(inputData.length);
           for (let i = 0; i < inputData.length; i++) {
-             let s = Math.max(-1, Math.min(1, inputData[i]));
+             const s = Math.max(-1, Math.min(1, inputData[i]));
              pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
-          
-          // Base64 encode PCM array buffer
-          let binary = "";
-          const bytes = new Uint8Array(pcmData.buffer);
-          const len = bytes.byteLength;
-          for (let i = 0; i < len; i++) {
-              binary += String.fromCharCode(bytes[i]);
-          }
-          const b64 = window.btoa(binary);
-          
-          ws.send(JSON.stringify({ type: "audio", data: b64 }));
+          ws.send(pcmData.buffer);
         };
 
         source.connect(processor);
@@ -389,7 +378,7 @@ export function Step1_Message() {
     
     // Tell socket we're done sending audio so Gemini can finalize
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
+      wsRef.current.send(JSON.stringify({ type: "done" }));
     }
   };
 
