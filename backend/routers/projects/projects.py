@@ -23,6 +23,8 @@ from models.schemas import (
     ProjectListResponse,
     ProjectMetadata,
     QueueEditorExportResponse,
+    RestoreEditorExportVersionRequest,
+    RestoreEditorExportVersionResponse,
     ScriptEditRequest,
 )
 from services.infra.editor_export import build_editor_export_state
@@ -342,6 +344,45 @@ async def queue_project_export(project_id: UUID, current_user: dict = Depends(ge
         "status": "queued",
         "poll_url": f"/api/v1/projects/{project_id}/export-status",
     })
+
+
+@router.post(
+    "/projects/{project_id}/restore-export-version",
+    response_model=RestoreEditorExportVersionResponse,
+)
+async def restore_project_export_version(
+    project_id: UUID,
+    req: RestoreEditorExportVersionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Restore a completed export history timeline snapshot into the project's live project_json."""
+    doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
+    history = doc.get("editor_export_history") or []
+
+    matching_entry = None
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("export_id") != req.export_id:
+            continue
+        if isinstance(entry.get("project_json_snapshot"), dict):
+            matching_entry = entry
+            break
+
+    if matching_entry is None:
+        raise HTTPException(status_code=404, detail="Restorable export version not found")
+
+    restored_project_json = matching_entry["project_json_snapshot"]
+    await firestore_db.save_project(str(project_id), {
+        **doc,
+        "project_json": restored_project_json,
+    })
+
+    return RestoreEditorExportVersionResponse(
+        project_id=str(project_id),
+        export_id=req.export_id,
+        message="Timeline restored. Open the editor to continue from this version.",
+    )
 
 
 @router.delete("/projects/{project_id}", status_code=204)

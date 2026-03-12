@@ -455,6 +455,7 @@ class EditorExportHistoryItem(BaseModel):
     completed_at: str
     download_url: str
     thumbnail_url: Optional[str] = None
+    project_json_snapshot: Optional[dict] = None
 
 
 class QueueEditorExportResponse(BaseModel):
@@ -476,6 +477,17 @@ class EditorExportStatusResponse(BaseModel):
     download_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     error: Optional[str] = None
+
+
+class RestoreEditorExportVersionRequest(BaseModel):
+    export_id: str
+
+
+class RestoreEditorExportVersionResponse(BaseModel):
+    project_id: str
+    export_id: str
+    status: str = "ok"
+    message: str
 
 
 class JobStatusResponse(BaseModel):

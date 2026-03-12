@@ -481,7 +481,7 @@ function ProjectsContent() {
                     onClick={() => router.push("/create")}
                     className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
                   >
-                    Create your first video
+                    Create Project
                   </Button>
                 </>
               ) : (

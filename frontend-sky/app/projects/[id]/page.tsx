@@ -71,6 +71,7 @@ interface Project {
     completed_at: string;
     download_url: string;
     thumbnail_url?: string | null;
+    project_json_snapshot?: Record<string, unknown> | null;
   }>;
 }
 
@@ -206,9 +207,18 @@ function ScriptReadyPanel({
   );
 }
 
-function CompletedPanel({ project }: { project: Project }) {
+function CompletedPanel({
+  project,
+  onRestoreVersion,
+}: {
+  project: Project;
+  onRestoreVersion: (exportId: string) => Promise<string>;
+}) {
   const platforms = Object.keys(project.video_urls ?? {});
   const { idToken } = useAuth();
+  const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const editorExport = project.editor_export;
   const hasEditedExport =
     editorExport?.status === "completed" && !!editorExport.download_url;
@@ -296,6 +306,19 @@ function CompletedPanel({ project }: { project: Project }) {
         </div>
       )}
 
+      {(restoreMessage || restoreError) && (
+        <div
+          className={cn(
+            "rounded-xl border px-4 py-3 text-sm",
+            restoreError
+              ? "border-red-500/30 bg-red-500/10 text-red-300"
+              : "border-green-500/30 bg-green-500/10 text-green-300",
+          )}
+        >
+          {restoreError ?? restoreMessage}
+        </div>
+      )}
+
       {editHistory.length > 0 && (
         <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#2a2a2a] p-4">
           <div className="space-y-1">
@@ -338,6 +361,39 @@ function CompletedPanel({ project }: { project: Project }) {
                   >
                     Open
                   </a>
+                  <Button
+                    type="button"
+                    disabled={!entry.project_json_snapshot || restoringExportId === entry.export_id}
+                    onClick={async () => {
+                      if (!entry.project_json_snapshot) return;
+                      const confirmed = window.confirm(
+                        "Restore this edited version? This replaces the project's current timeline, but your original generated video stays unchanged.",
+                      );
+                      if (!confirmed) return;
+
+                      setRestoreError(null);
+                      setRestoreMessage(null);
+                      setRestoringExportId(entry.export_id);
+                      try {
+                        const message = await onRestoreVersion(entry.export_id);
+                        setRestoreMessage(message);
+                      } catch (err) {
+                        setRestoreError(err instanceof Error ? err.message : "Failed to restore this version");
+                      } finally {
+                        setRestoringExportId(null);
+                      }
+                    }}
+                    className="rounded-full bg-white/5 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {restoringExportId === entry.export_id ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Restoring
+                      </>
+                    ) : (
+                      "Restore this version"
+                    )}
+                  </Button>
                 </div>
               </div>
             ))}
@@ -471,6 +527,17 @@ export default function ProjectDetailPage() {
     await fetchProject();
   }
 
+  async function handleRestoreExportVersion(exportId: string) {
+    if (!project) {
+      throw new Error("Project is not loaded");
+    }
+    const res = await apiClient.post(`/api/v1/projects/${project.project_id}/restore-export-version`, {
+      export_id: exportId,
+    });
+    await fetchProject();
+    return res.data?.message ?? "Timeline restored. Open the editor to continue from this version.";
+  }
+
   const firstPlatform = project
     ? (Object.keys(project.video_urls ?? {})[0] ?? "master")
     : "master";
@@ -602,7 +669,10 @@ export default function ProjectDetailPage() {
                   )}
 
                   {project.status === "completed" && (
-                    <CompletedPanel project={project} />
+                    <CompletedPanel
+                      project={project}
+                      onRestoreVersion={handleRestoreExportVersion}
+                    />
                   )}
 
                   {project.status === "failed" && (

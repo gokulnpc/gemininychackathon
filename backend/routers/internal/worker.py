@@ -22,6 +22,7 @@ Local dev:
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import tempfile
@@ -359,6 +360,7 @@ async def _run_editor_export(project_id: UUID, export_id: str) -> None:
                 completed_at=completed_at,
                 download_url=download_url,
                 thumbnail_url=final_export.get("thumbnail_url"),
+                project_json_snapshot=copy.deepcopy(project_json),
             ),
         })
     except Exception as exc:

@@ -101,6 +101,7 @@ def build_editor_export_history_item(existing: dict[str, Any] | None = None, **u
         "completed_at": None,
         "download_url": None,
         "thumbnail_url": None,
+        "project_json_snapshot": None,
     }
 
     if isinstance(existing, dict):
@@ -117,6 +118,7 @@ def append_editor_export_history(
     completed_at: str,
     download_url: str,
     thumbnail_url: str | None = None,
+    project_json_snapshot: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     history: list[dict[str, Any]] = []
 
@@ -124,7 +126,11 @@ def append_editor_export_history(
         if not isinstance(entry, dict):
             continue
         normalized = build_editor_export_history_item(entry)
-        if not normalized.get("export_id") or not normalized.get("completed_at") or not normalized.get("download_url"):
+        if (
+            not normalized.get("export_id")
+            or not normalized.get("completed_at")
+            or not normalized.get("download_url")
+        ):
             continue
         if normalized["export_id"] == export_id:
             continue
@@ -136,6 +142,7 @@ def append_editor_export_history(
             completed_at=completed_at,
             download_url=download_url,
             thumbnail_url=thumbnail_url,
+            project_json_snapshot=copy.deepcopy(project_json_snapshot) if project_json_snapshot else None,
         )
     )
     history.sort(key=lambda item: item.get("completed_at") or "", reverse=True)

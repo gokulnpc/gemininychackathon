@@ -300,12 +300,12 @@ export default function DashboardPage() {
           {!loading && !fetchError && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-white/40">
               <p className="text-lg mb-4">No videos yet.</p>
-              <Button
-                onClick={() => router.push("/create")}
-                className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
-              >
-                Create your first video
-              </Button>
+                  <Button
+                    onClick={() => router.push("/create")}
+                    className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+                  >
+                    Create Project
+                  </Button>
             </div>
           )}
 
