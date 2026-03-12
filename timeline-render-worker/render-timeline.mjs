@@ -355,10 +355,10 @@ export async function renderTimelineToFile(projectJson, outputPath) {
   };
   console.log("[RenderWorker] Preparing render worker", renderContext);
   const { renderVideo } = loadRenderer();
-  // Path relative to __dirname (= timeline-render-worker/ in Docker: /app/)
-  // so Twick resolves it as path.join('/app', 'node_modules/@twick/...') = /app/node_modules/@twick/...
-  // and Vite root becomes /app — giving it access to /app/node_modules for bare-module resolution.
-  const projectFile = "node_modules/@twick/visualizer/dist/project.js";
+  // Bare module specifier — rendererPlugin injects this verbatim as the import path in its
+  // virtual module. Vite resolves "@twick/visualizer/dist/project.js" from /app/node_modules/
+  // (because process.chdir(__dirname) sets Vite root to /app).
+  const projectFile = "@twick/visualizer/dist/project.js";
   const outputDirectory = path.dirname(outputPath);
   const outputFileName = path.basename(outputPath);
   const renderSize = readRenderSize(projectJson);
@@ -369,7 +369,7 @@ export async function renderTimelineToFile(projectJson, outputPath) {
 
   await fsPromises.mkdir(outputDirectory, { recursive: true });
 
-  const absoluteProjectFile = path.resolve(__dirname, projectFile);
+  const absoluteProjectFile = workerRequire.resolve(projectFile);
   if (!pathExists(absoluteProjectFile)) {
     throw new Error(`Visualizer project file not found: ${absoluteProjectFile}`);
   }

@@ -63,6 +63,18 @@ interface Project {
   failure_stage?: string;
   failed_at?: string;
   script_attempt_count?: number;
+  editor_export?: {
+    export_id?: string | null;
+    status?: string;
+    current_stage?: string | null;
+    progress_pct?: number | null;
+    queued_at?: string | null;
+    started_at?: string | null;
+    completed_at?: string | null;
+    download_url?: string | null;
+    thumbnail_url?: string | null;
+    error?: string | null;
+  } | null;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];

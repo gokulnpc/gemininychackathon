@@ -4,17 +4,70 @@ import path from "node:path";
 import { promises as fsPromises } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { renderTimelineToFile } from "./render-timeline.mjs";
-
 const PORT = Number(process.env.PORT || 4001);
 const __filename = fileURLToPath(import.meta.url);
+const STARTUP_CONTEXT = {
+  pid: process.pid,
+  nodeEnv: process.env.NODE_ENV ?? "unset",
+  port: PORT,
+  revision: process.env.K_REVISION ?? "local",
+  service: process.env.K_SERVICE ?? "local",
+};
+let defaultRenderTimelinePromise;
+let processHandlersInstalled = false;
+
+function logInfo(message, payload = {}) {
+  console.info(`[RenderWorkerServer] ${message}`, { ...STARTUP_CONTEXT, ...payload });
+}
+
+function logError(message, payload = {}) {
+  console.error(`[RenderWorkerServer] ${message}`, { ...STARTUP_CONTEXT, ...payload });
+}
+
+function installProcessHandlers() {
+  if (processHandlersInstalled) {
+    return;
+  }
+  processHandlersInstalled = true;
+
+  process.on("uncaughtException", (error) => {
+    logError("uncaughtException", {
+      error: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    logError("unhandledRejection", {
+      error: reason instanceof Error ? reason.stack ?? reason.message : String(reason),
+    });
+  });
+}
+
+async function loadDefaultRenderTimeline() {
+  if (!defaultRenderTimelinePromise) {
+    logInfo("lazy-loading render timeline module");
+    defaultRenderTimelinePromise = import("./render-timeline.mjs")
+      .then((module) => {
+        if (typeof module.renderTimelineToFile !== "function") {
+          throw new Error("render-timeline.mjs missing renderTimelineToFile export");
+        }
+        return module.renderTimelineToFile;
+      })
+      .catch((error) => {
+        defaultRenderTimelinePromise = undefined;
+        throw error;
+      });
+  }
+
+  return defaultRenderTimelinePromise;
+}
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { "Content-Type": "application/json" });
   response.end(JSON.stringify(payload));
 }
 
-export function createRequestHandler({ renderTimeline = renderTimelineToFile } = {}) {
+export function createRequestHandler({ renderTimeline } = {}) {
   return async (request, response) => {
     if (!request.url || !request.headers.host) {
       sendJson(response, 400, { error: "Missing URL" });
@@ -54,7 +107,8 @@ export function createRequestHandler({ renderTimeline = renderTimelineToFile } =
       );
 
       try {
-        await renderTimeline(projectJson, tempOutputPath);
+        const renderFn = renderTimeline ?? await loadDefaultRenderTimeline();
+        await renderFn(projectJson, tempOutputPath);
         const videoBuffer = await fsPromises.readFile(tempOutputPath);
         response.writeHead(200, { "Content-Type": "video/mp4" });
         response.end(videoBuffer);
@@ -71,17 +125,25 @@ export function createRequestHandler({ renderTimeline = renderTimelineToFile } =
   };
 }
 
-export function createServer({ renderTimeline = renderTimelineToFile } = {}) {
+export function createServer({ renderTimeline } = {}) {
   return http.createServer(createRequestHandler({ renderTimeline }));
 }
 
 export function startServer({
   port = PORT,
-  renderTimeline = renderTimelineToFile,
+  renderTimeline,
 } = {}) {
+  installProcessHandlers();
+  logInfo("process-start");
   const server = createServer({ renderTimeline });
+  server.on("error", (error) => {
+    logError("server-error", {
+      error: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
+  });
+  logInfo("before-listen", { listenPort: port });
   server.listen(port, () => {
-    console.log(`timeline-render-worker listening on port ${port}`);
+    logInfo("listening", { listenPort: port });
   });
   return server;
 }
