@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # URL of the worker Cloud Run service (set via WORKER_URL env var on Cloud Run)
     # Locally: leave empty to fall back to synchronous in-process execution
     worker_url: str = ""
+    # Optional dedicated Node timeline render worker for editor exports.
+    # Locally: leave empty to fall back to the bundled CLI renderer.
+    timeline_render_worker_url: str = ""
+    # Public origins used to normalize canonical timeline media for server-side rendering.
+    frontend_public_base_url: str = "http://localhost:3000"
+    api_public_base_url: str = "http://localhost:8000"
 
     # Email notifications — SendGrid
     sendgrid_api_key: str = ""

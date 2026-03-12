@@ -26,15 +26,24 @@ PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/nul
 REGION="${REGION:-us-central1}"
 API_SERVICE="voicevid-api"
 WORKER_SERVICE="voicevid-worker"
+RENDER_SERVICE="voicevid-render"
 REPO="voicevid"
 SHORT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo 'latest')"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/api:$SHORT_SHA"
+API_IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/api:$SHORT_SHA"
+RENDER_IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/render:$SHORT_SHA"
 TASKS_QUEUE="video-generation"
 WORKER_SA="storylab-sa@$PROJECT_ID.iam.gserviceaccount.com"
+FRONTEND_PUBLIC_BASE_URL="${FRONTEND_PUBLIC_BASE_URL:-}"
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "ERROR: GOOGLE_CLOUD_PROJECT is not set and gcloud default project is not configured."
   echo "Run: gcloud config set project YOUR_PROJECT_ID"
+  exit 1
+fi
+
+if [[ -z "$FRONTEND_PUBLIC_BASE_URL" ]]; then
+  echo "ERROR: FRONTEND_PUBLIC_BASE_URL is required for editor export rendering."
+  echo "Example: FRONTEND_PUBLIC_BASE_URL=https://your-frontend.example ./deploy.sh"
   exit 1
 fi
 
@@ -43,7 +52,8 @@ echo "════════════════════════�
 echo "  Content Factory — Cloud Run Deployment"
 echo "  Project : $PROJECT_ID"
 echo "  Region  : $REGION"
-echo "  Image   : $IMAGE"
+echo "  API     : $API_IMAGE"
+echo "  Render  : $RENDER_IMAGE"
 echo "════════════════════════════════════════════════════"
 echo ""
 
@@ -92,32 +102,83 @@ for SECRET in gemini-api-key sendgrid-api-key; do
      echo "    echo 'YOUR_KEY' | gcloud secrets versions add $SECRET --data-file=- --project=$PROJECT_ID"
 done
 
-# ── Build & push image ────────────────────────────────────────────────────────
-echo "▶ Building Docker image via Cloud Build..."
+# ── Build & push API image ────────────────────────────────────────────────────
+echo "▶ Building API image via Cloud Build..."
 gcloud builds submit . \
   --config=backend/cloudbuild.yaml \
   --project="$PROJECT_ID" \
-  --substitutions="_IMAGE=$IMAGE"
+  --substitutions="_IMAGE=$API_IMAGE"
 
-# ── Deploy Worker service first (so we have its URL for the API service) ──────
-echo "▶ Deploying $WORKER_SERVICE to Cloud Run..."
-gcloud run deploy "$WORKER_SERVICE" \
-  --image="$IMAGE" \
+# ── Build & push render image ─────────────────────────────────────────────────
+echo "▶ Building render image via Cloud Build..."
+gcloud builds submit . \
+  --config=timeline-render-worker/cloudbuild.yaml \
+  --project="$PROJECT_ID" \
+  --substitutions="_IMAGE=$RENDER_IMAGE"
+
+EXISTING_API_URL="$(gcloud run services describe "$API_SERVICE" \
+  --region="$REGION" \
+  --project="$PROJECT_ID" \
+  --format='value(status.url)' 2>/dev/null || true)"
+
+deploy_worker_service() {
+  local api_public_base_url="$1"
+
+  gcloud run deploy "$WORKER_SERVICE" \
+    --image="$API_IMAGE" \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --platform=managed \
+    --no-allow-unauthenticated \
+    --ingress=internal \
+    --memory=4Gi \
+    --cpu=4 \
+    --timeout=900s \
+    --concurrency=1 \
+    --min-instances=0 \
+    --max-instances=5 \
+    --service-account="$WORKER_SA" \
+    --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION,TIMELINE_RENDER_WORKER_URL=$RENDER_URL,FRONTEND_PUBLIC_BASE_URL=$FRONTEND_PUBLIC_BASE_URL,API_PUBLIC_BASE_URL=$api_public_base_url" \
+    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,SENDGRID_API_KEY=sendgrid-api-key:latest" \
+    --no-cpu-throttling
+}
+
+# ── Deploy render service first ───────────────────────────────────────────────
+echo "▶ Deploying $RENDER_SERVICE to Cloud Run..."
+gcloud run deploy "$RENDER_SERVICE" \
+  --image="$RENDER_IMAGE" \
   --region="$REGION" \
   --project="$PROJECT_ID" \
   --platform=managed \
   --no-allow-unauthenticated \
   --ingress=internal \
   --memory=4Gi \
-  --cpu=4 \
+  --cpu=2 \
   --timeout=900s \
   --concurrency=1 \
   --min-instances=0 \
-  --max-instances=5 \
+  --max-instances=3 \
   --service-account="$WORKER_SA" \
-  --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION" \
-  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,SENDGRID_API_KEY=sendgrid-api-key:latest" \
   --no-cpu-throttling
+
+RENDER_URL="$(gcloud run services describe "$RENDER_SERVICE" \
+  --region="$REGION" \
+  --project="$PROJECT_ID" \
+  --format='value(status.url)')"
+
+echo "  Render URL: $RENDER_URL"
+
+echo "▶ Granting Cloud Run invoker access to $WORKER_SA on $RENDER_SERVICE..."
+gcloud run services add-iam-policy-binding "$RENDER_SERVICE" \
+  --region="$REGION" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:$WORKER_SA" \
+  --role="roles/run.invoker" >/dev/null
+
+# ── Deploy worker first so we have its URL for the API service ────────────────
+echo "▶ Deploying $WORKER_SERVICE to Cloud Run..."
+BOOTSTRAP_API_URL="${EXISTING_API_URL:-https://placeholder.invalid}"
+deploy_worker_service "$BOOTSTRAP_API_URL"
 
 WORKER_URL="$(gcloud run services describe "$WORKER_SERVICE" \
   --region="$REGION" \
@@ -129,7 +190,7 @@ echo "  Worker URL: $WORKER_URL"
 # ── Deploy API service (lightweight, injects WORKER_URL) ──────────────────────
 echo "▶ Deploying $API_SERVICE to Cloud Run..."
 gcloud run deploy "$API_SERVICE" \
-  --image="$IMAGE" \
+  --image="$API_IMAGE" \
   --region="$REGION" \
   --project="$PROJECT_ID" \
   --platform=managed \
@@ -150,12 +211,17 @@ API_URL="$(gcloud run services describe "$API_SERVICE" \
   --project="$PROJECT_ID" \
   --format='value(status.url)')"
 
+# ── Re-deploy worker with the final public API URL used for export media normalization ──
+echo "▶ Updating $WORKER_SERVICE with final export normalization URLs..."
+deploy_worker_service "$API_URL"
+
 echo ""
 echo "════════════════════════════════════════════════════"
 echo "  Deployment complete!"
 echo ""
 echo "  API Service  : $API_URL"
 echo "  Worker URL   : $WORKER_URL"
+echo "  Render URL   : $RENDER_URL"
 echo ""
 echo "  Health check : $API_URL/health"
 echo "  API docs     : $API_URL/docs"
@@ -165,3 +231,4 @@ echo ""
 echo "To view logs:"
 echo "  API    : gcloud run services logs read $API_SERVICE --region=$REGION --project=$PROJECT_ID"
 echo "  Worker : gcloud run services logs read $WORKER_SERVICE --region=$REGION --project=$PROJECT_ID"
+echo "  Render : gcloud run services logs read $RENDER_SERVICE --region=$REGION --project=$PROJECT_ID"

@@ -11,6 +11,19 @@ export interface TextInsertConfig {
   variant?: TextInsertVariant;
 }
 
+export interface EditorExport {
+  export_id?: string | null;
+  status?: "idle" | "queued" | "in_progress" | "completed" | "failed" | string;
+  current_stage?: string | null;
+  progress_pct?: number | null;
+  queued_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  download_url?: string | null;
+  thumbnail_url?: string | null;
+  error?: string | null;
+}
+
 export interface Project {
   project_id: string;
   status: string;
@@ -26,6 +39,7 @@ export interface Project {
   voiceover_duration?: number;
   error?: string;
   project_json?: ProjectJSON | null;
+  editor_export?: EditorExport | null;
 }
 
 export interface AgentMessage {
