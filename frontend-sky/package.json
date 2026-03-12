@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-browser-render-assets.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-browser-render-assets.mjs",
     "build": "next build",
+    "prestart": "node scripts/copy-browser-render-assets.mjs",
     "start": "next start",
     "lint": "eslint ."
   },

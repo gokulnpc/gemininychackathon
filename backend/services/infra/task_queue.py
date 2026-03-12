@@ -211,3 +211,75 @@ async def enqueue_script_generation(project_id: str) -> str:
     response = await asyncio.to_thread(_create)
     logger.info("Script-gen Cloud Task created: %s → %s", response.name, target_url)
     return response.name
+
+
+async def enqueue_editor_export(project_id: UUID, export_id: str) -> str:
+    """Submit an editor export job to Cloud Tasks."""
+    from config import get_settings
+
+    settings = get_settings()
+
+    if not settings.worker_url:
+        from routers.internal.worker import _run_editor_export
+
+        _spawn_local_task(
+            _run_editor_export(project_id=project_id, export_id=export_id),
+            description=f"editor export for project {project_id}",
+        )
+        logger.info("Local mode — running editor export in-process for %s", project_id)
+        return "local-inprocess"
+
+    if not _tasks_available():
+        from routers.internal.worker import _run_editor_export
+
+        _spawn_local_task(
+            _run_editor_export(project_id=project_id, export_id=export_id),
+            description=f"editor export for project {project_id}",
+        )
+        logger.info("Cloud Tasks unavailable — running editor export in-process for %s", project_id)
+        return "local-inprocess"
+
+    import asyncio
+    from google.cloud import tasks_v2
+    from google.protobuf import duration_pb2
+
+    parent = (
+        f"projects/{settings.google_cloud_project}"
+        f"/locations/{settings.cloud_tasks_location}"
+        f"/queues/{settings.cloud_tasks_queue}"
+    )
+
+    body = json.dumps({
+        "project_id": str(project_id),
+        "export_id": export_id,
+    }).encode()
+    target_url = f"{settings.worker_url.rstrip('/')}/internal/worker/generate-export"
+
+    task = {
+        "http_request": {
+            "http_method": tasks_v2.HttpMethod.POST,
+            "url": target_url,
+            "headers": {"Content-Type": "application/json"},
+            "body": body,
+            "oidc_token": {
+                "service_account_email": (
+                    f"storylab-sa@{settings.google_cloud_project}.iam.gserviceaccount.com"
+                ),
+                "audience": settings.worker_url,
+            },
+        },
+        "dispatch_deadline": duration_pb2.Duration(seconds=_TASK_TIMEOUT_SECONDS),
+    }
+
+    def _create():
+        client = tasks_v2.CloudTasksClient()
+        return client.create_task(
+            request={
+                "parent": parent,
+                "task": task,
+            }
+        )
+
+    response = await asyncio.to_thread(_create)
+    logger.info("Editor-export Cloud Task created: %s → %s", response.name, target_url)
+    return response.name

@@ -10,19 +10,32 @@ DELETE /api/v1/projects/{id}         — remove a project from the dashboard
 import json
 import logging
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from config import get_settings
 from deps.auth import get_current_user
-from models.schemas import JobStatusResponse, ProjectListResponse, ProjectMetadata, ScriptEditRequest
+from models.schemas import (
+    EditorExportStatusResponse,
+    JobStatusResponse,
+    ProjectListResponse,
+    ProjectMetadata,
+    QueueEditorExportResponse,
+    ScriptEditRequest,
+)
+from services.infra.editor_export import build_editor_export_state
 from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["projects"])
+
+
+def _project_editor_export_response(project_id: UUID, data: dict) -> EditorExportStatusResponse:
+    editor_export = build_editor_export_state(data.get("editor_export"))
+    return EditorExportStatusResponse(project_id=str(project_id), **editor_export)
 
 
 @router.get("/projects")
@@ -78,6 +91,13 @@ async def get_project_status(project_id: UUID, current_user: dict = Depends(get_
         failed_at=data.get("failed_at"),
         script_attempt_count=data.get("script_attempt_count"),
     )
+
+
+@router.get("/projects/{project_id}/export-status", response_model=EditorExportStatusResponse)
+async def get_project_export_status(project_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Dedicated editor-export status endpoint, separate from generation status."""
+    data = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
+    return _project_editor_export_response(project_id, data)
 
 
 @router.get("/projects/{project_id}/stream/{platform}")
@@ -265,6 +285,63 @@ async def save_project_timeline(project_id: UUID, body: dict, current_user: dict
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save timeline: {e}")
     return {"status": "ok"}
+
+
+@router.post("/projects/{project_id}/queue-export", response_model=QueueEditorExportResponse, status_code=202)
+async def queue_project_export(project_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Queue a dedicated editor export render for the saved canonical timeline."""
+    doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
+    if doc.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="Project must be completed before export can be queued")
+    if not isinstance(doc.get("project_json"), dict):
+        raise HTTPException(status_code=422, detail="No saved timeline found for export")
+
+    export_id = str(uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    editor_export = build_editor_export_state(
+        doc.get("editor_export"),
+        export_id=export_id,
+        status="queued",
+        current_stage="Queued for export",
+        progress_pct=0,
+        queued_at=now,
+        started_at=None,
+        completed_at=None,
+        download_url=None,
+        thumbnail_url=None,
+        error=None,
+    )
+
+    await firestore_db.save_project(str(project_id), {
+        **doc,
+        "editor_export": editor_export,
+    })
+
+    from services.infra import task_queue
+
+    try:
+        await task_queue.enqueue_editor_export(project_id=project_id, export_id=export_id)
+    except Exception as exc:
+        failed_doc = await firestore_db.get_project(str(project_id)) or doc
+        await firestore_db.save_project(str(project_id), {
+            **failed_doc,
+            "editor_export": build_editor_export_state(
+                failed_doc.get("editor_export"),
+                export_id=export_id,
+                status="failed",
+                current_stage="Export queue failed",
+                progress_pct=None,
+                error=str(exc),
+            ),
+        })
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue editor export: {exc}")
+
+    return JSONResponse(status_code=202, content={
+        "project_id": str(project_id),
+        "export_id": export_id,
+        "status": "queued",
+        "poll_url": f"/api/v1/projects/{project_id}/export-status",
+    })
 
 
 @router.delete("/projects/{project_id}", status_code=204)

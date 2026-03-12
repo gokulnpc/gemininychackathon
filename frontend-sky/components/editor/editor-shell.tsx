@@ -358,7 +358,7 @@ export function EditorShell({
         createPortal(
           <ExportButton
             projectId={project.project_id}
-            projectHook={project.hook}
+            initialExport={project.editor_export}
             serializeProjectJson={serializeProjectJson}
           />,
           exportPortalRef.current,

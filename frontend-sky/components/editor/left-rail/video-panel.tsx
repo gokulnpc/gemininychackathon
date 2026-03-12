@@ -1,7 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
-import { Clapperboard, Film, Loader2, Plus, Search, Trash2, Upload, type LucideIcon } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
+import {
+  Clapperboard,
+  Film,
+  Loader2,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  type LucideIcon,
+} from "lucide-react";
 
 import type { Asset } from "@/components/editor/types";
 import apiClient from "@/lib/apiClient";
@@ -14,7 +29,7 @@ interface VideoPanelProps {
 }
 
 export function VideoPanel({ onInsertImage }: VideoPanelProps) {
-  const [videoTab, setVideoTab] = useState<MediaTab>("my-assets");
+  const [videoTab, setVideoTab] = useState<MediaTab>("public");
   const [search, setSearch] = useState("");
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,28 +40,41 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
   const fetchAssets = useCallback(async () => {
     try {
       setLoading(true);
-      const data = (await apiClient.get("/api/v1/assets", { params: { category: "images" } })).data as
-        | Asset[]
-        | { assets: Asset[] };
-      const allAssets: Asset[] = Array.isArray(data) ? data : (data as { assets: Asset[] }).assets ?? [];
-      const videos = allAssets.filter((asset) => asset.content_type.startsWith("video/"));
+      const data = (
+        await apiClient.get("/api/v1/assets", {
+          params: { category: "images" },
+        })
+      ).data as Asset[] | { assets: Asset[] };
+      const allAssets: Asset[] = Array.isArray(data)
+        ? data
+        : ((data as { assets: Asset[] }).assets ?? []);
+      const videos = allAssets.filter((asset) =>
+        asset.content_type.startsWith("video/"),
+      );
       setAssets(videos);
       const urlMap: Record<string, string> = {};
       await Promise.all(
         videos.map(async (asset) => {
           try {
-            const response = (await apiClient.get(`/api/v1/assets/${asset.id}/url`, { params: { category: "images" } })).data as {
+            const response = (
+              await apiClient.get(`/api/v1/assets/${asset.id}/url`, {
+                params: { category: "images" },
+              })
+            ).data as {
               url: string;
             };
             urlMap[asset.id] = response.url;
           } catch {
             // Skip asset URLs that fail to resolve.
           }
-        })
+        }),
       );
       setUrls(urlMap);
     } catch (error) {
-      console.warn("[VideoPanel] Failed to list assets; using empty state.", error);
+      console.warn(
+        "[VideoPanel] Failed to list assets; using empty state.",
+        error,
+      );
       setAssets([]);
       setUrls({});
     } finally {
@@ -79,12 +107,14 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [fetchAssets]
+    [fetchAssets],
   );
 
   const handleDelete = useCallback(async (id: string) => {
     try {
-      await apiClient.delete(`/api/v1/assets/${id}`, { params: { category: "images" } });
+      await apiClient.delete(`/api/v1/assets/${id}`, {
+        params: { category: "images" },
+      });
       setAssets((prev) => prev.filter((asset) => asset.id !== id));
     } catch (error) {
       console.error("[VideoPanel] Delete failed:", error);
@@ -92,11 +122,13 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
   }, []);
 
   const videoTabs: { key: MediaTab; label: string; icon: LucideIcon }[] = [
-    { key: "my-assets", label: "My Assets", icon: Clapperboard },
-    { key: "upload", label: "Upload", icon: Upload },
     { key: "public", label: "Public", icon: Film },
+    { key: "my-assets", label: "Assets", icon: Clapperboard },
+    { key: "upload", label: "Upload", icon: Upload },
   ];
-  const filteredAssets = assets.filter((asset) => asset.filename.toLowerCase().includes(search.toLowerCase()));
+  const filteredAssets = assets.filter((asset) =>
+    asset.filename.toLowerCase().includes(search.toLowerCase()),
+  );
 
   return (
     <div className="space-y-3">
@@ -112,7 +144,7 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
                 "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all",
                 videoTab === tab.key
                   ? "bg-primary/18 text-primary shadow-sm"
-                  : "bg-editor-control text-muted-foreground hover:bg-editor-control-hover hover:text-foreground"
+                  : "bg-editor-control text-muted-foreground hover:bg-editor-control-hover hover:text-foreground",
               )}
             >
               <Icon className="h-3 w-3" />
@@ -121,6 +153,15 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
           );
         })}
       </div>
+
+      {videoTab === "public" ? (
+        <div className="rounded-xl border border-dashed border-editor-border bg-editor-card/60 px-3 py-6 text-center">
+          <Film className="mx-auto h-8 w-8 text-muted-foreground/25" />
+          <p className="mt-2 text-sm text-editor-text-muted">
+            Public videos coming soon
+          </p>
+        </div>
+      ) : null}
 
       {videoTab === "my-assets" ? (
         <div className="space-y-3">
@@ -141,7 +182,9 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
           ) : assets.length === 0 ? (
             <div className="rounded-xl border border-dashed border-editor-border bg-editor-card/60 px-3 py-6 text-center">
               <Film className="mx-auto h-8 w-8 text-muted-foreground/25" />
-              <p className="mt-2 text-sm text-editor-text-muted">No videos yet.</p>
+              <p className="mt-2 text-sm text-editor-text-muted">
+                No videos yet.
+              </p>
               <button
                 type="button"
                 onClick={() => setVideoTab("upload")}
@@ -153,7 +196,9 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
           ) : filteredAssets.length === 0 ? (
             <div className="rounded-xl border border-dashed border-editor-border bg-editor-card/60 px-3 py-6 text-center">
               <Film className="mx-auto h-8 w-8 text-muted-foreground/25" />
-              <p className="mt-2 text-sm text-editor-text-muted">No videos match "{search}".</p>
+              <p className="mt-2 text-sm text-editor-text-muted">
+                No videos match "{search}".
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
@@ -164,7 +209,12 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
                 >
                   <div className="block w-full">
                     {urls[asset.id] ? (
-                      <video src={urls[asset.id]} className="aspect-video w-full object-cover" muted preload="metadata" />
+                      <video
+                        src={urls[asset.id]}
+                        className="aspect-video w-full object-cover"
+                        muted
+                        preload="metadata"
+                      />
                     ) : (
                       <div className="flex aspect-video items-center justify-center bg-editor-card">
                         <Film className="h-5 w-5 text-editor-text-dim" />
@@ -203,30 +253,35 @@ export function VideoPanel({ onInsertImage }: VideoPanelProps) {
             onClick={() => !uploading && fileInputRef.current?.click()}
             className={cn(
               "cursor-pointer rounded-xl border-2 border-dashed border-editor-border bg-editor-card/60 px-4 py-10 text-center transition hover:border-primary/40 hover:bg-primary/5",
-              uploading && "pointer-events-none opacity-60"
+              uploading && "pointer-events-none opacity-60",
             )}
           >
             {uploading ? (
               <>
                 <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-                <p className="mt-3 text-sm font-medium text-foreground">Uploading...</p>
+                <p className="mt-3 text-sm font-medium text-foreground">
+                  Uploading...
+                </p>
               </>
             ) : (
               <>
                 <Upload className="mx-auto h-8 w-8 text-muted-foreground/30" />
-                <p className="mt-3 text-sm font-medium text-foreground">Click to upload</p>
-                <p className="mt-1 text-xs text-editor-text-muted">Video files supported</p>
+                <p className="mt-3 text-sm font-medium text-foreground">
+                  Click to upload
+                </p>
+                <p className="mt-1 text-xs text-editor-text-muted">
+                  Video files supported
+                </p>
               </>
             )}
           </div>
-          <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={(event) => void handleUpload(event)} />
-        </div>
-      ) : null}
-
-      {videoTab === "public" ? (
-        <div className="rounded-xl border border-dashed border-editor-border bg-editor-card/60 px-3 py-6 text-center">
-          <Film className="mx-auto h-8 w-8 text-muted-foreground/25" />
-          <p className="mt-2 text-sm text-editor-text-muted">Public videos coming soon</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={(event) => void handleUpload(event)}
+          />
         </div>
       ) : null}
     </div>

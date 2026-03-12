@@ -2,6 +2,7 @@
 
 POST /internal/worker/generate-video
 POST /internal/worker/generate-script
+POST /internal/worker/generate-export
 
 Security:
   - Validates the X-CloudTasks-QueueName header to reject spoofed requests
@@ -22,6 +23,8 @@ Local dev:
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -29,6 +32,11 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from config import get_settings
 from models.schemas import GenerateVideoRequest
+from services.infra.editor_export import (
+    build_editor_export_state,
+    render_timeline_to_file,
+    upload_rendered_export,
+)
 from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
@@ -237,6 +245,142 @@ async def _run_script_generation(project_id: str) -> None:
         raise failure
 
 
+async def _run_editor_export(project_id: UUID, export_id: str) -> None:
+    """Render the saved canonical timeline to a separate edited MP4 export."""
+    project_key = str(project_id)
+    doc = await firestore_db.get_project(project_key)
+    if doc is None:
+        raise ValueError(f"Project {project_key} not found")
+
+    current_export = build_editor_export_state(doc.get("editor_export"))
+    if current_export.get("export_id") != export_id:
+        logger.info(
+            "Skipping stale editor export task for %s (task export_id=%s, current export_id=%s)",
+            project_key,
+            export_id,
+            current_export.get("export_id"),
+        )
+        return
+
+    if doc.get("status") != "completed":
+        raise ValueError("Project must be completed before editor export can run")
+
+    project_json = doc.get("project_json")
+    if not isinstance(project_json, dict):
+        raise ValueError("Project timeline is missing or malformed")
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    await firestore_db.save_project(project_key, {
+        **doc,
+        "editor_export": build_editor_export_state(
+            current_export,
+            export_id=export_id,
+            status="in_progress",
+            current_stage="Rendering export",
+            progress_pct=20,
+            started_at=started_at,
+            completed_at=None,
+            download_url=None,
+            thumbnail_url=None,
+            error=None,
+        ),
+    })
+
+    temp_output_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as output_file:
+            temp_output_path = output_file.name
+
+        await render_timeline_to_file(project_json=project_json, output_path=temp_output_path)
+
+        refreshed_doc = await firestore_db.get_project(project_key)
+        if refreshed_doc is None:
+            raise ValueError(f"Project {project_key} disappeared during export")
+
+        refreshed_export = build_editor_export_state(refreshed_doc.get("editor_export"))
+        if refreshed_export.get("export_id") != export_id:
+            logger.info(
+                "Discarding stale editor export result for %s (task export_id=%s, current export_id=%s)",
+                project_key,
+                export_id,
+                refreshed_export.get("export_id"),
+            )
+            return
+
+        await firestore_db.save_project(project_key, {
+            **refreshed_doc,
+            "editor_export": build_editor_export_state(
+                refreshed_export,
+                export_id=export_id,
+                status="in_progress",
+                current_stage="Uploading export",
+                progress_pct=90,
+                error=None,
+            ),
+        })
+
+        download_url = await upload_rendered_export(
+            local_path=temp_output_path,
+            project_id=project_key,
+            export_id=export_id,
+        )
+
+        final_doc = await firestore_db.get_project(project_key)
+        if final_doc is None:
+            raise ValueError(f"Project {project_key} disappeared after export upload")
+
+        final_export = build_editor_export_state(final_doc.get("editor_export"))
+        if final_export.get("export_id") != export_id:
+            logger.info(
+                "Skipping stale editor export completion write for %s (task export_id=%s, current export_id=%s)",
+                project_key,
+                export_id,
+                final_export.get("export_id"),
+            )
+            return
+
+        completed_at = datetime.now(timezone.utc).isoformat()
+        await firestore_db.save_project(project_key, {
+            **final_doc,
+            "editor_export": build_editor_export_state(
+                final_export,
+                export_id=export_id,
+                status="completed",
+                current_stage="Export ready",
+                progress_pct=100,
+                completed_at=completed_at,
+                download_url=download_url,
+                error=None,
+            ),
+        })
+    except Exception as exc:
+        logger.exception("Editor export failed for project %s", project_key)
+
+        failure_doc = await firestore_db.get_project(project_key)
+        if failure_doc is not None:
+            failure_export = build_editor_export_state(failure_doc.get("editor_export"))
+            if failure_export.get("export_id") == export_id:
+                await firestore_db.save_project(project_key, {
+                    **failure_doc,
+                    "editor_export": build_editor_export_state(
+                        failure_export,
+                        export_id=export_id,
+                        status="failed",
+                        current_stage="Export failed",
+                        progress_pct=None,
+                        completed_at=datetime.now(timezone.utc).isoformat(),
+                        error=str(exc),
+                    ),
+                })
+        raise
+    finally:
+        if temp_output_path and os.path.exists(temp_output_path):
+            try:
+                os.unlink(temp_output_path)
+            except OSError:
+                logger.warning("Failed to remove temporary editor export file %s", temp_output_path)
+
+
 # ── HTTP handlers (thin wrappers used by Cloud Tasks) ─────────────────────────
 
 
@@ -309,3 +453,41 @@ async def worker_generate_script(
         raise HTTPException(status_code=500, detail=f"Script generation failed: {exc}")
 
     return {"status": "script_ready", "project_id": project_id}
+
+
+@router.post("/worker/generate-export", status_code=200)
+async def worker_generate_export(
+    request: Request,
+    x_cloudtasks_queuename: str | None = Header(default=None),
+) -> dict:
+    """Cloud Tasks callback: render a queued editor export."""
+    settings = get_settings()
+
+    if settings.cloud_tasks_queue and x_cloudtasks_queuename:
+        if x_cloudtasks_queuename != settings.cloud_tasks_queue:
+            logger.warning("Export worker received request from unexpected queue: %s", x_cloudtasks_queuename)
+            raise HTTPException(status_code=403, detail="Forbidden: unexpected queue name")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    try:
+        project_id = UUID(body["project_id"])
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid or missing project_id: {exc}")
+
+    export_id = body.get("export_id")
+    if not export_id:
+        raise HTTPException(status_code=400, detail="Missing export_id")
+
+    try:
+        await _run_editor_export(project_id=project_id, export_id=export_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Worker export failed for project %s", project_id)
+        raise HTTPException(status_code=500, detail=f"Editor export failed: {exc}")
+
+    return {"status": "completed", "project_id": str(project_id), "export_id": export_id}
