@@ -42,6 +42,63 @@ export interface Project {
   editor_export?: EditorExport | null;
 }
 
+export interface EditorContextSnapshot {
+  mode: string | null;
+  active_panel: string | null;
+  playhead_seconds: number | null;
+  viewport_scale: number | null;
+  selected_element_ids: string[];
+  selected_track_ids: string[];
+  selected_element_types: string[];
+}
+
+export interface EditorBridgeHandle {
+  getProject: () => ProjectJSON;
+  loadProject: (json: ProjectJSON) => void;
+  getEditorContext: () => EditorContextSnapshot;
+}
+
+export type TimelineTrackJson = NonNullable<ProjectJSON["tracks"]>[number];
+export type TimelineElementJson = TimelineTrackJson["elements"][number];
+
+export interface MediaTransformRecord {
+  canonicalSrc: string;
+  editorSrc: string;
+  canonicalElementObjectFit: string | null;
+  canonicalPropsObjectFit: string | null;
+  editorElementObjectFit: string | null;
+  editorPropsObjectFit: string | null;
+}
+
+export interface SkippedEditorElement {
+  element: TimelineElementJson;
+  index: number;
+}
+
+export interface PlaybackWarning {
+  elementId: string;
+  trackId: string;
+  type: string;
+  src: string | null;
+  editorSrc: string | null;
+  reason: string;
+}
+
+export interface MediaSourceReference {
+  elementId: string;
+  trackId: string;
+  type: string;
+  canonicalSrc: string;
+}
+
+export interface EditorProjectSession {
+  editorProjectJson: ProjectJSON;
+  canonicalMediaByElementId: Record<string, MediaTransformRecord>;
+  skippedElementsByTrackId: Record<string, SkippedEditorElement[]>;
+  playbackWarnings: PlaybackWarning[];
+  mediaIndexByEditorSrc: Record<string, MediaSourceReference[]>;
+}
+
 export type EditCommandKind =
   | "set_caption_style"
   | "set_background_music"

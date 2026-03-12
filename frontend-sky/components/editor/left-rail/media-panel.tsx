@@ -68,9 +68,10 @@ const PUBLIC_IMAGES = [
 
 interface MediaPanelProps {
   onInsertImage: (src: string, label: string) => void | Promise<void>;
+  focusedAssetRef?: React.MutableRefObject<{ id: string; category: string } | null>;
 }
 
-export function MediaPanel({ onInsertImage }: MediaPanelProps) {
+export function MediaPanel({ onInsertImage, focusedAssetRef }: MediaPanelProps) {
   const [mediaTab, setMediaTab] = useState<MediaTab>("public");
   const [search, setSearch] = useState("");
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -200,6 +201,12 @@ export function MediaPanel({ onInsertImage }: MediaPanelProps) {
             <div
               key={image.id}
               className="group relative overflow-hidden rounded-xl border border-editor-border transition hover:border-primary/40 hover:ring-1 hover:ring-primary/20"
+              onMouseEnter={() => {
+                if (focusedAssetRef) focusedAssetRef.current = { id: image.id, category: "images" };
+              }}
+              onMouseLeave={() => {
+                if (focusedAssetRef && focusedAssetRef.current?.id === image.id) focusedAssetRef.current = null;
+              }}
             >
               <img
                 src={image.url}
@@ -267,6 +274,12 @@ export function MediaPanel({ onInsertImage }: MediaPanelProps) {
                 <div
                   key={asset.id}
                   className="group relative overflow-hidden rounded-xl border border-editor-border transition hover:border-primary/40"
+                  onMouseEnter={() => {
+                    if (focusedAssetRef) focusedAssetRef.current = { id: asset.id, category: "images" };
+                  }}
+                  onMouseLeave={() => {
+                    if (focusedAssetRef && focusedAssetRef.current?.id === asset.id) focusedAssetRef.current = null;
+                  }}
                 >
                   <div className="block w-full">
                     {urls[asset.id] ? (

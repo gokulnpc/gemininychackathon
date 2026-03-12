@@ -138,19 +138,10 @@ async def get_asset_url(
     _validate_category(category)
     uid = current_user["uid"]
 
-    meta_key = _meta_key(uid, category, asset_id)
-    try:
-        meta = await gcs.load_json(meta_key)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Asset not found")
-
-    if meta.get("uid") and meta["uid"] != uid:
-        raise HTTPException(status_code=403, detail="Access denied.")
-
-    try:
-        url = await gcs.generate_presigned_url(meta["gcs_key"])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not generate URL: {e}")
+    from services.storage.assets import resolve_asset_url
+    url = await resolve_asset_url(uid, category, asset_id)
+    if not url:
+        raise HTTPException(status_code=404, detail="Asset not found or access denied")
 
     return {"url": url}
 

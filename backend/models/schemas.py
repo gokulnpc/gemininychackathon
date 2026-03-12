@@ -683,6 +683,10 @@ class EditorContextRequest(BaseModel):
         default=None,
         description="Asset ID currently focused in the left-rail media panel.",
     )
+    focused_asset_category: str | None = Field(
+        default=None,
+        description="Category of the focused asset: 'images' | 'music' | 'voice_memos' | 'videos'.",
+    )
 
 
 class EditAgentRequest(BaseModel):

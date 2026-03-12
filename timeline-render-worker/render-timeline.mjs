@@ -12,6 +12,7 @@ const FRONTEND_PNPM_ROOT = path.join(FRONTEND_ROOT, "node_modules", ".pnpm");
 const DEFAULT_RENDER_SIZE = { width: 576, height: 1024 };
 
 const workerRequire = createRequire(import.meta.url);
+const packageRootCache = new Map();
 
 function pathExists(targetPath) {
   try {
@@ -22,34 +23,79 @@ function pathExists(targetPath) {
   }
 }
 
-function resolvePackageFile(packageName, filePath = "") {
+function findPackageRoot(startPath, packageName) {
+  let currentPath = path.dirname(startPath);
+
+  while (currentPath !== path.dirname(currentPath)) {
+    const packageJsonPath = path.join(currentPath, "package.json");
+    if (pathExists(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+        if (packageJson?.name === packageName) {
+          return currentPath;
+        }
+      } catch {
+        // Ignore malformed package.json while walking upward.
+      }
+    }
+    currentPath = path.dirname(currentPath);
+  }
+
+  return null;
+}
+
+function resolvePackageRoot(packageName) {
+  const cachedRoot = packageRootCache.get(packageName);
+  if (cachedRoot) {
+    return cachedRoot;
+  }
+
   try {
-    const resolvedBase = path.dirname(workerRequire.resolve(`${packageName}/package.json`));
-    return filePath ? path.join(resolvedBase, filePath) : resolvedBase;
+    const resolvedEntry = workerRequire.resolve(packageName);
+    const packageRoot = findPackageRoot(resolvedEntry, packageName);
+    if (packageRoot) {
+      packageRootCache.set(packageName, packageRoot);
+      return packageRoot;
+    }
   } catch (error) {
-    const prefix = `${packageName.replace("/", "+")}@`;
     if (!pathExists(FRONTEND_PNPM_ROOT)) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Cannot resolve ${packageName} from timeline-render-worker dependencies: ${message}`);
     }
-
-    const candidates = fs
-      .readdirSync(FRONTEND_PNPM_ROOT)
-      .filter((entry) => entry.startsWith(prefix))
-      .sort()
-      .reverse();
-
-    for (const entry of candidates) {
-      const packageBase = path.join(FRONTEND_PNPM_ROOT, entry, "node_modules", ...packageName.split("/"));
-      const resolved = filePath ? path.join(packageBase, filePath) : packageBase;
-      if (pathExists(resolved)) {
-        return resolved;
-      }
-    }
-
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot resolve ${packageName} from timeline-render-worker or frontend package stores: ${message}`);
   }
+
+  const prefix = `${packageName.replace("/", "+")}@`;
+  if (!pathExists(FRONTEND_PNPM_ROOT)) {
+    throw new Error(`Cannot resolve ${packageName}: pnpm fallback store not found at ${FRONTEND_PNPM_ROOT}`);
+  }
+
+  const candidates = fs
+    .readdirSync(FRONTEND_PNPM_ROOT)
+    .filter((entry) => entry.startsWith(prefix))
+    .sort()
+    .reverse();
+
+  for (const entry of candidates) {
+    const packageBase = path.join(FRONTEND_PNPM_ROOT, entry, "node_modules", ...packageName.split("/"));
+    const packageJsonPath = path.join(packageBase, "package.json");
+    if (pathExists(packageJsonPath)) {
+      packageRootCache.set(packageName, packageBase);
+      return packageBase;
+    }
+  }
+
+  throw new Error(`Cannot resolve ${packageName} from timeline-render-worker or frontend package stores`);
+}
+
+function resolvePackageFile(packageName, filePath = "") {
+  const packageRoot = resolvePackageRoot(packageName);
+  const resolved = filePath ? path.join(packageRoot, filePath) : packageRoot;
+
+  if (!pathExists(resolved)) {
+    throw new Error(`Resolved ${packageName} but missing expected file ${resolved}`);
+  }
+
+  return resolved;
 }
 
 function loadRenderer() {
@@ -61,25 +107,48 @@ function getVisualizerProjectFile() {
   return path.relative(REPO_ROOT, projectFilePath);
 }
 
-function getRendererClientRenderFile() {
-  return resolvePackageFile("@twick/renderer", "lib/client/render.js");
+function readPackageJson(packageName) {
+  const packageJsonPath = resolvePackageFile(packageName, "package.json");
+  return JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 }
 
-function withRendererClientAlias(viteConfig = {}) {
-  const rendererClientRenderFile = getRendererClientRenderFile();
+function resolvePackageEntryFile(packageName) {
+  const packageJson = readPackageJson(packageName);
+  const packageEntry =
+    packageJson.module
+    ?? packageJson.exports?.["."]?.import
+    ?? packageJson.main;
+
+  if (typeof packageEntry !== "string" || !packageEntry) {
+    throw new Error(`Cannot determine entry file for ${packageName}`);
+  }
+
+  return resolvePackageFile(packageName, packageEntry);
+}
+
+function buildTwickViteAliases() {
+  return {
+    "@twick/renderer/lib/client/render": resolvePackageFile("@twick/renderer", "lib/client/render.js"),
+    "@twick/core": resolvePackageEntryFile("@twick/core"),
+    "@twick/2d": resolvePackageEntryFile("@twick/2d"),
+  };
+}
+
+function withTwickAliases(viteConfig = {}) {
+  const twickAliases = buildTwickViteAliases();
   const existingResolve = viteConfig.resolve ?? {};
   const existingAlias = existingResolve.alias;
 
   let alias;
   if (Array.isArray(existingAlias)) {
     alias = [
-      { find: "@twick/renderer/lib/client/render", replacement: rendererClientRenderFile },
+      ...Object.entries(twickAliases).map(([find, replacement]) => ({ find, replacement })),
       ...existingAlias,
     ];
   } else {
     alias = {
       ...(existingAlias ?? {}),
-      "@twick/renderer/lib/client/render": rendererClientRenderFile,
+      ...twickAliases,
     };
   }
 
@@ -141,7 +210,7 @@ export async function renderTimelineToFile(projectJson, outputPath) {
             name: "@twick/core/wasm",
           },
         },
-        viteConfig: withRendererClientAlias(),
+        viteConfig: withTwickAliases(),
       },
     });
 

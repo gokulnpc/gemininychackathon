@@ -143,12 +143,12 @@ deploy_worker_service() {
     --platform=managed \
     --no-allow-unauthenticated \
     --ingress=internal \
-    --memory=4Gi \
-    --cpu=4 \
+    --memory=2Gi \
+    --cpu=1 \
     --timeout=900s \
     --concurrency=1 \
     --min-instances=0 \
-    --max-instances=5 \
+    --max-instances=2 \
     --service-account="$WORKER_SA" \
     --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION,TIMELINE_RENDER_WORKER_URL=$RENDER_URL,FRONTEND_PUBLIC_BASE_URL=$FRONTEND_PUBLIC_BASE_URL,API_PUBLIC_BASE_URL=$api_public_base_url" \
     --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,SENDGRID_API_KEY=sendgrid-api-key:latest" \
@@ -171,7 +171,7 @@ gcloud run deploy "$RENDER_SERVICE" \
   --timeout=900s \
   --concurrency=1 \
   --min-instances=0 \
-  --max-instances=3 \
+  --max-instances=2 \
   --service-account="$WORKER_SA" \
   --no-cpu-throttling
 
