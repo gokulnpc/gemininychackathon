@@ -235,8 +235,8 @@ export function useVoiceEditSession({
                   : message,
               ),
             );
-          } else if (data.type === "tool_event") {
-            const tool = data.name ?? "tool_event";
+          } else if (data.type === "tool_event" || data.type === "tool_call") {
+            const tool = (data.name ?? data.tool ?? data.type) as string;
             setAgentMessages((prev) =>
               prev.map((message) =>
                 message.id === voiceMsgId

@@ -1,9 +1,11 @@
 FROM node:20-bookworm-slim
 
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--max-old-space-size=4096 \
+    NODE_OPTIONS=--max-old-space-size=6144 \
     PUPPETEER_SKIP_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    FFMPEG_PATH=/usr/bin/ffmpeg \
+    FFPROBE_PATH=/usr/bin/ffprobe
 
 WORKDIR /app
 

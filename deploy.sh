@@ -166,13 +166,14 @@ gcloud run deploy "$RENDER_SERVICE" \
   --platform=managed \
   --no-allow-unauthenticated \
   --ingress=all \
-  --memory=4Gi \
-  --cpu=2 \
+  --memory=12Gi \
+  --cpu=4 \
   --timeout=900s \
   --concurrency=1 \
   --min-instances=0 \
   --max-instances=2 \
   --service-account="$WORKER_SA" \
+  --set-env-vars="NODE_ENV=production,NODE_OPTIONS=--max-old-space-size=6144,PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium,FFMPEG_PATH=/usr/bin/ffmpeg,FFPROBE_PATH=/usr/bin/ffprobe" \
   --no-cpu-throttling
 
 RENDER_URL="$(cloud_run_primary_url "$RENDER_SERVICE")"

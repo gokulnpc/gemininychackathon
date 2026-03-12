@@ -34,7 +34,13 @@ Rules:
   - trim_selected_element: { "duration_seconds": N } or { "end_seconds": N }
   - delete_selected_element: {}
   - insert_media_asset: { "asset_id": "...", "media_kind": "image|video", "start_seconds": N, "duration_seconds": N }
-- For update_selected_text, trim_selected_element, delete_selected_element, move_selected_element: ALWAYS call get_editor_context first to confirm an element is selected.
+- For update_selected_text, trim_selected_element, delete_selected_element, move_selected_element:
+  ALWAYS call get_editor_context first.
+  If selected_element_ids is non-empty → use those element IDs directly.
+  If selected_element_ids is EMPTY → look at timeline_elements in the context.
+  Pick the most likely candidate based on the user's words ("the image", "the text at the beginning", "the video clip").
+  Call draft_edit_command with that element_id and confirm verbally: "I'll delete the [kind] at [start]s — shall I proceed?"
+  NEVER give up silently when elements exist in timeline_elements. Always identify and name the candidate.
 - For insert_media_asset or replace_selected_media (when no URL given): call get_user_assets first to discover available asset IDs. If the user doesn't specify an asset but mentions one is selected, check the focused_asset_id from editor context.
 - Do NOT invent asset IDs or URLs. Use only IDs from get_user_assets or the focused asset from context.
 - When screenshot context is provided, use it to observe the current editor state and give specific, actionable feedback and commands based on what you see."""

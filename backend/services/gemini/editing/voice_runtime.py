@@ -151,7 +151,9 @@ async def _dispatch_voice_tool(
         }
 
     if name == "get_editor_context":
-        return _summarize_editor_context(editor_context)
+        live_state = get_live_state() if get_live_state else {}
+        pj = live_state.get("project_json") or current_project_json
+        return _summarize_editor_context(editor_context, project_json=pj)
 
     if name == "get_user_assets":
         category = args.get("category", "images")
@@ -317,6 +319,9 @@ async def run_edit_voice_agent(
 
         send_task = asyncio.create_task(_send_audio())
 
+        user_transcript_parts: list[str] = []
+        agent_transcript_parts: list[str] = []
+
         try:
             async for response in session.receive():
                 if response.data:
@@ -326,21 +331,24 @@ async def run_edit_voice_agent(
                 output_transcription = getattr(server_content, "output_transcription", None) if server_content else None
                 if output_transcription and getattr(output_transcription, "text", None):
                     try:
-                        await on_event({"type": "agent_transcript", "text": output_transcription.text.strip()})
+                        agent_transcript_parts.append(output_transcription.text.strip())
+                        await on_event({"type": "agent_transcript", "text": " ".join(agent_transcript_parts)})
                     except Exception:
                         pass
                 else:
                     text = getattr(response, "text", None)
                     if text and text.strip():
                         try:
-                            await on_event({"type": "agent_transcript", "text": text.strip()})
+                            agent_transcript_parts.append(text.strip())
+                            await on_event({"type": "agent_transcript", "text": " ".join(agent_transcript_parts)})
                         except Exception:
                             pass
 
                 input_transcription = getattr(server_content, "input_transcription", None) if server_content else None
                 if input_transcription and getattr(input_transcription, "text", None):
                     try:
-                        await on_event({"type": "user_transcript", "text": input_transcription.text.strip()})
+                        user_transcript_parts.append(input_transcription.text.strip())
+                        await on_event({"type": "user_transcript", "text": " ".join(user_transcript_parts)})
                     except Exception:
                         pass
 
@@ -385,6 +393,9 @@ async def run_edit_voice_agent(
                         )
 
                 turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
+                if turn_complete:
+                    user_transcript_parts = []
+                    agent_transcript_parts = []
                 if send_task.done() and turn_complete:
                     break
         except Exception as exc:

@@ -12,3 +12,6 @@ PROJECT_STRUCTURE.md
 .claude/
 dev-backend/
 tweak-panel-pal-main/
+render-server/node_modules/
+timeline-render-worker/node_modules/
+render-server/

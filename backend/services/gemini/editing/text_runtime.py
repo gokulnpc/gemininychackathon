@@ -125,7 +125,8 @@ async def run_edit_text_agent(
 
     def get_editor_context(tool_context: ToolContext) -> dict:  # noqa: F841
         """Return current editor selection/playhead state for context-aware edits."""
-        context = _summarize_editor_context(tool_context.state.get("editor_context"))
+        pj = tool_context.state.get("current_project_json")
+        context = _summarize_editor_context(tool_context.state.get("editor_context"), project_json=pj)
         if context["has_screenshot"]:
             context["screenshot_note"] = (
                 "Screenshot metadata is attached for future multimodal tooling; "
