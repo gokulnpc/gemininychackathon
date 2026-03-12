@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.gemini.edit_voice import _patch_project_json
+from services.gemini.edit_voice import _patch_project_json, _queue_pending_edits
 
 
 def test_patch_project_json_adds_hook_title_to_overlay_track():
@@ -92,6 +92,88 @@ def test_patch_project_json_replaces_selected_media_url():
     )
 
     assert patched["tracks"][0]["elements"][0]["props"]["src"] == "https://new.example/darker-image.png"
+
+
+def test_queue_pending_edits_normalizes_gs_media_url_for_editor_playback():
+    pending_edits: dict = {}
+
+    result = _queue_pending_edits(
+        pending_edits,
+        {"replace_selected_media_url": "gs://demo-bucket/scenes/scene_2.png"},
+        editor_context={
+            "selected_element_ids": ["image-1"],
+            "selected_element_types": ["image"],
+        },
+    )
+
+    assert "error" not in result
+    assert pending_edits["replace_selected_media_url"] == "https://storage.googleapis.com/demo-bucket/scenes/scene_2.png"
+
+
+def test_patch_project_json_replaces_selected_media_url_without_emitting_gs_scheme():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-1",
+                "name": "Scene 1",
+                "type": "element",
+                "elements": [
+                    {
+                        "id": "image-1",
+                        "trackId": "track-1",
+                        "type": "image",
+                        "s": 0,
+                        "e": 4,
+                        "props": {"src": "https://old.example/image.png"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(
+        project_json,
+        {"replace_selected_media_url": "https://storage.googleapis.com/demo-bucket/scenes/scene_2.png"},
+        editor_context={
+            "selected_element_ids": ["image-1"],
+            "selected_element_types": ["image"],
+        },
+    )
+
+    assert patched["tracks"][0]["elements"][0]["props"]["src"].startswith("https://storage.googleapis.com/")
+
+
+def test_patch_project_json_normalizes_direct_gs_media_url_input():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-1",
+                "name": "Scene 1",
+                "type": "element",
+                "elements": [
+                    {
+                        "id": "image-1",
+                        "trackId": "track-1",
+                        "type": "image",
+                        "s": 0,
+                        "e": 4,
+                        "props": {"src": "https://old.example/image.png"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(
+        project_json,
+        {"replace_selected_media_url": "gs://demo-bucket/scenes/scene_3.png"},
+        editor_context={
+            "selected_element_ids": ["image-1"],
+            "selected_element_types": ["image"],
+        },
+    )
+
+    assert patched["tracks"][0]["elements"][0]["props"]["src"] == "https://storage.googleapis.com/demo-bucket/scenes/scene_3.png"
 
 
 def test_patch_project_json_adds_background_music_track_for_static_preset():

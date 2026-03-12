@@ -48,6 +48,7 @@ interface EditorShellProps {
   sendAgentInstruction: (instruction: string) => void;
   startVoiceEdit: () => void | Promise<void>;
   onProjectJsonChange: (projectJson: ProjectJSON) => void;
+  serializeProjectJson: (projectJson: ProjectJSON) => ProjectJSON;
   exportPortalRef?: RefObject<HTMLDivElement | null>;
 }
 
@@ -64,6 +65,7 @@ export function EditorShell({
   sendAgentInstruction,
   startVoiceEdit,
   onProjectJsonChange,
+  serializeProjectJson,
   exportPortalRef,
 }: EditorShellProps) {
   const { activeLeftPanel, setActiveLeftPanel } = useEditorShellState("media");
@@ -175,7 +177,8 @@ export function EditorShell({
     const element = new ImageElement(src, SCENE_SIZE)
       .setName(sanitizeName(label))
       .setStart(start)
-      .setEnd(end);
+      .setEnd(end)
+      .setObjectFit("contain");
 
     try {
       await editor.addElementToTrack(track, element);
@@ -202,7 +205,11 @@ export function EditorShell({
       {/* Portal the ExportButton into the toolbar (outside provider tree) */}
       {exportPortalRef?.current &&
         createPortal(
-          <ExportButton projectId={project.project_id} projectHook={project.hook} />,
+          <ExportButton
+            projectId={project.project_id}
+            projectHook={project.hook}
+            serializeProjectJson={serializeProjectJson}
+          />,
           exportPortalRef.current,
         )}
 
@@ -223,22 +230,20 @@ export function EditorShell({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Canvas area */}
         <div className="editor-canvas-wrapper flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-editor-bg">
-          <VideoEditor
-            defaultPlayControls={false}
-            editorConfig={{
-              canvasMode: true,
-              videoProps: {
-                width: SCENE_SIZE.width,
-                height: SCENE_SIZE.height,
-                backgroundColor: "var(--editor-bg)",
-              },
-              playerProps: {
-                maxWidth: 500,
-                maxHeight: 560,
-              },
-              fps: 30,
-            }}
-          />
+          <div className="editor-preview-shell">
+            <VideoEditor
+              defaultPlayControls={false}
+              editorConfig={{
+                canvasMode: true,
+                videoProps: {
+                  width: SCENE_SIZE.width,
+                  height: SCENE_SIZE.height,
+                  backgroundColor: "var(--editor-bg)",
+                },
+                fps: 30,
+              }}
+            />
+          </div>
         </div>
 
         {/* Timeline */}

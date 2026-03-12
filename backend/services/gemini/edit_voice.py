@@ -152,6 +152,26 @@ _VALID_MUSIC_PRESETS = {
 _SUPPORTED_MEDIA_URL_SCHEMES = {"http", "https", "gs", "data"}
 
 
+def _resolve_gs_media_url(value: str) -> str | None:
+    parsed = urlparse(value)
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+    if not bucket or not key:
+        return None
+    return f"https://storage.googleapis.com/{bucket}/{key}"
+
+
+def _normalize_editor_media_url(value: str) -> str | None:
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https"}:
+        return value
+    if value.startswith("data:"):
+        return value
+    if parsed.scheme == "gs":
+        return _resolve_gs_media_url(value)
+    return None
+
+
 async def _apply_recompose(
     project_id: str,
     project_data: dict,
@@ -575,10 +595,7 @@ def _ensure_music_track(project_json: dict, music_preset: str, music_volume: flo
 
 
 def _looks_like_media_url(value: str) -> bool:
-    parsed = urlparse(value)
-    if parsed.scheme in {"http", "https", "gs"}:
-        return True
-    return value.startswith("data:")
+    return _normalize_editor_media_url(value) is not None
 
 
 def _queue_pending_edits(
@@ -620,14 +637,15 @@ def _queue_pending_edits(
 
     if args.get("replace_selected_media_url") is not None:
         media_url = str(args["replace_selected_media_url"]).strip()
-        if not _looks_like_media_url(media_url):
+        normalized_media_url = _normalize_editor_media_url(media_url)
+        if not normalized_media_url:
             schemes = ", ".join(sorted(_SUPPORTED_MEDIA_URL_SCHEMES))
             return {"error": f"replace_selected_media_url must be a direct media URL using one of: {schemes}."}
         context = _summarize_editor_context(editor_context)
         selected_types = set(context.get("selected_element_types") or [])
         if not (selected_types & {"image", "video"}):
             return {"error": "replace_selected_media_url requires a selected image or video element."}
-        updates["replace_selected_media_url"] = media_url
+        updates["replace_selected_media_url"] = normalized_media_url
 
     pending_edits.update(updates)
     return {"queued": updates}
@@ -743,7 +761,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                 props["y"] = float(props.get("y", 0.0)) + delta
 
     if "replace_selected_media_url" in changes:
-        src = changes["replace_selected_media_url"]
+        src = _normalize_editor_media_url(str(changes["replace_selected_media_url"])) or str(changes["replace_selected_media_url"])
         for _, elem in _find_selected_elements(patched, editor_context):
             if elem.get("type") not in {"image", "video"}:
                 continue

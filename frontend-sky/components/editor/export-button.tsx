@@ -4,15 +4,17 @@ import { useCallback } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBrowserExport } from "@/hooks/use-browser-export";
+import type { ProjectJSON } from "@twick/timeline";
 import { useTimelineContext } from "@twick/timeline";
 import apiClient from "@/lib/apiClient";
 
 interface ExportButtonProps {
   projectId: string;
   projectHook?: string;
+  serializeProjectJson?: (projectJson: ProjectJSON) => ProjectJSON;
 }
 
-export function ExportButton({ projectId, projectHook }: ExportButtonProps) {
+export function ExportButton({ projectId, projectHook, serializeProjectJson }: ExportButtonProps) {
   const browserExport = useBrowserExport();
   const { editor } = useTimelineContext();
 
@@ -20,12 +22,13 @@ export function ExportButton({ projectId, projectHook }: ExportButtonProps) {
     if (browserExport.isExporting) return;
     try {
       const currentJson = editor.getProject();
-      await apiClient.put(`/api/v1/projects/${projectId}/timeline`, currentJson);
-      await browserExport.startExport(currentJson, `${projectHook ?? "video"}-export.mp4`);
+      const exportJson = serializeProjectJson ? serializeProjectJson(currentJson) : currentJson;
+      await apiClient.put(`/api/v1/projects/${projectId}/timeline`, exportJson);
+      await browserExport.startExport(exportJson, `${projectHook ?? "video"}-export.mp4`);
     } catch (err) {
       console.error("[ExportButton] Export failed:", err);
     }
-  }, [browserExport, editor, projectId, projectHook]);
+  }, [browserExport, editor, projectId, projectHook, serializeProjectJson]);
 
   return (
     <div className="flex items-center gap-2">
