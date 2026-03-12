@@ -7,7 +7,7 @@ import { AgentPanel } from "@/components/editor/agent-panel";
 import { EditorLeftRail } from "@/components/editor/editor-left-rail";
 import { ExportButton } from "@/components/editor/export-button";
 import { TimelineDock } from "@/components/editor/timeline-dock";
-import type { AgentMessage, Project, TextInsertConfig, TextInsertVariant } from "@/components/editor/types";
+import type { AgentMessage, EditProposal, Project, TextInsertConfig, TextInsertVariant } from "@/components/editor/types";
 import { useEditorShellState } from "@/components/editor/use-editor-shell-state";
 import { VideoEditor } from "@twick/studio";
 import {
@@ -107,6 +107,10 @@ interface EditorShellProps {
   onProjectJsonChange: (projectJson: ProjectJSON) => void;
   serializeProjectJson: (projectJson: ProjectJSON) => ProjectJSON;
   exportPortalRef?: RefObject<HTMLDivElement | null>;
+  confirmProposal: (proposal: EditProposal) => void;
+  rejectProposal: (proposal: EditProposal) => void;
+  revertLastEdit: () => void;
+  hasUndo: boolean;
 }
 
 export function EditorShell({
@@ -124,6 +128,10 @@ export function EditorShell({
   onProjectJsonChange,
   serializeProjectJson,
   exportPortalRef,
+  confirmProposal,
+  rejectProposal,
+  revertLastEdit,
+  hasUndo,
 }: EditorShellProps) {
   const { activeLeftPanel, setActiveLeftPanel } = useEditorShellState("media");
   const { editor, totalDuration } = useTimelineContext();
@@ -419,6 +427,10 @@ export function EditorShell({
         setAgentInput={setAgentInput}
         sendAgentInstruction={sendAgentInstruction}
         startVoiceEdit={startVoiceEdit}
+        confirmProposal={confirmProposal}
+        rejectProposal={rejectProposal}
+        revertLastEdit={revertLastEdit}
+        hasUndo={hasUndo}
       />
     </div>
   );

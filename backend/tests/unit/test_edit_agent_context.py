@@ -107,3 +107,96 @@ def test_edit_agent_router_passes_editor_context(monkeypatch):
     assert captured["editor_context"]["playhead_seconds"] == 1.25
     assert captured["editor_context"]["selected_element_ids"] == ["e-1"]
     assert captured["editor_context"]["screenshot"]["image_b64"] == "abc123"
+
+
+def test_edit_agent_request_mode_defaults_to_plan():
+    req = EditAgentRequest(instruction="make it pop")
+    assert req.mode == "plan"
+    assert req.commands is None
+
+
+def test_edit_agent_request_accepts_apply_mode_with_commands():
+    from models.schemas import EditCommand, EditCommandKind
+    cmd = EditCommand(kind=EditCommandKind.set_caption_style, args={"style": "sleek"})
+    req = EditAgentRequest(instruction="apply this", mode="apply", commands=[cmd])
+    assert req.mode == "apply"
+    assert len(req.commands) == 1
+    assert req.commands[0].kind == EditCommandKind.set_caption_style
+
+
+def test_editor_context_request_accepts_focused_asset_id():
+    req = EditorContextRequest(focused_asset_id="asset-abc-123")
+    assert req.focused_asset_id == "asset-abc-123"
+
+
+def test_editor_context_request_focused_asset_id_defaults_to_none():
+    req = EditorContextRequest()
+    assert req.focused_asset_id is None
+
+
+def test_edit_agent_sse_plan_mode_passes_through_to_service(monkeypatch):
+    """Router must pass mode='plan' and commands=None when not provided."""
+    captured: dict = {}
+
+    async def fake_get_project_for_user(project_id: str, uid: str) -> dict:
+        return {"project_id": project_id, "status": "completed", "voiceover_full_script": "hello"}
+
+    async def fake_run_edit_text_agent(**kwargs):
+        captured.update(kwargs)
+        yield {"type": "proposal", "proposal": {"proposal_id": "abc", "summary": "Caption → sleek", "commands": [], "confirmation_required": True}}
+
+    monkeypatch.setattr("services.storage.firestore_db.get_project_for_user", fake_get_project_for_user)
+    monkeypatch.setattr("services.gemini.edit_voice.run_edit_text_agent", fake_run_edit_text_agent)
+
+    router_mod = importlib.import_module("routers.voice.edit")
+
+    req = EditAgentRequest(instruction="sleek captions", mode="plan")
+
+    async def _run():
+        response = await router_mod.edit_agent_sse("project-1", req, {"uid": "user-1"})
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        return chunks
+
+    chunks = asyncio.run(_run())
+    payload = b"".join(c if isinstance(c, bytes) else c.encode() for c in chunks).decode()
+
+    assert '"type": "proposal"' in payload
+    assert captured.get("mode") == "plan"
+
+
+def test_edit_agent_sse_apply_mode_passes_commands_to_service(monkeypatch):
+    """Router must pass mode='apply' and serialised commands to service."""
+    from models.schemas import EditCommand, EditCommandKind
+    captured: dict = {}
+
+    async def fake_get_project_for_user(project_id: str, uid: str) -> dict:
+        return {"project_id": project_id, "status": "completed", "voiceover_full_script": "hello"}
+
+    async def fake_run_edit_text_agent(**kwargs):
+        captured.update(kwargs)
+        yield {"type": "applied", "message": "done", "project_json": None, "changes": {}}
+        yield {"type": "complete", "message": "done", "project_json": None, "changes": {}}
+
+    monkeypatch.setattr("services.storage.firestore_db.get_project_for_user", fake_get_project_for_user)
+    monkeypatch.setattr("services.gemini.edit_voice.run_edit_text_agent", fake_run_edit_text_agent)
+
+    router_mod = importlib.import_module("routers.voice.edit")
+
+    cmd = EditCommand(kind=EditCommandKind.set_caption_style, args={"style": "beast"})
+    req = EditAgentRequest(instruction="apply", mode="apply", commands=[cmd])
+
+    async def _run():
+        response = await router_mod.edit_agent_sse("project-1", req, {"uid": "user-1"})
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        return chunks
+
+    asyncio.run(_run())
+
+    assert captured.get("mode") == "apply"
+    assert isinstance(captured.get("commands"), list)
+    assert len(captured["commands"]) == 1
+    assert captured["commands"][0]["kind"] == "set_caption_style"

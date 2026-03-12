@@ -42,6 +42,35 @@ export interface Project {
   editor_export?: EditorExport | null;
 }
 
+export type EditCommandKind =
+  | "set_caption_style"
+  | "set_background_music"
+  | "add_text_overlay"
+  | "update_selected_text"
+  | "move_selected_element"
+  | "replace_selected_media"
+  | "insert_media_asset"
+  | "trim_selected_element"
+  | "delete_selected_element"
+  | "add_hook_title";
+
+export interface EditCommand {
+  kind: EditCommandKind;
+  args: Record<string, unknown>;
+  element_id?: string | null;
+  track_id?: string | null;
+}
+
+export interface EditProposal {
+  proposal_id: string;
+  summary: string;
+  commands: EditCommand[];
+  confirmation_required: boolean;
+  created_at?: string | null;
+  /** Client-side state — not from server */
+  state: "pending" | "confirmed" | "rejected";
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "agent";
@@ -49,6 +78,7 @@ export interface AgentMessage {
   actions?: string[];
   isThinking?: boolean;
   isError?: boolean;
+  proposal?: EditProposal;
 }
 
 export interface Asset {

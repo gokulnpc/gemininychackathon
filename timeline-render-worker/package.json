@@ -10,11 +10,11 @@
     "render": "node cli.mjs"
   },
   "dependencies": {
-    "@twick/2d": "0.15.25",
-    "@twick/core": "0.15.25",
-    "@twick/ffmpeg": "0.15.25",
-    "@twick/renderer": "0.15.25",
-    "@twick/ui": "0.15.25",
-    "@twick/visualizer": "0.15.25"
+    "@twick/2d": "0.15.23",
+    "@twick/core": "0.15.23",
+    "@twick/ffmpeg": "0.15.23",
+    "@twick/renderer": "0.15.23",
+    "@twick/ui": "0.15.23",
+    "@twick/visualizer": "0.15.23"
   }
 }

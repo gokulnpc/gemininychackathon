@@ -61,6 +61,37 @@ function getVisualizerProjectFile() {
   return path.relative(REPO_ROOT, projectFilePath);
 }
 
+function getRendererClientRenderFile() {
+  return resolvePackageFile("@twick/renderer", "lib/client/render.js");
+}
+
+function withRendererClientAlias(viteConfig = {}) {
+  const rendererClientRenderFile = getRendererClientRenderFile();
+  const existingResolve = viteConfig.resolve ?? {};
+  const existingAlias = existingResolve.alias;
+
+  let alias;
+  if (Array.isArray(existingAlias)) {
+    alias = [
+      { find: "@twick/renderer/lib/client/render", replacement: rendererClientRenderFile },
+      ...existingAlias,
+    ];
+  } else {
+    alias = {
+      ...(existingAlias ?? {}),
+      "@twick/renderer/lib/client/render": rendererClientRenderFile,
+    };
+  }
+
+  return {
+    ...viteConfig,
+    resolve: {
+      ...existingResolve,
+      alias,
+    },
+  };
+}
+
 function readRenderSize(projectJson) {
   const width = Number(projectJson?.properties?.width);
   const height = Number(projectJson?.properties?.height);
@@ -110,6 +141,7 @@ export async function renderTimelineToFile(projectJson, outputPath) {
             name: "@twick/core/wasm",
           },
         },
+        viteConfig: withRendererClientAlias(),
       },
     });
 
