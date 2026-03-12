@@ -32,6 +32,14 @@ export function ExportButton({ projectId, projectHook, serializeProjectJson }: E
 
   return (
     <div className="flex items-center gap-2">
+      {browserExport.state === "error" && browserExport.errorMessage ? (
+        <div
+          className="hidden max-w-72 truncate rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[11px] text-destructive md:block"
+          title={browserExport.errorMessage}
+        >
+          {browserExport.errorMessage}
+        </div>
+      ) : null}
       {browserExport.isExporting && (
         <div className="hidden items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] md:flex">
           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
@@ -46,6 +54,7 @@ export function ExportButton({ projectId, projectHook, serializeProjectJson }: E
       <button
         onClick={handleExport}
         disabled={browserExport.isExporting}
+        title={browserExport.errorMessage ?? undefined}
         className={cn(
           "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
           browserExport.state === "done"

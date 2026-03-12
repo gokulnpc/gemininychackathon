@@ -1,0 +1,11 @@
+.gcloudignore
+.git
+.gitignore
+
+# Generated frontend artifacts - volatile during local dev and not needed for backend builds
+frontend-sky/.next/
+frontend-sky/node_modules/
+
+# Common local artifacts
+**/.DS_Store
+**/*.log
