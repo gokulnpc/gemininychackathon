@@ -426,15 +426,7 @@ export default function DashboardPage() {
                                   </a>
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  router.push(
-                                    `/projects/${project.project_id}/edit`,
-                                  )
-                                }
-                              >
-                                <Pencil className="w-4 h-4 mr-2" /> Edit project
-                              </DropdownMenuItem>
+
                               <DropdownMenuItem onClick={openShare}>
                                 <Share2 className="w-4 h-4 mr-2" /> Share
                               </DropdownMenuItem>
@@ -536,15 +528,7 @@ export default function DashboardPage() {
                                 >
                                   <p>View detail</p>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    router.push(
-                                      `/projects/${project.project_id}/edit`,
-                                    )
-                                  }
-                                >
-                                  <p>Edit in studio</p>
-                                </DropdownMenuItem>
+
                                 <DropdownMenuItem onClick={openShare}>
                                   <Share2 className="w-4 h-4 mr-2" /> Share
                                 </DropdownMenuItem>

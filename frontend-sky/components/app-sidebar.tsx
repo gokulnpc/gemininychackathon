@@ -22,21 +22,23 @@ import {
   PanelLeft,
   BookOpen,
   ClipboardList,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/context/SidebarContext";
 
 const createSubItems = [
-  { id: 1, label: "Tell Your Story", icon: Mic },
-  { id: 2, label: "Choose the Plot", icon: BookOpen },
-  { id: 3, label: "Upload your Picture (opt.)", icon: ImageIcon },
-  { id: 4, label: "Language & Voice (opt.)", icon: Volume2 },
-  { id: 5, label: "Background Music (opt.)", icon: Music },
-  { id: 6, label: "Video Style", icon: Palette },
-  { id: 7, label: "Caption Style (opt.)", icon: Type },
-  { id: 8, label: "Video Effect (opt.)", icon: Zap },
-  { id: 9, label: "Video Config.", icon: Clock },
-  { id: 10, label: "Review & Publish", icon: Eye },
+  { id: 1,  label: "Tell Your Story",            icon: Mic },
+  { id: 2,  label: "Upload your Picture (opt.)", icon: ImageIcon },
+  { id: 3,  label: "Choose the Plot",            icon: BookOpen },
+  { id: 4,  label: "Language & Voice (opt.)",    icon: Volume2 },
+  { id: 5,  label: "Background Music (opt.)",    icon: Music },
+  { id: 6,  label: "Video Style",                icon: Palette },
+  { id: 7,  label: "Caption Style (opt.)",       icon: Type },
+  { id: 8,  label: "Video Effect (opt.)",        icon: Zap },
+  { id: 9,  label: "Video Config.",              icon: Clock },
+  { id: 10, label: "Generate Script",            icon: Sparkles },
+  { id: 11, label: "Review & Publish",           icon: Eye },
 ];
 
 interface AppSidebarProps {
