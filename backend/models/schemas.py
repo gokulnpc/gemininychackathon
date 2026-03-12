@@ -434,6 +434,7 @@ class ProjectMetadata(BaseModel):
     # Twick-compatible editable timeline JSON (built by timeline_builder after pipeline)
     project_json: Optional[dict] = None
     editor_export: Optional["EditorExportState"] = None
+    editor_export_history: list["EditorExportHistoryItem"] = []
 
 
 class EditorExportState(BaseModel):
@@ -447,6 +448,14 @@ class EditorExportState(BaseModel):
     download_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     error: Optional[str] = None
+
+
+class EditorExportHistoryItem(BaseModel):
+    export_id: str
+    completed_at: str
+    download_url: str
+    thumbnail_url: Optional[str] = None
+    project_json_snapshot: Optional[dict] = None
 
 
 class QueueEditorExportResponse(BaseModel):
@@ -468,6 +477,17 @@ class EditorExportStatusResponse(BaseModel):
     download_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     error: Optional[str] = None
+
+
+class RestoreEditorExportVersionRequest(BaseModel):
+    export_id: str
+
+
+class RestoreEditorExportVersionResponse(BaseModel):
+    project_id: str
+    export_id: str
+    status: str = "ok"
+    message: str
 
 
 class JobStatusResponse(BaseModel):

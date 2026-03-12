@@ -95,6 +95,60 @@ def build_editor_export_state(existing: dict[str, Any] | None = None, **updates:
     return state
 
 
+def build_editor_export_history_item(existing: dict[str, Any] | None = None, **updates: Any) -> dict[str, Any]:
+    item = {
+        "export_id": None,
+        "completed_at": None,
+        "download_url": None,
+        "thumbnail_url": None,
+        "project_json_snapshot": None,
+    }
+
+    if isinstance(existing, dict):
+        item.update(existing)
+
+    item.update(updates)
+    return item
+
+
+def append_editor_export_history(
+    existing_history: list[dict[str, Any]] | None,
+    *,
+    export_id: str,
+    completed_at: str,
+    download_url: str,
+    thumbnail_url: str | None = None,
+    project_json_snapshot: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    history: list[dict[str, Any]] = []
+
+    for entry in existing_history or []:
+        if not isinstance(entry, dict):
+            continue
+        normalized = build_editor_export_history_item(entry)
+        if (
+            not normalized.get("export_id")
+            or not normalized.get("completed_at")
+            or not normalized.get("download_url")
+        ):
+            continue
+        if normalized["export_id"] == export_id:
+            continue
+        history.append(normalized)
+
+    history.append(
+        build_editor_export_history_item(
+            export_id=export_id,
+            completed_at=completed_at,
+            download_url=download_url,
+            thumbnail_url=thumbnail_url,
+            project_json_snapshot=copy.deepcopy(project_json_snapshot) if project_json_snapshot else None,
+        )
+    )
+    history.sort(key=lambda item: item.get("completed_at") or "", reverse=True)
+    return history
+
+
 def get_editor_export_gcs_key(project_id: str, export_id: str) -> str:
     return f"projects/{project_id}/editor_exports/{export_id}/master.mp4"
 

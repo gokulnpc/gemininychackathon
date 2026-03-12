@@ -54,13 +54,13 @@ export function UserMenu() {
           <p className="text-xs text-[#9B9B9B] mt-0.5">~{Math.floor(credits / 100)} videos remaining</p>
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push("/welcome")} className="cursor-pointer">
+        <DropdownMenuItem onClick={() => router.push("/dashboard")} className="cursor-pointer">
           <LayoutDashboard className="w-4 h-4 mr-2" />Dashboard
         </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer">
+        <DropdownMenuItem onClick={() => router.push("/billing")} className="cursor-pointer">
           <User className="w-4 h-4 mr-2" />Profile
         </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer">
+        <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
           <Settings className="w-4 h-4 mr-2" />Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />

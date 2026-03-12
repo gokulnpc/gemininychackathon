@@ -66,6 +66,13 @@ interface Project {
     thumbnail_url?: string | null;
     error?: string | null;
   } | null;
+  editor_export_history?: Array<{
+    export_id: string;
+    completed_at: string;
+    download_url: string;
+    thumbnail_url?: string | null;
+    project_json_snapshot?: Record<string, unknown> | null;
+  }>;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
@@ -200,12 +207,24 @@ function ScriptReadyPanel({
   );
 }
 
-function CompletedPanel({ project }: { project: Project }) {
+function CompletedPanel({
+  project,
+  onRestoreVersion,
+}: {
+  project: Project;
+  onRestoreVersion: (exportId: string) => Promise<string>;
+}) {
   const platforms = Object.keys(project.video_urls ?? {});
   const { idToken } = useAuth();
+  const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const editorExport = project.editor_export;
   const hasEditedExport =
     editorExport?.status === "completed" && !!editorExport.download_url;
+  const editHistory = (project.editor_export_history ?? []).filter(
+    (entry) => !!entry?.export_id && !!entry?.completed_at && !!entry?.download_url,
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -284,6 +303,101 @@ function CompletedPanel({ project }: { project: Project }) {
               Exported {timeAgo(editorExport.completed_at)}
             </p>
           )}
+        </div>
+      )}
+
+      {(restoreMessage || restoreError) && (
+        <div
+          className={cn(
+            "rounded-xl border px-4 py-3 text-sm",
+            restoreError
+              ? "border-red-500/30 bg-red-500/10 text-red-300"
+              : "border-green-500/30 bg-green-500/10 text-green-300",
+          )}
+        >
+          {restoreError ?? restoreMessage}
+        </div>
+      )}
+
+      {editHistory.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#2a2a2a] p-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium uppercase tracking-wider text-white/50">
+              Edit History
+            </label>
+            <p className="text-sm text-white/60">
+              Previous edited export versions are stored separately from your original generated video.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {editHistory.map((entry, index) => (
+              <div
+                key={entry.export_id}
+                className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#242424] px-4 py-3 md:flex-row md:items-center md:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white">
+                    Edit {editHistory.length - index}
+                  </p>
+                  <p className="text-xs text-white/45">
+                    Exported {timeAgo(entry.completed_at)} • {entry.export_id.slice(0, 8)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={entry.download_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center rounded-full bg-[#5a9ab5] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#7ab0c8]"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download
+                  </a>
+                  <a
+                    href={entry.download_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    Open
+                  </a>
+                  <Button
+                    type="button"
+                    disabled={!entry.project_json_snapshot || restoringExportId === entry.export_id}
+                    onClick={async () => {
+                      if (!entry.project_json_snapshot) return;
+                      const confirmed = window.confirm(
+                        "Restore this edited version? This replaces the project's current timeline, but your original generated video stays unchanged.",
+                      );
+                      if (!confirmed) return;
+
+                      setRestoreError(null);
+                      setRestoreMessage(null);
+                      setRestoringExportId(entry.export_id);
+                      try {
+                        const message = await onRestoreVersion(entry.export_id);
+                        setRestoreMessage(message);
+                      } catch (err) {
+                        setRestoreError(err instanceof Error ? err.message : "Failed to restore this version");
+                      } finally {
+                        setRestoringExportId(null);
+                      }
+                    }}
+                    className="rounded-full bg-white/5 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {restoringExportId === entry.export_id ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Restoring
+                      </>
+                    ) : (
+                      "Restore this version"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -411,6 +525,17 @@ export default function ProjectDetailPage() {
     if (!project) return;
     await apiClient.post(`/api/v1/projects/${project.project_id}/retry-script`);
     await fetchProject();
+  }
+
+  async function handleRestoreExportVersion(exportId: string) {
+    if (!project) {
+      throw new Error("Project is not loaded");
+    }
+    const res = await apiClient.post(`/api/v1/projects/${project.project_id}/restore-export-version`, {
+      export_id: exportId,
+    });
+    await fetchProject();
+    return res.data?.message ?? "Timeline restored. Open the editor to continue from this version.";
   }
 
   const firstPlatform = project
@@ -544,7 +669,10 @@ export default function ProjectDetailPage() {
                   )}
 
                   {project.status === "completed" && (
-                    <CompletedPanel project={project} />
+                    <CompletedPanel
+                      project={project}
+                      onRestoreVersion={handleRestoreExportVersion}
+                    />
                   )}
 
                   {project.status === "failed" && (
