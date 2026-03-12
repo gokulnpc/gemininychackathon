@@ -4,6 +4,13 @@ import type { ProjectJSON } from "@twick/timeline";
 
 export type EditorLeftPanelKey = "media" | "video" | "text" | "caption" | "audio" | "effects";
 
+export type TextInsertVariant = "freeform" | "hook" | "lower-third" | "callout";
+
+export interface TextInsertConfig {
+  text: string;
+  variant?: TextInsertVariant;
+}
+
 export interface Project {
   project_id: string;
   status: string;
