@@ -134,6 +134,14 @@ export interface CreativeBlock {
   mime_type?: string;
 }
 
+export interface CreativePreviewOption {
+  option_id: string;
+  index: number;
+  title: string;
+  style: string;
+  image: CreativeBlock;
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "agent";
@@ -143,6 +151,9 @@ export interface AgentMessage {
   isError?: boolean;
   proposal?: EditProposal;
   creativeBlocks?: CreativeBlock[];
+  previewOptions?: CreativePreviewOption[];
+  previewId?: string;
+  isInspection?: boolean;
 }
 
 export interface Asset {

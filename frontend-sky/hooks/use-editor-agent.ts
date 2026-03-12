@@ -48,7 +48,14 @@ export function useEditorAgent({
 
     const userMsg: AgentMessage = { id: Date.now().toString(), role: "user", text: instruction };
     const thinkingId = `${Date.now()}-t`;
-    const thinkingMsg: AgentMessage = { id: thinkingId, role: "agent", text: "", isThinking: true, actions: [] };
+    const thinkingMsg: AgentMessage = {
+      id: thinkingId,
+      role: "agent",
+      text: "",
+      isThinking: true,
+      actions: [],
+      ...(screenshotCtx ? { isInspection: true } : {}),
+    };
 
     setAgentMessages((prev) => [...prev, userMsg, thinkingMsg]);
     setAgentInput("");
@@ -107,6 +114,33 @@ export function useEditorAgent({
                 prev.map((message) =>
                   message.id === thinkingId
                     ? { ...message, creativeBlocks: [...(message.creativeBlocks ?? []), event.block as import("@/components/editor/types").CreativeBlock] }
+                    : message,
+                ),
+              );
+            } else if (event.type === "creative_preview_start") {
+              setAgentMessages((prev) =>
+                prev.map((message) =>
+                  message.id === thinkingId
+                    ? { ...message, previewOptions: [], previewId: event.preview_id as string }
+                    : message,
+                ),
+              );
+            } else if (event.type === "creative_preview_option" && event.image) {
+              const opt = {
+                option_id: event.option_id as string,
+                index: event.index as number,
+                title: event.title as string,
+                style: event.style as string,
+                image: event.image as import("@/components/editor/types").CreativeBlock,
+              };
+              setAgentMessages((prev) =>
+                prev.map((message) =>
+                  message.id === thinkingId
+                    ? {
+                        ...message,
+                        previewId: event.preview_id as string,
+                        previewOptions: [...(message.previewOptions ?? []), opt],
+                      }
                     : message,
                 ),
               );

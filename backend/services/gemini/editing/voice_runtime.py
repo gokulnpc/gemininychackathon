@@ -19,7 +19,7 @@ from .commands import (
 )
 from .constants import _EDIT_SYSTEM, _LIVE_MODEL
 from .context import _summarize_editor_context
-from .preview import _generate_quick_preview
+from .preview import _generate_multi_preview
 from .projector import _apply_live_edits, _project_commands
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,8 @@ async def _dispatch_voice_tool(
         return {"category": category, "assets": assets}
 
     if name == "generate_style_preview":
-        return await _generate_quick_preview(
+        from .preview import _generate_multi_preview
+        return await _generate_multi_preview(
             brief=args.get("brief", "video concept"),
             art_style=args.get("art_style"),
             on_event=on_event,

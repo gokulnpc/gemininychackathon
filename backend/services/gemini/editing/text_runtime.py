@@ -92,15 +92,25 @@ async def run_edit_text_agent(
         art_style: str | None = None,
         tool_context: ToolContext = None,
     ) -> dict:
-        """Generate ONE fast preview image showing a style/concept.
-        Use when the user wants to SEE options before committing to changes.
-        art_style options: realism | ghibli | comic | polaroid | disney | painting | creepy_comic
+        """Generate 3 preview images showing style/concept options.
+        Emits creative_preview_option events for each option — one per style variation.
+        art_style (optional override): realism|ghibli|comic|polaroid|disney|painting|creepy_comic
         """
-        from .preview import _invoke_quick_preview, _quick_preview_prompt
-        prompt = _quick_preview_prompt(brief, art_style)
-        blocks = _invoke_quick_preview(prompt)
-        creative_blocks_buffer.extend(blocks)
-        return {"status": "completed", "total_images": len(blocks)}
+        import queue as _std_queue
+        from .preview import _generate_multi_preview
+
+        sync_q: _std_queue.Queue = _std_queue.Queue()
+
+        async def _run() -> dict:
+            async def _put(event: dict) -> None:
+                sync_q.put(event)
+
+            return await _generate_multi_preview(brief=brief, art_style=art_style, on_event=_put)
+
+        result = asyncio.run(_run())
+        while not sync_q.empty():
+            creative_blocks_buffer.append(sync_q.get_nowait())
+        return result
 
     def get_project_info(tool_context: ToolContext) -> dict:  # noqa: F841
         """Get current caption style, music, and hook for this video."""
@@ -286,8 +296,8 @@ async def run_edit_text_agent(
         ):
             # Flush creative blocks from generate_style_preview
             while creative_blocks_buffer:
-                block = creative_blocks_buffer.pop(0)
-                yield {"type": "creative_block", "block": block, "block_index": 0, "total_blocks": 1}
+                buffered = creative_blocks_buffer.pop(0)
+                yield buffered
 
             if not event.content or not event.content.parts:
                 continue

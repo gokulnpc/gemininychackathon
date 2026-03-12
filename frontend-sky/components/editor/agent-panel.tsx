@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 import { Loader2, Mic, MicOff, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentMessage, CreativeBlock, EditProposal } from "@/components/editor/types";
+import type { AgentMessage, CreativeBlock, CreativePreviewOption, EditProposal } from "@/components/editor/types";
 
 interface AgentPanelProps {
   agentPanelOpen: boolean;
@@ -104,9 +104,16 @@ export function AgentPanel({
                   ? "rounded-br-sm bg-primary text-primary-foreground"
                   : msg.isError
                     ? "rounded-bl-sm border border-destructive/20 bg-destructive/20 text-destructive-foreground"
-                    : "rounded-bl-sm bg-editor-surface-raised text-foreground/90"
+                    : msg.isInspection
+                      ? "rounded-bl-sm border border-amber-500/20 bg-amber-500/5 text-foreground/90"
+                      : "rounded-bl-sm bg-editor-surface-raised text-foreground/90",
               )}
             >
+              {msg.isInspection && !msg.isThinking && (
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-widest text-amber-400/70">
+                  Screen analysis
+                </p>
+              )}
               {msg.isThinking && !msg.text ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -114,6 +121,36 @@ export function AgentPanel({
                 </div>
               ) : (
                 msg.text || <span className="italic text-muted-foreground">Processing...</span>
+              )}
+              {msg.previewOptions && msg.previewOptions.length > 0 && (
+                <div className="mt-2">
+                  <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
+                    {msg.previewOptions.length} style option{msg.previewOptions.length !== 1 ? "s" : ""}
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {msg.previewOptions.map((opt: CreativePreviewOption) => (
+                      <div key={opt.option_id} className="group overflow-hidden rounded-lg border border-editor-border">
+                        <div className="relative">
+                          <img
+                            src={`data:${opt.image.mime_type ?? "image/png"};base64,${opt.image.content}`}
+                            alt={opt.title}
+                            className="w-full object-cover"
+                          />
+                          <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/60 to-transparent p-2">
+                            <span className="text-xs font-semibold text-white">{opt.title}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => sendAgentInstruction(`Use the "${opt.title}" style (option ${opt.index + 1} from the last preview)`)}
+                          className="w-full border-t border-editor-border bg-editor-surface-raised py-1.5 text-xs text-foreground/70 transition-colors hover:bg-editor-surface hover:text-foreground"
+                        >
+                          Use this style →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
               {msg.creativeBlocks && msg.creativeBlocks.length > 0 && (
                 <div className="mt-2 flex flex-col gap-2">

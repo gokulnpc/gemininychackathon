@@ -208,6 +208,33 @@ export function useVoiceEditSession({
                   : message,
               ),
             );
+          } else if (data.type === "creative_preview_start") {
+            setAgentMessages((prev) =>
+              prev.map((message) =>
+                message.id === voiceMsgId
+                  ? { ...message, previewOptions: [], previewId: data.preview_id as string }
+                  : message,
+              ),
+            );
+          } else if (data.type === "creative_preview_option" && data.image) {
+            const opt = {
+              option_id: data.option_id as string,
+              index: data.index as number,
+              title: data.title as string,
+              style: data.style as string,
+              image: data.image as import("@/components/editor/types").CreativeBlock,
+            };
+            setAgentMessages((prev) =>
+              prev.map((message) =>
+                message.id === voiceMsgId
+                  ? {
+                      ...message,
+                      previewId: data.preview_id as string,
+                      previewOptions: [...(message.previewOptions ?? []), opt],
+                    }
+                  : message,
+              ),
+            );
           } else if (data.type === "tool_event") {
             const tool = data.name ?? "tool_event";
             setAgentMessages((prev) =>
