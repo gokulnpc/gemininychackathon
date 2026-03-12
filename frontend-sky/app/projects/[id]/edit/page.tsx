@@ -59,8 +59,6 @@ interface MediaTransformRecord {
   canonicalPropsObjectFit: string | null;
   editorElementObjectFit: string | null;
   editorPropsObjectFit: string | null;
-  canonicalFrame: TimelineElementJson["frame"] | null;
-  editorFrame: TimelineElementJson["frame"] | null;
 }
 
 interface SkippedEditorElement {
@@ -96,7 +94,6 @@ const ABSOLUTE_SRC_PATTERN = /^(?:[a-z]+:)?\/\//i;
 const DATA_OR_BLOB_SRC_PATTERN = /^(?:data:|blob:)/i;
 const GS_MEDIA_SRC_PATTERN = /^gs:\/\/([^/]+)\/(.+)$/i;
 const REFRESH_STALL_TIMEOUT_MS = 8000;
-const EDITOR_SCENE_IMAGE_FRAME_SCALE = 0.9;
 
 const isAbsoluteMediaSrc = (src: string): boolean =>
   ABSOLUTE_SRC_PATTERN.test(src) || DATA_OR_BLOB_SRC_PATTERN.test(src);
@@ -172,32 +169,6 @@ const isSceneImageElement = (element: TimelineElementJson): boolean => {
   return typeof props?.sceneId === "number" || typeof props?.sceneId === "string";
 };
 
-const isCanvasSizedSceneFrame = (frame: TimelineElementJson["frame"] | null | undefined): boolean => {
-  if (!frame || !Array.isArray(frame.size) || frame.size.length < 2) {
-    return false;
-  }
-
-  const [width, height] = frame.size;
-  return Math.abs(width - 576) <= 1 && Math.abs(height - 1024) <= 1 && Math.abs(frame.x ?? 0) <= 1 && Math.abs(frame.y ?? 0) <= 1;
-};
-
-const buildEditorSceneImageFrame = (frame: TimelineElementJson["frame"] | null | undefined): TimelineElementJson["frame"] | null => {
-  if (!frame || !Array.isArray(frame.size) || frame.size.length < 2) {
-    return null;
-  }
-
-  const [width, height] = frame.size;
-  return {
-    ...frame,
-    size: [
-      Math.round(width * EDITOR_SCENE_IMAGE_FRAME_SCALE),
-      Math.round(height * EDITOR_SCENE_IMAGE_FRAME_SCALE),
-    ],
-    x: frame.x ?? 0,
-    y: frame.y ?? 0,
-  };
-};
-
 const buildEditorProjectSession = (json: ProjectJSON | null): EditorProjectSession | null => {
   if (!json) {
     return null;
@@ -217,11 +188,8 @@ const buildEditorProjectSession = (json: ProjectJSON | null): EditorProjectSessi
       const props = typeof element.props === "object" && element.props ? { ...element.props } : {};
       const src = typeof props.src === "string" ? props.src : null;
       const shouldForceContain = isSceneImageElement(element);
-      const shouldInsetFrame = shouldForceContain && isCanvasSizedSceneFrame(element.frame);
       const canonicalElementObjectFit = typeof element.objectFit === "string" ? element.objectFit : null;
       const canonicalPropsObjectFit = typeof props.objectFit === "string" ? props.objectFit : null;
-      const canonicalFrame = element.frame ? cloneTimelineElement(element).frame ?? null : null;
-      const editorFrame = shouldInsetFrame ? buildEditorSceneImageFrame(element.frame) : canonicalFrame;
 
       if (src) {
         const { editorSrc, reason } = normalizeEditorMediaSrc(src);
@@ -249,8 +217,6 @@ const buildEditorProjectSession = (json: ProjectJSON | null): EditorProjectSessi
           canonicalPropsObjectFit,
           editorElementObjectFit: shouldForceContain ? "contain" : canonicalElementObjectFit,
           editorPropsObjectFit: shouldForceContain ? "contain" : canonicalPropsObjectFit,
-          canonicalFrame,
-          editorFrame,
         };
         mediaIndexByEditorSrc[editorSrc] = [
           ...(mediaIndexByEditorSrc[editorSrc] ?? []),
@@ -266,13 +232,6 @@ const buildEditorProjectSession = (json: ProjectJSON | null): EditorProjectSessi
       if (shouldForceContain) {
         element.objectFit = "contain";
         props.objectFit = "contain";
-      }
-
-      if (editorFrame) {
-        element.frame = {
-          ...editorFrame,
-          size: Array.isArray(editorFrame.size) ? [...editorFrame.size] : editorFrame.size,
-        };
       }
 
       element.props = props;
@@ -323,29 +282,6 @@ const restoreCanonicalElement = (
       props.objectFit = transformRecord.canonicalPropsObjectFit;
     } else {
       delete props.objectFit;
-    }
-  }
-
-  if (transformRecord.editorFrame && restored.frame) {
-    const restoredSize = Array.isArray(restored.frame.size) ? restored.frame.size : [];
-    const editorSize = Array.isArray(transformRecord.editorFrame.size) ? transformRecord.editorFrame.size : [];
-    const frameMatchesEditor =
-      restoredSize.length >= 2 &&
-      editorSize.length >= 2 &&
-      Math.abs(restoredSize[0] - editorSize[0]) <= 1 &&
-      Math.abs(restoredSize[1] - editorSize[1]) <= 1 &&
-      Math.abs((restored.frame.x ?? 0) - (transformRecord.editorFrame.x ?? 0)) <= 1 &&
-      Math.abs((restored.frame.y ?? 0) - (transformRecord.editorFrame.y ?? 0)) <= 1;
-
-    if (frameMatchesEditor) {
-      restored.frame = transformRecord.canonicalFrame
-        ? {
-            ...transformRecord.canonicalFrame,
-            size: Array.isArray(transformRecord.canonicalFrame.size)
-              ? [...transformRecord.canonicalFrame.size]
-              : transformRecord.canonicalFrame.size,
-          }
-        : null;
     }
   }
 

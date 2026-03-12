@@ -1,7 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentPanel } from "@/components/editor/agent-panel";
 import { EditorLeftRail } from "@/components/editor/editor-left-rail";
@@ -71,6 +71,18 @@ export function EditorShell({
   const { activeLeftPanel, setActiveLeftPanel } = useEditorShellState("media");
   const { editor, totalDuration } = useTimelineContext();
   const livePlayer = useLivePlayerContext() as { currentTime?: number } | null;
+  const previewHostRef = useRef<HTMLDivElement | null>(null);
+  const [previewHostSize, setPreviewHostSize] = useState({ width: 0, height: 0 });
+
+  const measurePreviewHost = useCallback((host: HTMLDivElement) => {
+    const styles = window.getComputedStyle(host);
+    const paddingX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+    const paddingY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+    return {
+      width: Math.max(0, host.clientWidth - paddingX),
+      height: Math.max(0, host.clientHeight - paddingY),
+    };
+  }, []);
 
   const commitEditorProject = useCallback(() => {
     onProjectJsonChange(editor.getProject());
@@ -100,7 +112,49 @@ export function EditorShell({
     };
   }, [commitEditorProject, editor]);
 
+  useEffect(() => {
+    const host = previewHostRef.current;
+    if (!host) return;
+
+    const updateHostSize = (width: number, height: number) => {
+      const nextWidth = Math.max(0, Math.floor(width));
+      const nextHeight = Math.max(0, Math.floor(height));
+      setPreviewHostSize((current) =>
+        current.width === nextWidth && current.height === nextHeight
+          ? current
+          : { width: nextWidth, height: nextHeight }
+      );
+    };
+
+    const initialSize = measurePreviewHost(host);
+    updateHostSize(initialSize.width, initialSize.height);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const nextEntry = entries[0];
+      if (!nextEntry) return;
+      updateHostSize(nextEntry.contentRect.width, nextEntry.contentRect.height);
+    });
+
+    resizeObserver.observe(host);
+    return () => resizeObserver.disconnect();
+  }, [measurePreviewHost]);
+
   const currentTime = useMemo(() => livePlayer?.currentTime ?? 0, [livePlayer?.currentTime]);
+  const previewSize = useMemo(() => {
+    if (previewHostSize.width <= 0 || previewHostSize.height <= 0) {
+      return null;
+    }
+
+    const scale = Math.min(
+      previewHostSize.width / SCENE_SIZE.width,
+      previewHostSize.height / SCENE_SIZE.height,
+    );
+
+    return {
+      width: Math.max(1, Math.floor(SCENE_SIZE.width * scale)),
+      height: Math.max(1, Math.floor(SCENE_SIZE.height * scale)),
+    };
+  }, [previewHostSize.height, previewHostSize.width]);
 
   const ensureTrack = useCallback((name: string, type: string) => {
     return editor.getTrackByName(name) ?? editor.addTrack(name, type);
@@ -230,19 +284,26 @@ export function EditorShell({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Canvas area */}
         <div className="editor-canvas-wrapper flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-editor-bg">
-          <div className="editor-preview-shell">
-            <VideoEditor
-              defaultPlayControls={false}
-              editorConfig={{
-                canvasMode: true,
-                videoProps: {
-                  width: SCENE_SIZE.width,
-                  height: SCENE_SIZE.height,
-                  backgroundColor: "var(--editor-bg)",
-                },
-                fps: 30,
-              }}
-            />
+          <div ref={previewHostRef} className="editor-preview-host">
+            {previewSize ? (
+              <div
+                className="editor-preview-shell"
+                style={{ width: `${previewSize.width}px`, height: `${previewSize.height}px` }}
+              >
+                <VideoEditor
+                  defaultPlayControls={false}
+                  editorConfig={{
+                    canvasMode: true,
+                    videoProps: {
+                      width: SCENE_SIZE.width,
+                      height: SCENE_SIZE.height,
+                      backgroundColor: "var(--editor-bg)",
+                    },
+                    fps: 30,
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
 
