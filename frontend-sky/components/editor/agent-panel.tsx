@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 import { Loader2, Mic, MicOff, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentMessage } from "@/components/editor/types";
+import type { AgentMessage, EditProposal } from "@/components/editor/types";
 
 interface AgentPanelProps {
   agentPanelOpen: boolean;
@@ -16,6 +16,10 @@ interface AgentPanelProps {
   setAgentInput: (value: string) => void;
   sendAgentInstruction: (instruction: string) => void;
   startVoiceEdit: () => void | Promise<void>;
+  confirmProposal: (proposal: EditProposal) => void;
+  rejectProposal: (proposal: EditProposal) => void;
+  revertLastEdit: () => void;
+  hasUndo: boolean;
 }
 
 export function AgentPanel({
@@ -29,14 +33,26 @@ export function AgentPanel({
   setAgentInput,
   sendAgentInstruction,
   startVoiceEdit,
+  confirmProposal,
+  rejectProposal,
+  revertLastEdit,
+  hasUndo,
 }: AgentPanelProps) {
   if (!agentPanelOpen) return null;
 
-  const recentActions = agentMessages
-    .flatMap((message) => message.actions ?? [])
-    .filter((action, index, actions) => actions.indexOf(action) === index)
+  const confirmedActions = agentMessages
+    .filter((m) => m.proposal?.state === "confirmed")
+    .map((m) => m.proposal!.summary)
     .slice(-6)
     .reverse();
+
+  const recentActions = confirmedActions.length > 0
+    ? confirmedActions
+    : agentMessages
+        .flatMap((message) => message.actions ?? [])
+        .filter((action, index, actions) => actions.indexOf(action) === index)
+        .slice(-6)
+        .reverse();
 
   return (
     <div className="flex h-full w-[340px] flex-col border-l border-editor-border bg-editor-surface">
@@ -100,7 +116,7 @@ export function AgentPanel({
                 msg.text || <span className="italic text-muted-foreground">Processing...</span>
               )}
             </div>
-            {msg.actions && msg.actions.length > 0 && (
+            {msg.actions && msg.actions.length > 0 && !msg.proposal && (
               <div className="flex max-w-[90%] flex-wrap gap-1">
                 {msg.actions.map((action, index) => (
                   <span
@@ -110,6 +126,62 @@ export function AgentPanel({
                     {action}
                   </span>
                 ))}
+              </div>
+            )}
+            {msg.proposal && (
+              <div
+                className={cn(
+                  "mt-1 w-[90%] rounded-xl border p-3",
+                  msg.proposal.state === "pending"
+                    ? "border-primary/30 bg-editor-surface-raised"
+                    : msg.proposal.state === "confirmed"
+                      ? "border-emerald-500/30 bg-emerald-500/10"
+                      : "border-editor-border bg-editor-surface opacity-60"
+                )}
+              >
+                {msg.proposal.state === "pending" && (
+                  <>
+                    <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.15em] text-editor-text-dim">
+                      {msg.proposal.commands.length} suggested change{msg.proposal.commands.length !== 1 ? "s" : ""}
+                    </p>
+                    <ul className="mb-3 space-y-1">
+                      {msg.proposal.commands.map((cmd, i) => (
+                        <li key={i} className="text-xs font-mono text-foreground/70">
+                          {cmd.kind.replace(/_/g, " ")}
+                          {Object.keys(cmd.args).length > 0 && (
+                            <span className="ml-1 text-editor-text-dim">
+                              ({Object.values(cmd.args).filter(Boolean).join(", ")})
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => confirmProposal(msg.proposal!)}
+                        disabled={agentLoading}
+                        className="flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+                      >
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rejectProposal(msg.proposal!)}
+                        disabled={agentLoading}
+                        className="flex-1 rounded-lg border border-editor-border py-1.5 text-xs text-foreground/70 hover:border-primary/30"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </>
+                )}
+                {msg.proposal.state === "confirmed" && (
+                  <p className="text-xs font-medium text-emerald-300">Applied</p>
+                )}
+                {msg.proposal.state === "rejected" && (
+                  <p className="text-xs italic text-editor-text-dim">Discarded</p>
+                )}
               </div>
             )}
           </div>
@@ -130,6 +202,18 @@ export function AgentPanel({
           </button>
         ))}
       </div>
+
+      {hasUndo && (
+        <div className="border-t border-editor-border px-3 py-2">
+          <button
+            type="button"
+            onClick={revertLastEdit}
+            className="w-full rounded-lg border border-amber-500/30 bg-amber-500/10 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+          >
+            Undo last edit
+          </button>
+        </div>
+      )}
 
       <div className="border-t border-editor-border p-3">
         <div className="rounded-xl border border-editor-border bg-editor-surface-raised px-3 py-2 transition-colors focus-within:border-primary/55">

@@ -239,3 +239,111 @@ def test_patch_project_json_removes_background_music_track_for_none():
     patched = _patch_project_json(project_json, {"background_music": "none"})
 
     assert all(track["name"] != "Background Music" for track in patched["tracks"])
+
+
+def test_patch_project_json_updates_selected_text():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-1",
+                "name": "Overlays",
+                "type": "element",
+                "elements": [
+                    {
+                        "id": "text-1",
+                        "trackId": "track-1",
+                        "type": "text",
+                        "s": 0,
+                        "e": 3,
+                        "t": "Old Text",
+                        "props": {"text": "Old Text"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(
+        project_json,
+        {"update_selected_text": "New Text"},
+        editor_context={"selected_element_ids": ["text-1"], "selected_element_types": ["text"]},
+    )
+
+    el = patched["tracks"][0]["elements"][0]
+    assert el["t"] == "New Text"
+    assert el["props"]["text"] == "New Text"
+
+
+def test_patch_project_json_adds_text_overlay_at_bottom():
+    project_json = {"tracks": []}
+
+    patched = _patch_project_json(
+        project_json,
+        {"add_text_overlay": {"text": "Bottom Label", "duration_seconds": 2.0, "position_hint": "bottom"}},
+        editor_context={"playhead_seconds": 0.5},
+    )
+
+    overlay_track = next(t for t in patched["tracks"] if t["name"] == "Overlays")
+    el = overlay_track["elements"][0]
+    assert el["type"] == "text"
+    assert el["t"] == "Bottom Label"
+    assert el["frame"]["y"] == 500.0
+    assert el["s"] == 0.5
+    assert abs(el["e"] - 2.5) < 0.01
+
+
+def test_patch_project_json_deletes_selected_element():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-1",
+                "name": "Overlays",
+                "type": "element",
+                "elements": [
+                    {"id": "el-1", "type": "text", "s": 0, "e": 2},
+                    {"id": "el-2", "type": "text", "s": 2, "e": 4},
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(
+        project_json,
+        {"delete_selected_element": True},
+        editor_context={"selected_element_ids": ["el-1"]},
+    )
+
+    remaining = patched["tracks"][0]["elements"]
+    assert len(remaining) == 1
+    assert remaining[0]["id"] == "el-2"
+
+
+def test_patch_project_json_trims_selected_element_duration():
+    project_json = {
+        "tracks": [
+            {
+                "id": "track-1",
+                "name": "Overlays",
+                "type": "element",
+                "elements": [
+                    {
+                        "id": "text-1",
+                        "type": "text",
+                        "s": 1.0,
+                        "e": 5.0,
+                        "props": {},
+                        "frame": {"size": [900, 180], "x": 0, "y": 0, "rotation": 0},
+                    }
+                ],
+            }
+        ]
+    }
+
+    patched = _patch_project_json(
+        project_json,
+        {"trim_selected_element": {"duration_seconds": 2.0}},
+        editor_context={"selected_element_ids": ["text-1"]},
+    )
+
+    el = patched["tracks"][0]["elements"][0]
+    assert abs(el["e"] - 3.0) < 0.01  # s=1.0 + duration=2.0

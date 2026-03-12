@@ -300,6 +300,8 @@ async def _dispatch_voice_tool(
     current_project_json: dict | None,
     editor_context: dict | None,
     on_event: Callable,
+    decision_queue: asyncio.Queue | None = None,
+    get_live_state: Callable[[], dict] | None = None,
 ) -> dict:
     """Route a Live API function_call to the correct edit tool."""
     if name == "get_project_info":
@@ -334,16 +336,76 @@ async def _dispatch_voice_tool(
     if name == "apply_live_edits":
         if not pending_edits:
             return {"error": "No edits queued. Call queue_edit first."}
+
+        proposal = _build_proposal_from_pending_edits(pending_edits, editor_context)
+
+        if decision_queue is None:
+            # No decision queue (test harness or legacy) — fall back to direct apply
+            result = await _apply_live_edits(
+                project_id=project_id,
+                project_data=project_data,
+                current_project_json=current_project_json,
+                pending_edits=pending_edits,
+                editor_context=editor_context,
+            )
+            pending_edits.clear()
+            try:
+                await on_event({"type": "complete", **result})
+            except Exception:
+                pass
+            return result
+
+        # Emit proposal to frontend and wait for user decision
+        try:
+            await on_event({"type": "proposal", "proposal": proposal})
+        except Exception:
+            pass
+
+        try:
+            decision = await asyncio.wait_for(decision_queue.get(), timeout=60.0)
+        except asyncio.TimeoutError:
+            try:
+                await on_event({
+                    "type": "proposal_rejected",
+                    "proposal_id": proposal["proposal_id"],
+                    "reason": "timeout",
+                })
+            except Exception:
+                pass
+            pending_edits.clear()
+            return {"status": "rejected", "reason": "timeout"}
+
+        if decision.get("decision") != "confirm":
+            try:
+                await on_event({"type": "proposal_rejected", "proposal_id": proposal["proposal_id"]})
+            except Exception:
+                pass
+            pending_edits.clear()
+            return {"status": "rejected"}
+
+        # User confirmed — project commands and save
+        confirmed_commands = decision.get("commands") or []
+        live_state = get_live_state() if get_live_state else {}
+        source_json = live_state.get("project_json") or current_project_json or {}
+        ec = live_state.get("editor_context") or editor_context
+
+        if confirmed_commands:
+            patched, applied, _errors = await _project_commands(source_json, confirmed_commands, ec)
+        else:
+            # Fallback: apply the original pending_edits directly
+            patched = source_json
+            applied = dict(pending_edits)
+
         result = await _apply_live_edits(
             project_id=project_id,
             project_data=project_data,
-            current_project_json=current_project_json,
-            pending_edits=pending_edits,
-            editor_context=editor_context,
+            current_project_json=patched,
+            pending_edits=applied,
+            editor_context=ec,
         )
         pending_edits.clear()
         try:
-            await on_event({"type": "complete", **result})
+            await on_event({"type": "applied", "proposal_id": proposal["proposal_id"], **result})
         except Exception:
             pass
         return result
@@ -357,6 +419,7 @@ async def run_edit_voice_agent(
     audio_chunks: AsyncIterator[bytes],
     get_live_state: Callable[[], dict] | None,
     on_event: Callable[[dict], Coroutine],
+    decision_queue: asyncio.Queue | None = None,
 ):
     """Async generator — yields PCM16 audio (Scout's voice) for the edit session.
 
@@ -437,6 +500,8 @@ async def run_edit_voice_agent(
                             live_state.get("project_json"),
                             live_state.get("editor_context"),
                             on_event,
+                            decision_queue=decision_queue,
+                            get_live_state=get_live_state,
                         )
 
                         try:
@@ -651,6 +716,225 @@ def _queue_pending_edits(
     return {"queued": updates}
 
 
+def _build_proposal_from_pending_edits(
+    pending_edits: dict,
+    editor_context: dict | None = None,
+) -> dict:
+    """Convert old-style pending_edits dict into an EditProposal-shaped dict."""
+    from datetime import datetime, timezone
+
+    _EDIT_KEY_TO_KIND: dict[str, str] = {
+        "caption_style": "set_caption_style",
+        "background_music": "set_background_music",
+        "music_volume": "set_background_music",
+        "hook_title": "add_hook_title",
+        "hook_duration_seconds": "add_hook_title",
+        "move_selected_text_y_delta": "move_selected_element",
+        "replace_selected_media_url": "replace_selected_media",
+    }
+
+    commands: list[dict] = []
+    seen_kinds: set[str] = set()
+    for key, value in pending_edits.items():
+        kind = _EDIT_KEY_TO_KIND.get(key)
+        if not kind or kind in seen_kinds:
+            continue
+        if kind == "set_background_music":
+            commands.append({
+                "kind": kind,
+                "args": {
+                    "preset": pending_edits.get("background_music"),
+                    "volume": pending_edits.get("music_volume"),
+                },
+            })
+        elif kind == "add_hook_title":
+            commands.append({
+                "kind": kind,
+                "args": {
+                    "text": pending_edits.get("hook_title"),
+                    "duration_seconds": pending_edits.get("hook_duration_seconds"),
+                },
+            })
+        elif kind == "move_selected_element":
+            ctx = _summarize_editor_context(editor_context)
+            commands.append({
+                "kind": kind,
+                "args": {"dy": value},
+                "element_id": (ctx.get("selected_element_ids") or [None])[0],
+            })
+        elif kind == "replace_selected_media":
+            ctx = _summarize_editor_context(editor_context)
+            commands.append({
+                "kind": kind,
+                "args": {"src": value},
+                "element_id": (ctx.get("selected_element_ids") or [None])[0],
+            })
+        else:
+            commands.append({"kind": kind, "args": {key: value}})
+        seen_kinds.add(kind)
+
+    summaries: list[str] = []
+    for cmd in commands:
+        kind = cmd["kind"]
+        args = cmd.get("args", {})
+        if kind == "set_caption_style":
+            summaries.append(f"Caption style → {args.get('caption_style') or args.get('style', '?')}")
+        elif kind == "set_background_music":
+            summaries.append(f"Music → {args.get('preset', '?')}")
+        elif kind == "add_hook_title":
+            summaries.append(f"Hook title: \"{args.get('text', '')}\"")
+        elif kind == "move_selected_element":
+            summaries.append("Move selected element")
+        elif kind == "replace_selected_media":
+            summaries.append("Replace selected media")
+        else:
+            summaries.append(kind.replace("_", " ").title())
+
+    return {
+        "proposal_id": uuid4().hex[:16],
+        "summary": "; ".join(summaries) or "Apply suggested edits",
+        "commands": commands,
+        "confirmation_required": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _project_commands(
+    project_json: dict,
+    commands: list[dict],
+    editor_context: dict | None,
+) -> tuple[dict, dict, list[str]]:
+    """Project a list of normalized EditCommand dicts onto a Twick project_json.
+
+    Returns:
+        patched   — deep-copied project_json with all valid commands applied in order
+        applied   — mapping of changed fields (for Firestore metadata and change log)
+        errors    — list of rejection messages for invalid/unsupported commands
+    """
+    import copy
+
+    _KIND_TO_CHANGES_KEY: dict[str, str | None] = {
+        "set_caption_style": "caption_style",
+        "set_background_music": None,     # handled specially
+        "add_text_overlay": "add_text_overlay",
+        "update_selected_text": "update_selected_text",
+        "move_selected_element": "move_selected_text_y_delta",
+        "replace_selected_media": "replace_selected_media_url",
+        "insert_media_asset": "insert_media_asset",
+        "trim_selected_element": "trim_selected_element",
+        "delete_selected_element": "delete_selected_element",
+        "add_hook_title": None,           # handled specially
+    }
+
+    patched = copy.deepcopy(project_json)
+    applied: dict = {}
+    errors: list[str] = []
+
+    for cmd in commands:
+        kind = cmd.get("kind", "")
+        args = cmd.get("args") or {}
+
+        if kind not in _KIND_TO_CHANGES_KEY:
+            errors.append(f"Unsupported command kind: '{kind}'")
+            continue
+
+        # Build the changes dict for _patch_project_json
+        changes: dict = {}
+
+        if kind == "set_caption_style":
+            style = args.get("style") or args.get("caption_style", "")
+            if style not in _VALID_CAPTION_STYLES:
+                errors.append(f"Unknown caption style '{style}'. Valid: {', '.join(sorted(_VALID_CAPTION_STYLES))}")
+                continue
+            changes["caption_style"] = style
+
+        elif kind == "set_background_music":
+            preset = args.get("preset") or args.get("background_music")
+            volume = args.get("volume") or args.get("music_volume")
+            if preset is not None and preset not in _VALID_MUSIC_PRESETS:
+                errors.append(f"Unknown music preset '{preset}'. Valid: {', '.join(sorted(_VALID_MUSIC_PRESETS))}")
+                continue
+            if preset is not None:
+                changes["background_music"] = preset
+            if volume is not None:
+                changes["music_volume"] = max(0.0, min(1.0, float(volume)))
+
+        elif kind == "add_hook_title":
+            text = args.get("text") or args.get("hook_title", "")
+            if not text:
+                errors.append("add_hook_title: 'text' is required")
+                continue
+            changes["hook_title"] = str(text).strip()[:120]
+            if args.get("duration_seconds") is not None or args.get("hook_duration_seconds") is not None:
+                dur = args.get("duration_seconds") or args.get("hook_duration_seconds")
+                changes["hook_duration_seconds"] = max(0.5, min(5.0, float(dur)))
+            if args.get("start_seconds") is not None:
+                # Inject into editor_context playhead so _patch_project_json picks it up
+                editor_context = {**(editor_context or {}), "playhead_seconds": float(args["start_seconds"])}
+
+        elif kind == "move_selected_element":
+            ctx = _summarize_editor_context(editor_context)
+            if not ctx.get("selected_element_ids"):
+                errors.append("move_selected_element: no element is currently selected")
+                continue
+            dy = args.get("dy") or args.get("move_selected_text_y_delta", 0.0)
+            changes["move_selected_text_y_delta"] = float(dy)
+
+        elif kind == "replace_selected_media":
+            src = args.get("src") or args.get("replace_selected_media_url", "")
+            if not src:
+                # If asset_id is provided, attempt GCS resolution
+                asset_id = args.get("asset_id")
+                if asset_id:
+                    try:
+                        from services.storage import gcs as _gcs
+                        src = await _gcs.get_asset_url(asset_id)
+                    except Exception as exc:
+                        errors.append(f"replace_selected_media: could not resolve asset '{asset_id}': {exc}")
+                        continue
+                else:
+                    errors.append("replace_selected_media: 'src' or 'asset_id' is required")
+                    continue
+            normalized = _normalize_editor_media_url(src)
+            if not normalized:
+                errors.append(f"replace_selected_media: unsupported URL scheme for '{src}'")
+                continue
+            changes["replace_selected_media_url"] = normalized
+
+        elif kind == "update_selected_text":
+            text = args.get("text", "")
+            changes["update_selected_text"] = text
+
+        elif kind == "add_text_overlay":
+            changes["add_text_overlay"] = args
+
+        elif kind == "trim_selected_element":
+            changes["trim_selected_element"] = args
+
+        elif kind == "delete_selected_element":
+            changes["delete_selected_element"] = True
+
+        elif kind == "insert_media_asset":
+            ins_args = dict(args)
+            # Resolve asset_id → URL if needed
+            if "asset_id" in ins_args and "src" not in ins_args:
+                try:
+                    from services.storage import gcs as _gcs
+                    ins_args["resolved_src"] = await _gcs.get_asset_url(ins_args["asset_id"])
+                except Exception as exc:
+                    errors.append(f"insert_media_asset: could not resolve asset '{ins_args['asset_id']}': {exc}")
+                    continue
+            changes["insert_media_asset"] = ins_args
+
+        try:
+            patched = _patch_project_json(patched, changes, editor_context=editor_context)
+            applied.update(changes)
+        except Exception as exc:
+            errors.append(f"Command '{kind}' failed during patch: {exc}")
+
+    return patched, applied, errors
+
+
 async def _apply_live_edits(
     project_id: str,
     project_data: dict,
@@ -801,6 +1085,96 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                 "frameEffects": [],
             }
         )
+
+    if "update_selected_text" in changes:
+        new_text = str(changes["update_selected_text"])
+        for _, elem in _find_selected_elements(patched, editor_context):
+            if elem.get("type") != "text":
+                continue
+            elem["t"] = new_text
+            elem.setdefault("props", {})["text"] = new_text
+
+    if "add_text_overlay" in changes:
+        _POSITION_Y: dict[str, float] = {
+            "top": -720.0, "middle": 0.0, "bottom": 500.0, "bottom_center": 500.0,
+        }
+        ov = changes["add_text_overlay"]
+        pos_y = _POSITION_Y.get(str(ov.get("position_hint", "bottom")), 500.0)
+        start = float(ov.get("start_seconds", _coerce_playhead_seconds(editor_context)))
+        dur = max(0.5, min(10.0, float(ov.get("duration_seconds", 3.0))))
+        overlay_track = _ensure_overlay_track(patched)
+        overlay_track["elements"].append({
+            "id": _make_id("text"),
+            "trackId": overlay_track["id"],
+            "type": "text",
+            "name": str(ov.get("variant", "text_overlay")).replace("_", " ").title(),
+            "s": start,
+            "e": start + dur,
+            "zIndex": 90,
+            "t": ov.get("text", ""),
+            "props": {
+                "text": ov.get("text", ""),
+                "fontSize": 56,
+                "fontFamily": "Inter",
+                "fontWeight": 700,
+                "color": "#FFFFFF",
+                "textAlign": "center",
+                "stroke": "#000000",
+                "strokeWidth": 3,
+            },
+            "frame": {"size": [900, 180], "x": 0, "y": pos_y, "rotation": 0},
+            "frameEffects": [],
+        })
+
+    if "trim_selected_element" in changes:
+        trim = changes["trim_selected_element"]
+        for _, elem in _find_selected_elements(patched, editor_context):
+            if "start_seconds" in trim:
+                elem["s"] = max(0.0, float(trim["start_seconds"]))
+            if "end_seconds" in trim:
+                elem["e"] = float(trim["end_seconds"])
+            elif "duration_seconds" in trim:
+                elem["e"] = float(elem.get("s", 0.0)) + max(0.1, float(trim["duration_seconds"]))
+
+    if changes.get("delete_selected_element"):
+        selected_ids = set((editor_context or {}).get("selected_element_ids") or [])
+        if selected_ids:
+            for track in patched.get("tracks", []):
+                track["elements"] = [
+                    e for e in track.get("elements", [])
+                    if e.get("id") not in selected_ids
+                ]
+
+    if "insert_media_asset" in changes:
+        ins = changes["insert_media_asset"]
+        src = ins.get("resolved_src") or ins.get("src", "")
+        if src:
+            media_kind = ins.get("media_kind", "image")
+            start = float(ins.get("start_seconds", _coerce_playhead_seconds(editor_context)))
+            dur = max(0.1, float(ins.get("duration_seconds", 4.0)))
+            media_track = next(
+                (t for t in patched.get("tracks", []) if t.get("name", "").startswith("Media Inserts")),
+                None,
+            )
+            if not media_track:
+                media_track = {
+                    "id": _make_id("track"),
+                    "name": "Media Inserts",
+                    "type": "element",
+                    "props": {},
+                    "elements": [],
+                }
+                patched.setdefault("tracks", []).append(media_track)
+            media_track["elements"].append({
+                "id": _make_id(media_kind[:3]),
+                "trackId": media_track["id"],
+                "type": media_kind,
+                "name": ins.get("name", "Inserted Media"),
+                "s": start,
+                "e": start + dur,
+                "props": {"src": src},
+            })
+
     return patched
 
 
@@ -848,13 +1222,58 @@ async def run_edit_text_agent(
     instruction: str,
     current_project_json: dict | None = None,
     editor_context: dict | None = None,
+    mode: str = "plan",
+    commands: list[dict] | None = None,
 ):
     """Async generator — yields SSE-ready dicts for the text-based quick-action editor.
 
     Uses ADK (Agent + Runner) with gemini-2.5-flash for fast reasoning.
-    Yields agent_step progress events, then a complete event with the patched
-    project_json (no video re-render — export triggers recompose separately).
+
+    mode="plan"  — agent reasons about the instruction, emits a "proposal" event.
+                   Nothing is written to Firestore.
+    mode="apply" — if commands is provided, projects them directly and saves.
+                   Emits "applied" (+ "complete" for backward compat).
     """
+    # ── Apply-mode fast path (no ADK) ───────────────────────────────────────────
+    if mode == "apply" and commands:
+        yield {"type": "agent_step", "tool": "project_commands", "message": "Applying confirmed edits to timeline…"}
+        source_json = current_project_json or {}
+        try:
+            patched, applied, errors = await _project_commands(source_json, commands, editor_context)
+        except Exception as exc:
+            yield {"type": "error", "message": f"Command projection failed: {exc}"}
+            return
+        if errors:
+            yield {"type": "error", "message": f"Some commands were rejected: {'; '.join(errors)}"}
+            return
+        if not applied:
+            yield {"type": "error", "message": "No commands were applied — check that your selection is correct."}
+            return
+        try:
+            result = await _apply_live_edits(
+                project_id=project_id,
+                project_data=project_data,
+                current_project_json=patched,
+                pending_edits=applied,
+                editor_context=editor_context,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save applied commands: %s", exc)
+            result = {
+                "message": "Failed to save changes.",
+                "changes": applied,
+                "project_json": patched,
+                "editor_context": _summarize_editor_context(editor_context),
+                "requires_export": True,
+            }
+        proposal_id = next(
+            (str(c.get("proposal_id")) for c in commands if "proposal_id" in c),
+            "",
+        )
+        yield {"type": "applied", "proposal_id": proposal_id, **result}
+        yield {"type": "complete", **result}  # backward-compat alias
+        return
+
     from google.adk.agents import Agent
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
@@ -1003,30 +1422,12 @@ async def run_edit_text_agent(
             yield {"type": "error", "message": "Agent did not queue any changes — try rephrasing your request."}
             return
 
-        # Patch timeline JSON and save metadata to Firestore (no video re-render)
-        try:
-            result = await _apply_live_edits(
-                project_id=project_id,
-                project_data=project_data,
-                current_project_json=current_project_json,
-                pending_edits=pending,
-                editor_context=editor_context,
-            )
-        except Exception as _save_exc:
-            logger.warning("Failed to save project edits to Firestore: %s", _save_exc)
-            result = {
-                "message": "Failed to save live edits.",
-                "changes": pending,
-                "project_json": None,
-                "editor_context": editor_context_summary,
-                "requires_export": True,
-            }
-
-        logger.info("ADK edit agent completed: project=%s changes=%s", project_id, pending)
-        yield {
-            "type": "complete",
-            **result,
-        }
+        # Plan mode: build a proposal and emit it — do NOT write to Firestore
+        proposal = _build_proposal_from_pending_edits(pending, editor_context)
+        logger.info("ADK edit agent built proposal: project=%s commands=%d", project_id, len(proposal["commands"]))
+        yield {"type": "proposal", "proposal": proposal}
+        # Backward-compat shim: emit a no-op "complete" so older clients stop spinning
+        yield {"type": "complete", "message": proposal["summary"], "project_json": None, "changes": {}}
 
     except Exception as exc:
         logger.exception("ADK edit agent failed: project=%s", project_id)

@@ -41,6 +41,18 @@ if [[ -z "$PROJECT_ID" ]]; then
   exit 1
 fi
 
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+
+if [[ -z "$PROJECT_NUMBER" ]]; then
+  echo "ERROR: Could not resolve GCP project number for $PROJECT_ID."
+  exit 1
+fi
+
+cloud_run_primary_url() {
+  local service_name="$1"
+  echo "https://${service_name}-${PROJECT_NUMBER}.${REGION}.run.app"
+}
+
 if [[ -z "$FRONTEND_PUBLIC_BASE_URL" ]]; then
   echo "ERROR: FRONTEND_PUBLIC_BASE_URL is required for editor export rendering."
   echo "Example: FRONTEND_PUBLIC_BASE_URL=https://your-frontend.example ./deploy.sh"
@@ -144,6 +156,8 @@ deploy_worker_service() {
 }
 
 # ── Deploy render service first ───────────────────────────────────────────────
+# This service stays private by IAM/OIDC, but must use ingress=all so Cloud Run
+# service-to-service requests over the run.app hostname can reach it.
 echo "▶ Deploying $RENDER_SERVICE to Cloud Run..."
 gcloud run deploy "$RENDER_SERVICE" \
   --image="$RENDER_IMAGE" \
@@ -151,7 +165,7 @@ gcloud run deploy "$RENDER_SERVICE" \
   --project="$PROJECT_ID" \
   --platform=managed \
   --no-allow-unauthenticated \
-  --ingress=internal \
+  --ingress=all \
   --memory=4Gi \
   --cpu=2 \
   --timeout=900s \
@@ -161,10 +175,7 @@ gcloud run deploy "$RENDER_SERVICE" \
   --service-account="$WORKER_SA" \
   --no-cpu-throttling
 
-RENDER_URL="$(gcloud run services describe "$RENDER_SERVICE" \
-  --region="$REGION" \
-  --project="$PROJECT_ID" \
-  --format='value(status.url)')"
+RENDER_URL="$(cloud_run_primary_url "$RENDER_SERVICE")"
 
 echo "  Render URL: $RENDER_URL"
 

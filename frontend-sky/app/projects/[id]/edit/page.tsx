@@ -25,7 +25,7 @@ import "@twick/studio/dist/studio.css";
 import { TimelineProvider, INITIAL_TIMELINE_DATA, useTimelineContext } from "@twick/timeline";
 import { LivePlayerProvider, PLAYER_STATE, useLivePlayerContext } from "@twick/live-player";
 import dynamic from "next/dynamic";
-import type { AgentMessage, Project } from "@/components/editor/types";
+import type { AgentMessage, EditProposal, Project } from "@/components/editor/types";
 
 const EditorShell = dynamic(
   () => import("@/components/editor/editor-shell").then((m) => ({ default: m.EditorShell })),
@@ -459,6 +459,10 @@ export default function EditorPage() {
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRootRef = useRef<HTMLDivElement>(null);
   const editorSessionRef = useRef<EditorProjectSession | null>(null);
+  const applyInProgressRef = useRef(false);
+
+  // One-level undo snapshot (set before applying a proposal)
+  const [undoSnapshot, setUndoSnapshot] = useState<ProjectJSON | null>(null);
 
   const applyEditorSession = useCallback((json: ProjectJSON | null, label: string): ProjectJSON | null => {
     const session = buildEditorProjectSession(json);
@@ -659,6 +663,7 @@ export default function EditorPage() {
           editor_context: agentPanelOpen
             ? { ...editorContext, active_panel: "agent" }
             : editorContext,
+          mode: "plan",
         }),
       });
 
@@ -690,9 +695,20 @@ export default function EditorPage() {
               actions.push(event.tool);
             } else if (event.type === "tool_event" && event.name) {
               actions.push(event.name);
+            } else if (event.type === "proposal" && event.proposal) {
+              const proposal: EditProposal = { ...event.proposal as EditProposal, state: "pending" };
+              agentText = proposal.summary;
+              setAgentMessages((prev) =>
+                prev.map((m) =>
+                  m.id === thinkingId
+                    ? { ...m, text: agentText, actions: [...actions], proposal, isThinking: false }
+                    : m
+                )
+              );
             } else if (event.type === "complete") {
-              agentText = event.message ?? "Done! Changes applied.";
+              // Backward-compat: only apply if project_json is non-null (legacy direct-apply path)
               if (event.project_json) {
+                agentText = event.message ?? "Done! Changes applied.";
                 applyLiveProjectJson(
                   event.project_json as ProjectJSON,
                   event.changes as Record<string, unknown> | undefined,
@@ -704,7 +720,12 @@ export default function EditorPage() {
             setAgentMessages((prev) =>
               prev.map((m) =>
                 m.id === thinkingId
-                  ? { ...m, text: agentText, actions: [...actions], isThinking: event.type !== "complete" && event.type !== "error" }
+                  ? {
+                      ...m,
+                      text: agentText,
+                      actions: [...actions],
+                      isThinking: event.type !== "proposal" && event.type !== "complete" && event.type !== "error",
+                    }
                   : m
               )
             );
@@ -723,6 +744,140 @@ export default function EditorPage() {
       setAgentLoading(false);
     }
   }
+
+  // ─── Proposal confirm / reject / undo ────────────────────────────────────────
+
+  const confirmProposal = useCallback(async (proposal: EditProposal) => {
+    if (applyInProgressRef.current) return;
+    applyInProgressRef.current = true;
+
+    // Snapshot for undo
+    setUndoSnapshot(getCurrentCanonicalProjectJson());
+
+    // Optimistically mark as confirmed
+    setAgentMessages((prev) =>
+      prev.map((m) =>
+        m.proposal?.proposal_id === proposal.proposal_id
+          ? { ...m, proposal: { ...m.proposal, state: "confirmed" as const } }
+          : m
+      )
+    );
+
+    if (isVoiceActive && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: "agent_decision",
+        decision: "confirm",
+        proposal_id: proposal.proposal_id,
+        commands: proposal.commands,
+      }));
+      applyInProgressRef.current = false;
+      return;
+    }
+
+    // Text path: apply via /edit-agent with mode=apply
+    setAgentLoading(true);
+    const currentProjectJson = getCurrentCanonicalProjectJson();
+    const editorContext = editorBridgeRef.current?.getEditorContext() ?? null;
+    const applyMsgId = `${proposal.proposal_id}-apply`;
+
+    setAgentMessages((prev) => [
+      ...prev,
+      { id: applyMsgId, role: "agent" as const, text: "", isThinking: true, actions: [] },
+    ]);
+
+    try {
+      const res = await apiFetch(`/api/v1/projects/${projectId}/edit-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instruction: proposal.summary,
+          current_project_json: currentProjectJson,
+          editor_context: agentPanelOpen ? { ...editorContext, active_panel: "agent" } : editorContext,
+          mode: "apply",
+          commands: proposal.commands,
+        }),
+      });
+
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let applyBuffer = "";
+      let applyText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        applyBuffer += decoder.decode(value, { stream: true });
+        const lines = applyBuffer.split("\n");
+        applyBuffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "applied" || event.type === "complete") {
+              applyText = event.message ?? "Changes applied.";
+              if (event.project_json) {
+                applyLiveProjectJson(event.project_json as ProjectJSON, event.changes as Record<string, unknown>);
+              }
+            } else if (event.type === "error") {
+              applyText = event.message ?? "Apply failed.";
+              setUndoSnapshot(null);
+            }
+            setAgentMessages((prev) =>
+              prev.map((m) =>
+                m.id === applyMsgId
+                  ? {
+                      ...m,
+                      text: applyText,
+                      isThinking: event.type !== "applied" && event.type !== "complete" && event.type !== "error",
+                      isError: event.type === "error",
+                    }
+                  : m
+              )
+            );
+          } catch { /* skip malformed */ }
+        }
+      }
+    } catch (e) {
+      setAgentMessages((prev) =>
+        prev.map((m) =>
+          m.id === applyMsgId
+            ? { ...m, isThinking: false, isError: true, text: e instanceof Error ? e.message : "Apply failed" }
+            : m
+        )
+      );
+      setUndoSnapshot(null);
+    } finally {
+      setAgentLoading(false);
+      applyInProgressRef.current = false;
+    }
+  }, [agentPanelOpen, applyLiveProjectJson, getCurrentCanonicalProjectJson, isVoiceActive, projectId]);
+
+  const rejectProposal = useCallback((proposal: EditProposal) => {
+    setAgentMessages((prev) =>
+      prev.map((m) =>
+        m.proposal?.proposal_id === proposal.proposal_id
+          ? { ...m, proposal: { ...m.proposal, state: "rejected" as const } }
+          : m
+      )
+    );
+    if (isVoiceActive && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: "agent_decision",
+        decision: "reject",
+        proposal_id: proposal.proposal_id,
+        commands: [],
+      }));
+    }
+  }, [isVoiceActive]);
+
+  const revertLastEdit = useCallback(() => {
+    if (!undoSnapshot) return;
+    applyLiveProjectJson(undoSnapshot);
+    setUndoSnapshot(null);
+  }, [applyLiveProjectJson, undoSnapshot]);
 
   async function initPlaybackContext() {
     if (playbackAudioCtxRef.current && playbackNodeRef.current) {
@@ -859,6 +1014,29 @@ export default function EditorPage() {
                 m.id === voiceMsgId ? { ...m, actions: [...(m.actions ?? []), tool] } : m
               )
             );
+          } else if (data.type === "proposal" && data.proposal) {
+            const proposal: EditProposal = { ...(data.proposal as EditProposal), state: "pending" };
+            setAgentMessages((prev) =>
+              prev.map((m) =>
+                m.id === voiceMsgId
+                  ? { ...m, text: proposal.summary, proposal, isThinking: false }
+                  : m
+              )
+            );
+          } else if (data.type === "applied") {
+            setAgentMessages((prev) =>
+              prev.map((m) =>
+                m.id === voiceMsgId
+                  ? { ...m, isThinking: false, text: data.message ?? "Live edits applied." }
+                  : m
+              )
+            );
+            if (data.project_json) {
+              applyLiveProjectJson(
+                data.project_json as ProjectJSON,
+                data.changes as Record<string, unknown> | undefined,
+              );
+            }
           } else if (data.type === "complete") {
             setAgentMessages((prev) =>
               prev.map((m) =>
@@ -1063,6 +1241,10 @@ export default function EditorPage() {
                   onProjectJsonChange={syncProjectJson}
                   serializeProjectJson={(json) => serializeProjectJson(json) ?? json}
                   exportPortalRef={exportPortalRef}
+                  confirmProposal={confirmProposal}
+                  rejectProposal={rejectProposal}
+                  revertLastEdit={revertLastEdit}
+                  hasUndo={undoSnapshot !== null}
                 />
               </TimelineProvider>
             </LivePlayerProvider>

@@ -679,6 +679,10 @@ class EditorContextRequest(BaseModel):
         default=None,
         description="Optional screenshot payload metadata for future multimodal editor tooling.",
     )
+    focused_asset_id: str | None = Field(
+        default=None,
+        description="Asset ID currently focused in the left-rail media panel.",
+    )
 
 
 class EditAgentRequest(BaseModel):
@@ -695,3 +699,52 @@ class EditAgentRequest(BaseModel):
         default=None,
         description="Live editor state such as playhead, selection, active panel, and optional screenshot metadata.",
     )
+    mode: str = Field(
+        default="plan",
+        description="'plan' — agent emits a proposal without saving. 'apply' — projects confirmed commands onto the timeline.",
+    )
+    commands: list[EditCommand] | None = Field(
+        default=None,
+        description="Pre-confirmed EditCommands to apply (only used when mode='apply').",
+    )
+
+
+# ── Edit Command layer ─────────────────────────────────────────────────────────
+
+
+class EditCommandKind(str, Enum):
+    set_caption_style = "set_caption_style"
+    set_background_music = "set_background_music"
+    add_text_overlay = "add_text_overlay"
+    update_selected_text = "update_selected_text"
+    move_selected_element = "move_selected_element"
+    replace_selected_media = "replace_selected_media"
+    insert_media_asset = "insert_media_asset"
+    trim_selected_element = "trim_selected_element"
+    delete_selected_element = "delete_selected_element"
+    add_hook_title = "add_hook_title"
+
+
+class EditCommand(BaseModel):
+    """One normalized editor command from the copilot."""
+    kind: EditCommandKind
+    args: dict = Field(default_factory=dict)
+    element_id: str | None = None
+    track_id: str | None = None
+
+
+class EditProposal(BaseModel):
+    """A set of proposed edits awaiting user confirmation."""
+    proposal_id: str = Field(default_factory=lambda: uuid4().hex[:16])
+    summary: str
+    commands: list[EditCommand]
+    confirmation_required: bool = True
+    created_at: str | None = None
+
+
+class AgentDecisionFrame(BaseModel):
+    """Client-to-server WebSocket control frame for voice proposal confirmation."""
+    type: str = "agent_decision"
+    decision: str  # "confirm" | "reject"
+    proposal_id: str | None = None
+    commands: list[EditCommand] = Field(default_factory=list)
