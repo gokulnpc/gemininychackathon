@@ -14,6 +14,7 @@ import { PlaybackDebugBridge } from "@/components/editor/playback-debug-bridge";
 import type { EditorBridgeHandle, Project } from "@/components/editor/types";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
+import { useAuth } from "@/context/AuthContext";
 import { useEditorAgent } from "@/hooks/use-editor-agent";
 import { useEditorProjectSession } from "@/hooks/use-editor-project-session";
 import { useVoiceEditSession } from "@/hooks/use-voice-edit-session";
@@ -31,6 +32,7 @@ export default function EditorPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [agentPanelOpen, setAgentPanelOpen] = useState(true);
+  const { user, loading: authLoading } = useAuth();
 
   const agentBottomRef = useRef<HTMLDivElement>(null);
   const editorBridgeRef = useRef<EditorBridgeHandle | null>(null);
@@ -151,6 +153,11 @@ export default function EditorPage() {
   }, [agentMessages]);
 
   const fetchProject = useCallback(async () => {
+    if (authLoading) return;
+    if (!user) {
+      setLoadError("Not logged in");
+      return;
+    }
     try {
       const response = await apiClient.get(`/api/v1/projects/${projectId}`);
       const data = response.data as Project;
@@ -164,7 +171,7 @@ export default function EditorPage() {
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to load project");
     }
-  }, [applyEditorSession, projectId]);
+  }, [applyEditorSession, projectId, authLoading, user]);
 
   useEffect(() => {
     void fetchProject();

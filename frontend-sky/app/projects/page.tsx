@@ -277,6 +277,7 @@ function ProjectCard({
 function ProjectsContent() {
   const { isCollapsed } = useSidebar();
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
 
   const [tab, setTab] = useState<"active" | "archive">("active");
   const [search, setSearch] = useState("");
@@ -296,6 +297,7 @@ function ProjectsContent() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchProjects = useCallback(async () => {
+    if (authLoading || !user) return;
     try {
       const res = await apiClient.get("/api/v1/projects");
       setProjects(res.data.projects ?? []);
@@ -305,10 +307,10 @@ function ProjectsContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authLoading, user]);
 
   useEffect(() => {
-    fetchProjects();
+    void fetchProjects();
   }, [fetchProjects]);
 
   useEffect(() => {
