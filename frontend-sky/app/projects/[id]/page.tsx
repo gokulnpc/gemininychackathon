@@ -54,6 +54,18 @@ interface Project {
   failure_stage?: string;
   failed_at?: string;
   script_attempt_count?: number;
+  editor_export?: {
+    export_id?: string | null;
+    status?: string;
+    current_stage?: string | null;
+    progress_pct?: number | null;
+    queued_at?: string | null;
+    started_at?: string | null;
+    completed_at?: string | null;
+    download_url?: string | null;
+    thumbnail_url?: string | null;
+    error?: string | null;
+  } | null;
 }
 
 const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
@@ -191,6 +203,9 @@ function ScriptReadyPanel({
 function CompletedPanel({ project }: { project: Project }) {
   const platforms = Object.keys(project.video_urls ?? {});
   const { idToken } = useAuth();
+  const editorExport = project.editor_export;
+  const hasEditedExport =
+    editorExport?.status === "completed" && !!editorExport.download_url;
 
   return (
     <div className="flex flex-col gap-6">
@@ -232,6 +247,43 @@ function CompletedPanel({ project }: { project: Project }) {
               <Download className="w-4 h-4 text-white/40 group-hover:text-[#5a9ab5] transition-colors" />
             </a>
           ))}
+        </div>
+      )}
+
+      {hasEditedExport && (
+        <div className="flex flex-col gap-3 rounded-xl border border-[#5a9ab5]/25 bg-[#5a9ab5]/10 p-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium uppercase tracking-wider text-[#9fd0e2]">
+              Edited Export
+            </label>
+            <p className="text-sm text-white/70">
+              This is your separately rendered edited version. Your original generated video is still available above.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={editorExport.download_url ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-full bg-[#5a9ab5] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#7ab0c8]"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download Edited Export
+            </a>
+            <a
+              href={editorExport.download_url ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              Open Edited Export
+            </a>
+          </div>
+          {editorExport.completed_at && (
+            <p className="text-xs text-white/45">
+              Exported {timeAgo(editorExport.completed_at)}
+            </p>
+          )}
         </div>
       )}
     </div>

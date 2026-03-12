@@ -56,6 +56,18 @@ interface Project {
   platforms: string[];
   video_urls: Record<string, string>;
   error: string | null;
+  editor_export?: {
+    export_id?: string | null;
+    status?: string;
+    current_stage?: string | null;
+    progress_pct?: number | null;
+    queued_at?: string | null;
+    started_at?: string | null;
+    completed_at?: string | null;
+    download_url?: string | null;
+    thumbnail_url?: string | null;
+    error?: string | null;
+  } | null;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

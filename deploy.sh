@@ -34,6 +34,8 @@ RENDER_IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/render:$SHORT_SHA"
 TASKS_QUEUE="video-generation"
 WORKER_SA="storylab-sa@$PROJECT_ID.iam.gserviceaccount.com"
 FRONTEND_PUBLIC_BASE_URL="${FRONTEND_PUBLIC_BASE_URL:-}"
+RENDER_CANARY_DEPLOY="${RENDER_CANARY_DEPLOY:-true}"
+RENDER_CANARY_TAG="${RENDER_CANARY_TAG:-canary}"
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "ERROR: GOOGLE_CLOUD_PROJECT is not set and gcloud default project is not configured."
@@ -155,26 +157,126 @@ deploy_worker_service() {
     --no-cpu-throttling
 }
 
+wait_for_render_revision_ready() {
+  local revision_name="$1"
+  local max_checks=60
+  local check=1
+
+  echo "▶ Waiting for $RENDER_SERVICE revision $revision_name to become ready..."
+
+  while (( check <= max_checks )); do
+    local ready_status
+    local ready_reason
+    local ready_message
+
+    ready_status="$(gcloud run revisions describe "$revision_name" \
+      --region="$REGION" \
+      --project="$PROJECT_ID" \
+      --format='value(status.conditions[0].status)' 2>/dev/null || true)"
+    ready_reason="$(gcloud run revisions describe "$revision_name" \
+      --region="$REGION" \
+      --project="$PROJECT_ID" \
+      --format='value(status.conditions[0].reason)' 2>/dev/null || true)"
+    ready_message="$(gcloud run revisions describe "$revision_name" \
+      --region="$REGION" \
+      --project="$PROJECT_ID" \
+      --format='value(status.conditions[0].message)' 2>/dev/null || true)"
+
+    if [[ "$ready_status" == "True" ]]; then
+      echo "  ✓ $revision_name is ready"
+      return 0
+    fi
+
+    if [[ "$ready_status" == "False" ]]; then
+      echo "ERROR: $revision_name failed readiness ($ready_reason)"
+      echo "$ready_message"
+      return 1
+    fi
+
+    sleep 5
+    ((check++))
+  done
+
+  echo "ERROR: Timed out waiting for $revision_name to become ready."
+  return 1
+}
+
+verify_render_startup_log() {
+  local revision_name="$1"
+
+  echo "▶ Verifying startup telemetry for revision $revision_name..."
+
+  local startup_log
+  startup_log="$(gcloud logging read \
+    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$RENDER_SERVICE\" AND resource.labels.revision_name=\"$revision_name\" AND logName=\"projects/$PROJECT_ID/logs/run.googleapis.com%2Fstdout\" AND textPayload:\"[RenderWorkerServer] listening\"" \
+    --project="$PROJECT_ID" \
+    --limit=1 \
+    --format='value(textPayload)' 2>/dev/null || true)"
+
+  if [[ -z "$startup_log" ]]; then
+    echo "ERROR: Missing startup telemetry log for $revision_name."
+    echo "Check logs: https://console.cloud.google.com/logs/viewer?project=$PROJECT_ID&resource=cloud_run_revision/service_name/$RENDER_SERVICE/revision_name/$revision_name"
+    return 1
+  fi
+
+  echo "  ✓ Startup telemetry detected for $revision_name"
+}
+
+deploy_render_service() {
+  echo "▶ Deploying $RENDER_SERVICE to Cloud Run..."
+
+  local deploy_args=(
+    run deploy "$RENDER_SERVICE"
+    --image="$RENDER_IMAGE"
+    --region="$REGION"
+    --project="$PROJECT_ID"
+    --platform=managed
+    --no-allow-unauthenticated
+    --ingress=all
+    --memory=12Gi
+    --cpu=4
+    --timeout=900s
+    --concurrency=1
+    --min-instances=0
+    --max-instances=2
+    --service-account="$WORKER_SA"
+    --set-env-vars="NODE_ENV=production,NODE_OPTIONS=--max-old-space-size=6144,PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium,FFMPEG_PATH=/usr/bin/ffmpeg,FFPROBE_PATH=/usr/bin/ffprobe"
+    --no-cpu-throttling
+  )
+
+  if [[ "$RENDER_CANARY_DEPLOY" == "true" ]]; then
+    deploy_args+=(--no-traffic --tag="$RENDER_CANARY_TAG")
+  fi
+
+  gcloud "${deploy_args[@]}"
+
+  local created_revision
+  created_revision="$(gcloud run services describe "$RENDER_SERVICE" \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --format='value(status.latestCreatedRevisionName)')"
+
+  if [[ -z "$created_revision" ]]; then
+    echo "ERROR: Could not determine latest created revision for $RENDER_SERVICE."
+    return 1
+  fi
+
+  if [[ "$RENDER_CANARY_DEPLOY" == "true" ]]; then
+    wait_for_render_revision_ready "$created_revision"
+    verify_render_startup_log "$created_revision"
+    echo "▶ Promoting $created_revision to 100% traffic..."
+    gcloud run services update-traffic "$RENDER_SERVICE" \
+      --region="$REGION" \
+      --project="$PROJECT_ID" \
+      --to-revisions="$created_revision=100" >/dev/null
+    echo "  ✓ Promoted $created_revision"
+  fi
+}
+
 # ── Deploy render service first ───────────────────────────────────────────────
 # This service stays private by IAM/OIDC, but must use ingress=all so Cloud Run
 # service-to-service requests over the run.app hostname can reach it.
-echo "▶ Deploying $RENDER_SERVICE to Cloud Run..."
-gcloud run deploy "$RENDER_SERVICE" \
-  --image="$RENDER_IMAGE" \
-  --region="$REGION" \
-  --project="$PROJECT_ID" \
-  --platform=managed \
-  --no-allow-unauthenticated \
-  --ingress=all \
-  --memory=12Gi \
-  --cpu=4 \
-  --timeout=900s \
-  --concurrency=1 \
-  --min-instances=0 \
-  --max-instances=2 \
-  --service-account="$WORKER_SA" \
-  --set-env-vars="NODE_ENV=production,NODE_OPTIONS=--max-old-space-size=6144,PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium,FFMPEG_PATH=/usr/bin/ffmpeg,FFPROBE_PATH=/usr/bin/ffprobe" \
-  --no-cpu-throttling
+deploy_render_service
 
 RENDER_URL="$(cloud_run_primary_url "$RENDER_SERVICE")"
 
