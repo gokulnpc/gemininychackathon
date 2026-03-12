@@ -33,6 +33,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from config import get_settings
 from models.schemas import GenerateVideoRequest
 from services.infra.editor_export import (
+    append_editor_export_history,
     build_editor_export_state,
     render_timeline_to_file,
     upload_rendered_export,
@@ -351,6 +352,13 @@ async def _run_editor_export(project_id: UUID, export_id: str) -> None:
                 completed_at=completed_at,
                 download_url=download_url,
                 error=None,
+            ),
+            "editor_export_history": append_editor_export_history(
+                final_doc.get("editor_export_history"),
+                export_id=export_id,
+                completed_at=completed_at,
+                download_url=download_url,
+                thumbnail_url=final_export.get("thumbnail_url"),
             ),
         })
     except Exception as exc:
