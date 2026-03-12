@@ -196,8 +196,20 @@ export function useVoiceEditSession({
               }
               return [...prev, { id: userMessageId, role: "user", text: data.text ?? "" }];
             });
-          } else if (data.type === "creative_block" || data.type === "tool_event") {
-            const tool = data.name ?? data.block?.type ?? "creative_block";
+          } else if (data.type === "creative_block" && data.block) {
+            setAgentMessages((prev) =>
+              prev.map((message) =>
+                message.id === voiceMsgId
+                  ? {
+                      ...message,
+                      creativeBlocks: [...(message.creativeBlocks ?? []), data.block as import("@/components/editor/types").CreativeBlock],
+                      actions: [...(message.actions ?? []), "generate_style_preview"],
+                    }
+                  : message,
+              ),
+            );
+          } else if (data.type === "tool_event") {
+            const tool = data.name ?? "tool_event";
             setAgentMessages((prev) =>
               prev.map((message) =>
                 message.id === voiceMsgId

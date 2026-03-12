@@ -44,10 +44,35 @@ function findPackageRoot(startPath, packageName) {
   return null;
 }
 
+function getPackagePathParts(packageName) {
+  return packageName.startsWith("@") ? packageName.split("/") : [packageName];
+}
+
+function findInstalledPackageRoot(packageName) {
+  const searchPaths = workerRequire.resolve.paths(packageName) ?? [];
+  const packagePathParts = getPackagePathParts(packageName);
+
+  for (const searchPath of searchPaths) {
+    const packageRoot = path.join(searchPath, ...packagePathParts);
+    const packageJsonPath = path.join(packageRoot, "package.json");
+    if (pathExists(packageJsonPath)) {
+      return packageRoot;
+    }
+  }
+
+  return null;
+}
+
 function resolvePackageRoot(packageName) {
   const cachedRoot = packageRootCache.get(packageName);
   if (cachedRoot) {
     return cachedRoot;
+  }
+
+  const installedPackageRoot = findInstalledPackageRoot(packageName);
+  if (installedPackageRoot) {
+    packageRootCache.set(packageName, installedPackageRoot);
+    return installedPackageRoot;
   }
 
   try {

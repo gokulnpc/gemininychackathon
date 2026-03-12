@@ -128,6 +128,12 @@ export interface EditProposal {
   state: "pending" | "confirmed" | "rejected";
 }
 
+export interface CreativeBlock {
+  type: "image" | "text";
+  content: string;          // base64 for images, plain text for text blocks
+  mime_type?: string;
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "agent";
@@ -136,6 +142,7 @@ export interface AgentMessage {
   isThinking?: boolean;
   isError?: boolean;
   proposal?: EditProposal;
+  creativeBlocks?: CreativeBlock[];
 }
 
 export interface Asset {

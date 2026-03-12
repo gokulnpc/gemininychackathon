@@ -40,7 +40,10 @@ export function useEditorAgent({
   const [agentLoading, setAgentLoading] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<ProjectJSON | null>(null);
 
-  const sendAgentInstruction = useCallback(async (instruction: string) => {
+  const sendAgentInstruction = useCallback(async (
+    instruction: string,
+    screenshotCtx?: { image_b64: string; mime_type: string; width: number; height: number }
+  ) => {
     if (!instruction.trim() || agentLoading) return;
 
     const userMsg: AgentMessage = { id: Date.now().toString(), role: "user", text: instruction };
@@ -67,6 +70,7 @@ export function useEditorAgent({
               focused_asset_id: focusedAssetRef.current.id,
               focused_asset_category: focusedAssetRef.current.category,
             } : {}),
+            ...(screenshotCtx ? { screenshot: screenshotCtx } : {}),
           },
           mode: "plan",
         }),
@@ -98,6 +102,14 @@ export function useEditorAgent({
               actions.push(event.tool);
             } else if (event.type === "tool_event" && event.name) {
               actions.push(event.name);
+            } else if (event.type === "creative_block" && event.block) {
+              setAgentMessages((prev) =>
+                prev.map((message) =>
+                  message.id === thinkingId
+                    ? { ...message, creativeBlocks: [...(message.creativeBlocks ?? []), event.block as import("@/components/editor/types").CreativeBlock] }
+                    : message,
+                ),
+              );
             } else if (event.type === "proposal" && event.proposal) {
               const proposal: EditProposal = { ...event.proposal as EditProposal, state: "pending" };
               agentText = proposal.summary;

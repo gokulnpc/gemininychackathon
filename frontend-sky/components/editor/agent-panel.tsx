@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 import { Loader2, Mic, MicOff, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentMessage, EditProposal } from "@/components/editor/types";
+import type { AgentMessage, CreativeBlock, EditProposal } from "@/components/editor/types";
 
 interface AgentPanelProps {
   agentPanelOpen: boolean;
@@ -63,7 +63,7 @@ export function AgentPanel({
           </div>
           <div>
             <p className="text-sm font-semibold text-editor-text">AI Copilot</p>
-            <p className="text-xs text-editor-text-muted">Timeline-first live editing</p>
+            <p className="text-xs text-editor-text-muted">Live edits · Creative preview · Screen analysis</p>
           </div>
         </div>
         <button
@@ -114,6 +114,26 @@ export function AgentPanel({
                 </div>
               ) : (
                 msg.text || <span className="italic text-muted-foreground">Processing...</span>
+              )}
+              {msg.creativeBlocks && msg.creativeBlocks.length > 0 && (
+                <div className="mt-2 flex flex-col gap-2">
+                  {msg.creativeBlocks.filter((b: CreativeBlock) => b.type === "image").map((block: CreativeBlock, i: number) => (
+                    <div key={i} className="group relative overflow-hidden rounded-lg border border-editor-border">
+                      <img
+                        src={`data:${block.mime_type ?? "image/png"};base64,${block.content}`}
+                        alt={`Preview ${i + 1}`}
+                        className="w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => sendAgentInstruction(`Apply the style from preview ${i + 1}`)}
+                        className="absolute inset-x-0 bottom-0 bg-black/70 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        Use this style →
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
             {msg.actions && msg.actions.length > 0 && !msg.proposal && (
@@ -190,7 +210,7 @@ export function AgentPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-t border-editor-border px-3 py-2">
-        {["Add B-rolls", "Add Zooms", "Change Theme", "Add Music"].map((action) => (
+        {["Show me horror looks", "Change caption style", "Add hook title", "Change music mood"].map((action) => (
           <button
             key={action}
             type="button"

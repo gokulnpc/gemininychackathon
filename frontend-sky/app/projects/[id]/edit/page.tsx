@@ -40,6 +40,21 @@ export default function EditorPage() {
   const isVoiceActiveRef = useRef(false);
   const focusedAssetRef = useRef<{ id: string; category: string } | null>(null);
 
+  const captureEditorScreenshot = useCallback((): { image_b64: string; mime_type: string; width: number; height: number } | null => {
+    const root = editorRootRef.current;
+    if (!root) return null;
+    const canvas = root.querySelector("canvas") as HTMLCanvasElement | null;
+    if (!canvas) return null;
+    try {
+      const dataUrl = canvas.toDataURL("image/png");
+      const b64 = dataUrl.split(",")[1];
+      if (!b64) return null;
+      return { image_b64: b64, mime_type: "image/png", width: canvas.width, height: canvas.height };
+    } catch {
+      return null;
+    }
+  }, []);
+
   const handleCanonicalProjectChange = useCallback((canonical: ProjectJSON) => {
     setProject((previous) => (previous ? { ...previous, project_json: canonical } : previous));
   }, []);
@@ -120,6 +135,16 @@ export default function EditorPage() {
     setAgentMessages,
     focusedAssetRef,
   });
+
+  const INSPECT_KEYWORDS = /\b(what('s| is) wrong|look at|analyze|inspect|critique|feedback on|what do you (see|think)|how does this (look|feel)|what's weak|what is weak)\b/i;
+
+  const sendAgentInstructionWithScreenshot = useCallback((instruction: string) => {
+    let screenshotCtx: { image_b64: string; mime_type: string; width: number; height: number } | undefined;
+    if (INSPECT_KEYWORDS.test(instruction)) {
+      screenshotCtx = captureEditorScreenshot() ?? undefined;
+    }
+    void sendAgentInstruction(instruction, screenshotCtx);
+  }, [captureEditorScreenshot, sendAgentInstruction]);
 
   useEffect(() => {
     agentBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -239,7 +264,7 @@ export default function EditorPage() {
                   agentBottomRef={agentBottomRef}
                   setAgentPanelOpen={setAgentPanelOpen}
                   setAgentInput={setAgentInput}
-                  sendAgentInstruction={sendAgentInstruction}
+                  sendAgentInstruction={sendAgentInstructionWithScreenshot}
                   startVoiceEdit={voiceSession.startVoiceEdit}
                   onProjectJsonChange={syncProjectJson}
                   serializeProjectJson={(json) => serializeProjectJson(json) ?? json}

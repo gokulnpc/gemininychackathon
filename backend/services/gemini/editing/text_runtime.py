@@ -85,6 +85,23 @@ async def run_edit_text_agent(
     user_id = "user"
     session_id = str(uuid4())
 
+    creative_blocks_buffer: list[dict] = []
+
+    def generate_style_preview(
+        brief: str,
+        art_style: str | None = None,
+        tool_context: ToolContext = None,
+    ) -> dict:
+        """Generate ONE fast preview image showing a style/concept.
+        Use when the user wants to SEE options before committing to changes.
+        art_style options: realism | ghibli | comic | polaroid | disney | painting | creepy_comic
+        """
+        from .preview import _invoke_quick_preview, _quick_preview_prompt
+        prompt = _quick_preview_prompt(brief, art_style)
+        blocks = _invoke_quick_preview(prompt)
+        creative_blocks_buffer.extend(blocks)
+        return {"status": "completed", "total_images": len(blocks)}
+
     def get_project_info(tool_context: ToolContext) -> dict:  # noqa: F841
         """Get current caption style, music, and hook for this video."""
         data = tool_context.state.get("project_data", {})
@@ -235,11 +252,20 @@ async def run_edit_text_agent(
         name="video_edit_agent",
         model=_TEXT_MODEL,
         instruction=system,
-        tools=[get_project_info, get_editor_context, get_user_assets, draft_edit_command, queue_edit],
+        tools=[get_project_info, get_editor_context, get_user_assets, draft_edit_command, queue_edit, generate_style_preview],
     )
 
     runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
-    message = genai_types.Content(role="user", parts=[genai_types.Part(text=instruction)])
+
+    instruction_parts: list[genai_types.Part] = [genai_types.Part.from_text(instruction)]
+    screenshot = (editor_context or {}).get("screenshot") or {}
+    image_b64 = screenshot.get("image_b64")
+    if image_b64:
+        import base64
+        image_bytes = base64.b64decode(image_b64)
+        mime = screenshot.get("mime_type", "image/png")
+        instruction_parts.append(genai_types.Part.from_bytes(data=image_bytes, mime_type=mime))
+    new_message = genai_types.Content(role="user", parts=instruction_parts)
 
     labels: dict[str, str] = {
         "get_project_info": "Checking your current video settings...",
@@ -247,6 +273,7 @@ async def run_edit_text_agent(
         "get_user_assets": "Looking up your media assets...",
         "draft_edit_command": "Drafting edit command...",
         "queue_edit": "Queuing timeline edit...",
+        "generate_style_preview": "Generating style preview...",
     }
 
     logger.info("ADK edit agent starting: project=%s instruction=%.60s", project_id, instruction)
@@ -255,8 +282,13 @@ async def run_edit_text_agent(
         async for event in runner.run_async(
             user_id=user_id,
             session_id=session_id,
-            new_message=message,
+            new_message=new_message,
         ):
+            # Flush creative blocks from generate_style_preview
+            while creative_blocks_buffer:
+                block = creative_blocks_buffer.pop(0)
+                yield {"type": "creative_block", "block": block, "block_index": 0, "total_blocks": 1}
+
             if not event.content or not event.content.parts:
                 continue
             for part in event.content.parts:

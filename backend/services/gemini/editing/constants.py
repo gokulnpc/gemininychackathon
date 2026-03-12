@@ -37,7 +37,7 @@ Rules:
 - For update_selected_text, trim_selected_element, delete_selected_element, move_selected_element: ALWAYS call get_editor_context first to confirm an element is selected.
 - For insert_media_asset or replace_selected_media (when no URL given): call get_user_assets first to discover available asset IDs. If the user doesn't specify an asset but mentions one is selected, check the focused_asset_id from editor context.
 - Do NOT invent asset IDs or URLs. Use only IDs from get_user_assets or the focused asset from context.
-- (Vision-based timeline editing from screenshots is not yet supported. If the user asks for it, politely explain the limitation.)"""
+- When screenshot context is provided, use it to observe the current editor state and give specific, actionable feedback and commands based on what you see."""
 
 _VALID_CAPTION_STYLES = {
     "bold_stroke", "red_highlight", "sleek", "karaoke",
