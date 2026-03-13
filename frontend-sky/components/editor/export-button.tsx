@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorExport } from "@/hooks/use-editor-export";
@@ -18,7 +18,10 @@ interface ExportButtonProps {
 export function ExportButton({ projectId, serializeProjectJson, initialExport }: ExportButtonProps) {
   const editorExport = useEditorExport(projectId, initialExport);
   const { editor } = useTimelineContext();
-  const lastQueuedSignatureRef = useRef<string | null>(null);
+  const pendingQueuedSignatureRef = useRef<string | null>(null);
+  const previousExportStateRef = useRef(editorExport.state);
+  const [currentSignature, setCurrentSignature] = useState<string | null>(null);
+  const [lastCompletedSignature, setLastCompletedSignature] = useState<string | null>(null);
 
   const getCanonicalProjectJson = useCallback(() => {
     const currentJson = editor.getProject();
@@ -26,25 +29,72 @@ export function ExportButton({ projectId, serializeProjectJson, initialExport }:
   }, [editor, serializeProjectJson]);
 
   useEffect(() => {
-    if (initialExport?.status !== "completed") {
-      return;
+    const updateSignature = () => {
+      try {
+        setCurrentSignature(JSON.stringify(getCanonicalProjectJson()));
+      } catch {
+        setCurrentSignature(null);
+      }
+    };
+
+    updateSignature();
+
+    editor.on("element:added", updateSignature);
+    editor.on("element:removed", updateSignature);
+    editor.on("element:updated", updateSignature);
+    editor.on("elements:removed", updateSignature);
+    editor.on("track:added", updateSignature);
+    editor.on("track:removed", updateSignature);
+    editor.on("track:reordered", updateSignature);
+
+    return () => {
+      editor.off("element:added", updateSignature);
+      editor.off("element:removed", updateSignature);
+      editor.off("element:updated", updateSignature);
+      editor.off("elements:removed", updateSignature);
+      editor.off("track:added", updateSignature);
+      editor.off("track:removed", updateSignature);
+      editor.off("track:reordered", updateSignature);
+    };
+  }, [editor, getCanonicalProjectJson]);
+
+  useEffect(() => {
+    if (initialExport?.status === "completed" && currentSignature && !lastCompletedSignature) {
+      setLastCompletedSignature(currentSignature);
+    }
+  }, [currentSignature, initialExport?.status, lastCompletedSignature]);
+
+  useEffect(() => {
+    const previousState = previousExportStateRef.current;
+
+    if (
+      editorExport.state === "completed" &&
+      previousState !== "completed" &&
+      pendingQueuedSignatureRef.current
+    ) {
+      setLastCompletedSignature(pendingQueuedSignatureRef.current);
+      pendingQueuedSignatureRef.current = null;
     }
 
-    try {
-      lastQueuedSignatureRef.current = JSON.stringify(getCanonicalProjectJson());
-    } catch {
-      lastQueuedSignatureRef.current = null;
+    if (editorExport.state === "failed" && previousState !== "failed") {
+      pendingQueuedSignatureRef.current = null;
     }
-  }, [getCanonicalProjectJson, initialExport?.export_id, initialExport?.status]);
+
+    previousExportStateRef.current = editorExport.state;
+  }, [editorExport.state]);
+
+  const isFreshCompletedExport =
+    editorExport.state === "completed" &&
+    !!editorExport.downloadUrl &&
+    !!currentSignature &&
+    currentSignature === lastCompletedSignature;
 
   const handleExport = useCallback(async () => {
     const exportJson = getCanonicalProjectJson();
     const exportSignature = JSON.stringify(exportJson);
 
     if (
-      editorExport.state === "completed" &&
-      editorExport.downloadUrl &&
-      lastQueuedSignatureRef.current === exportSignature
+      isFreshCompletedExport
     ) {
       editorExport.download();
       return;
@@ -60,17 +110,17 @@ export function ExportButton({ projectId, serializeProjectJson, initialExport }:
         error: null,
       });
       await editorExport.queueExport();
-      lastQueuedSignatureRef.current = exportSignature;
+      pendingQueuedSignatureRef.current = exportSignature;
     } catch (err) {
       console.error("[ExportButton] Export failed:", err);
       const message = err instanceof Error ? err.message : "Failed to queue export";
       editorExport.setLocalError(message);
     }
-  }, [editorExport, getCanonicalProjectJson, projectId]);
+  }, [editorExport, getCanonicalProjectJson, isFreshCompletedExport, projectId]);
 
   const buttonLabel = editorExport.isExporting
     ? editorExport.currentStage || `${Math.round(editorExport.progress * 100)}%`
-    : editorExport.state === "completed"
+    : isFreshCompletedExport
       ? "Download"
       : editorExport.state === "failed"
         ? "Retry Export"
@@ -105,7 +155,7 @@ export function ExportButton({ projectId, serializeProjectJson, initialExport }:
         title={editorExport.errorMessage ?? undefined}
         className={cn(
           "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-          editorExport.state === "completed"
+          isFreshCompletedExport
             ? "bg-accent text-accent-foreground"
             : editorExport.state === "failed"
               ? "bg-destructive/15 text-destructive"

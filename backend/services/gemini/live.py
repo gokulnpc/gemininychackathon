@@ -30,6 +30,7 @@ _TRANSCRIPTION_SYSTEM = (
 
 _LIVE_CONFIG = {
     "response_modalities": ["AUDIO"],
+    "input_audio_transcription": {},
     "output_audio_transcription": {},
     "system_instruction": {"parts": [{"text": _TRANSCRIPTION_SYSTEM}]}
 }
@@ -81,13 +82,20 @@ async def transcribe_live(
         # ── Collect transcript as text chunks arrive ───────────────────────
         async for response in session.receive():
             
-            # Extract transcript text
+            # Extract transcript text (Agent/System output)
             server_content = getattr(response, "server_content", None)
             if server_content and server_content.output_transcription:
                 text = server_content.output_transcription.text
                 if text and text.strip():
-                    transcript_parts.append(text)
-                    await on_transcript_chunk(text)
+                    transcript_parts.append(text.strip())
+                    await on_transcript_chunk(" ".join(transcript_parts))
+            
+            # Extract user audio transcription (User input)
+            if server_content and server_content.input_transcription:
+                text = server_content.input_transcription.text
+                if text and text.strip():
+                    transcript_parts.append(text.strip())
+                    await on_transcript_chunk(" ".join(transcript_parts))
             
             # Check for turn completion
             turn_complete = getattr(server_content, "turn_complete", False) if server_content else False

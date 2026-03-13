@@ -318,7 +318,7 @@ export function Step1_Message() {
         const msg = JSON.parse(event.data);
         if (msg.type === "transcript_chunk") {
           setTranscribing(true); // just to show it's working
-          setTranscript((prev) => (prev ? prev + " " + msg.text : msg.text));
+          setTranscript(msg.text);
         } else if (msg.type === "complete") {
           setTranscript(msg.transcript);
           setTranscribing(false);
