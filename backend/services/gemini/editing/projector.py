@@ -466,6 +466,35 @@ async def _project_commands(
     return patched, applied, errors
 
 
+_CHANGE_LABELS: dict = {
+    "replace_selected_media_url": "replaced media",
+    "background_music": lambda v: f"music → {v}",
+    "hook_title": lambda v: f"hook title updated",
+    "text_overlay_added": "added text overlay",
+    "element_deleted": "deleted element",
+    "element_trimmed": "trimmed element",
+    "element_moved": "moved element",
+    "voiceover_volume": lambda v: f"voiceover volume → {v}",
+    "music_volume_set": lambda v: f"music volume → {v}",
+}
+_SKIP_CHANGE_KEYS = {"music_volume", "project_json", "editor_context", "requires_export"}
+
+
+def _friendly_change_summary(applied_changes: dict) -> str:
+    parts = []
+    for k, v in applied_changes.items():
+        if k in _SKIP_CHANGE_KEYS:
+            continue
+        label = _CHANGE_LABELS.get(k)
+        if label is None:
+            parts.append(k.replace("_", " "))
+        elif callable(label):
+            parts.append(label(v))
+        else:
+            parts.append(label)
+    return ", ".join(parts) if parts else "edits applied"
+
+
 async def _apply_live_edits(
     project_id: str,
     project_data: dict,
@@ -494,7 +523,7 @@ async def _apply_live_edits(
 
     await _fdb.save_project(project_id, updates)
 
-    change_summary = ", ".join(f"{k}={v}" for k, v in applied_changes.items() if k != "music_volume")
+    change_summary = _friendly_change_summary(applied_changes)
     return {
         "message": f"Done! Applied live edits: {change_summary}. Export when you're ready.",
         "changes": dict(applied_changes),

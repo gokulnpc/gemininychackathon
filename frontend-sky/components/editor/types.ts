@@ -102,6 +102,8 @@ export interface EditorProjectSession {
 export type EditCommandKind =
   | "set_caption_style"
   | "set_background_music"
+  | "set_music_volume"
+  | "set_voiceover_volume"
   | "add_text_overlay"
   | "update_selected_text"
   | "move_selected_element"
@@ -154,6 +156,8 @@ export interface AgentMessage {
   previewOptions?: CreativePreviewOption[];
   previewId?: string;
   isInspection?: boolean;
+  isLyriaGenerating?: boolean;
+  lyriaPreviewUrl?: string;
 }
 
 export interface Asset {

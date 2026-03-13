@@ -2,7 +2,7 @@
 
 import type { RefObject } from "react";
 import { useCallback, useRef, useState } from "react";
-import { Loader2, Mic, MicOff, Send, Sparkles, X } from "lucide-react";
+import { Loader2, Mic, MicOff, Pause, Play, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -47,8 +47,10 @@ const PUBLIC_IMAGES: ChipOption[] = [
 ];
 
 const LABEL_CHIPS: Record<string, ChipOption[]> = {
-  "Change music":        MUSIC_PRESETS.map((p) => ({ label: p.replace(/_/g, " "), instruction: p })),
-  "Add text overlay":    TEXT_POSITIONS.map((p) => ({ label: p, instruction: p })),
+  "Change music": MUSIC_PRESETS.map((p) => ({
+    label: p === "lyria" ? "lyria (AI ✨)" : p.replace(/_/g, " "),
+    instruction: p === "lyria" ? "Generate AI music using Lyria for this video" : p,
+  })),
   "Swap selected image": PUBLIC_IMAGES,
   "Adjust volume": [
     { label: "music louder",  instruction: "Turn up the background music volume" },
@@ -58,9 +60,50 @@ const LABEL_CHIPS: Record<string, ChipOption[]> = {
   ],
 };
 
-function detectOptionSet(text: string): { options: ChipOption[] } | null {
+interface DetectResult { options: ChipOption[]; volumeInput?: boolean }
+
+function detectOptionSet(text: string): DetectResult | null {
+  if (text.includes("I can:")) return null;
+  // Volume disambiguation: "a little" / "a lot" with custom input
+  if (text.toLowerCase().includes("a little") && text.toLowerCase().includes("a lot"))
+    return {
+      options: [
+        { label: "a little", instruction: "a little" },
+        { label: "a lot",    instruction: "a lot" },
+      ],
+      volumeInput: true,
+    };
+  // Detect "Which — background music or voiceover?" disambiguation
+  if (/background music or voiceover/i.test(text) || /music or voiceover/i.test(text)) {
+    return {
+      options: [
+        { label: "background music", instruction: "background music" },
+        { label: "voiceover", instruction: "voiceover" },
+      ],
+    };
+  }
+  // Music preset chips
   if (MUSIC_PRESETS.filter((p) => text.includes(p)).length >= 3)
-    return { options: MUSIC_PRESETS.map((p) => ({ label: p.replace(/_/g, " "), instruction: p })) };
+    return {
+      options: MUSIC_PRESETS.map((p) => ({
+        label: p === "lyria" ? "lyria (AI ✨)" : p.replace(/_/g, " "),
+        instruction: p === "lyria" ? "Generate AI music using Lyria for this video" : p,
+      })),
+    };
+  // Delete overlay disambiguation: parse quoted overlay names as chips
+  if (/which should I remove/i.test(text) || /found these text overlays/i.test(text)) {
+    const quoted = [...text.matchAll(/'([^']+)'/g)].map((m) => m[1]).filter(Boolean);
+    const unique = [...new Set(quoted)];
+    if (unique.length >= 1) {
+      const chips: ChipOption[] = unique.map((label) => ({
+        label,
+        instruction: `Remove the text overlay that says "${label}"`,
+      }));
+      chips.push({ label: "remove all", instruction: "Remove all text overlays" });
+      return { options: chips };
+    }
+  }
+  // Text position chips
   if (TEXT_POSITIONS.filter((p) => text.toLowerCase().includes(p)).length >= 2)
     return { options: TEXT_POSITIONS.map((p) => ({ label: p, instruction: p })) };
   return null;
@@ -70,17 +113,17 @@ const QUICK_ACTIONS = [
   {
     label: "Change music",
     instruction:
-      "Change the background music. Options: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria, none. Ask me which one.",
+      "Change the background music. Ask which preset: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria (AI-generated), none.",
   },
   {
     label: "Add text overlay",
     instruction:
-      "Add a text overlay to the video. Ask me what text to add and where to place it (top / middle / bottom).",
+      "Add a text overlay to the video. First ask me what text to display (a single question only). Only after I provide the text, ask where to place it (top / middle / bottom).",
   },
   {
     label: "Swap selected image",
     instruction:
-      "Swap or replace the currently selected image. Check my uploaded assets or ask me what image I want.",
+      "Swap the currently selected image with a public stock photo. Do NOT call get_user_assets — the user will @mention their own uploaded assets in the chat if they want to use them. Just ask which stock photo they want from the chips shown, or wait for them to @mention an asset.",
   },
   {
     label: "Adjust volume",
@@ -111,7 +154,77 @@ function renderAgentText(text: string): React.ReactNode {
 }
 
 function cleanTextForChips(text: string): string {
-  return text.replace(/[.?]?\s*Options:[\s\S]*$/i, "").trim() || text;
+  return (
+    text
+      .replace(/[.?]?\s*Options:[\s\S]*$/i, "")
+      .replace(/\s*Which should I remove.*$/i, "")
+      .replace(/\s*—\s*say ['"]a little['"].*$/i, "")
+      .trim() || text
+  );
+}
+
+function LyriaAudioPlayer({ src }: { src: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { void a.play(); setPlaying(true); }
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    a.currentTime = ratio * duration;
+  };
+
+  const fmt = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+  return (
+    <div className="mt-2 rounded-lg border border-editor-border bg-editor-surface p-2.5">
+      <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
+        AI Music Preview
+      </p>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio
+        ref={audioRef}
+        src={src}
+        onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+        onEnded={() => { setPlaying(false); setProgress(0); }}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary-foreground hover:bg-primary/35"
+        >
+          {playing
+            ? <Pause className="h-3.5 w-3.5" />
+            : <Play className="h-3.5 w-3.5" />}
+        </button>
+        <div
+          className="h-1.5 flex-1 cursor-pointer rounded-full bg-primary/20"
+          onClick={seek}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${duration ? (progress / duration) * 100 : 0}%` }}
+          />
+        </div>
+        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+          {fmt(progress)} / {fmt(duration)}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 interface AgentPanelProps {
@@ -149,6 +262,7 @@ export function AgentPanel({
 }: AgentPanelProps) {
   const [mentionState, setMentionState] = useState<MentionState | null>(null);
   const [pendingChipsLabel, setPendingChipsLabel] = useState<string | null>(null);
+  const [volumeDraft, setVolumeDraft] = useState("");
   const mentionedAssetsRef = useRef<Record<string, AssetMeta>>({});
   const assetCacheRef = useRef<AssetMeta[] | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -288,26 +402,59 @@ export function AgentPanel({
               {/* Option chips — shown when agent asks user to pick a preset/style/position */}
               {msg.role === "agent" && !msg.isThinking && !msg.proposal && (() => {
                 const isLastAgentMsg = msg === agentMessages.filter((m) => m.role === "agent").at(-1);
-                const chips: ChipOption[] | null =
-                  (isLastAgentMsg && pendingChipsLabel ? LABEL_CHIPS[pendingChipsLabel] ?? null : null)
-                  ?? (msg.text ? detectOptionSet(msg.text)?.options ?? null : null);
-                if (!chips) return null;
+                const detected: DetectResult | null =
+                  (isLastAgentMsg && pendingChipsLabel ? { options: LABEL_CHIPS[pendingChipsLabel] ?? [] } : null)
+                  ?? (msg.text ? detectOptionSet(msg.text) : null);
+                const chips = detected?.options ?? null;
+                if (!chips || chips.length === 0) return null;
                 return (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {chips.map((chip) => (
-                      <button
-                        key={chip.instruction}
-                        type="button"
-                        onClick={() => handleSend(chip.instruction)}
-                        disabled={agentLoading}
-                        className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-foreground/80 transition-colors hover:bg-primary/25 disabled:opacity-40"
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
+                  <div className="mt-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {chips.map((chip) => (
+                        <button
+                          key={chip.instruction}
+                          type="button"
+                          onClick={() => handleSend(chip.instruction, chip.label)}
+                          disabled={agentLoading}
+                          className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-foreground/80 transition-colors hover:bg-primary/25 disabled:opacity-40"
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
+                    </div>
+                    {detected?.volumeInput && (
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          placeholder="0.0 – 1.0"
+                          value={volumeDraft}
+                          onChange={(e) => setVolumeDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && volumeDraft) {
+                              handleSend(volumeDraft, volumeDraft);
+                              setVolumeDraft("");
+                            }
+                          }}
+                          className="w-full rounded-lg border border-editor-border bg-editor-surface px-2 py-1 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { if (volumeDraft) { handleSend(volumeDraft, volumeDraft); setVolumeDraft(""); } }}
+                          disabled={!volumeDraft || agentLoading}
+                          className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+                        >
+                          Set
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
+
+              {msg.lyriaPreviewUrl && <LyriaAudioPlayer src={msg.lyriaPreviewUrl} />}
 
               {msg.previewOptions && msg.previewOptions.length > 0 && (
                 <div className="mt-2">

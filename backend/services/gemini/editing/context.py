@@ -83,6 +83,7 @@ def _summarize_editor_context(
                 start = float(el.get("s", 0))
                 end = float(el.get("e", 0))
                 kind = el.get("type") or el.get("kind") or "unknown"
+                el_text = el.get("t") or (el.get("props") or {}).get("text") or ""
                 elements.append({
                     "element_id": el_id,
                     "track_id": track_id,
@@ -91,6 +92,7 @@ def _summarize_editor_context(
                     "start_seconds": round(start, 2),
                     "end_seconds": round(end, 2),
                     "distance_from_playhead": round(abs(start - playhead), 2),
+                    **({"text_content": el_text[:60]} if el_text else {}),
                 })
         elements.sort(key=lambda e: e["distance_from_playhead"])
         result["timeline_elements"] = elements[:10]
