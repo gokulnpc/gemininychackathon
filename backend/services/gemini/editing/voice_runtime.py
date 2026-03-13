@@ -89,33 +89,12 @@ def _build_voice_config(project_data: dict):
                 parameters=types.Schema(
                     type="object",
                     properties={
-                        "kind": types.Schema(type="string", description="set_caption_style | set_background_music | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
-                        "args": types.Schema(type="object", description="Command arguments as a JSON object."),
-                        "element_id": types.Schema(type="string", description="Target element ID, if applicable.", nullable=True),
-                        "track_id": types.Schema(type="string", description="Target track ID, if applicable.", nullable=True),
+                        "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
+                        "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}'),
+                        "element_id": types.Schema(type="string", description="Target element ID, if applicable."),
+                        "track_id": types.Schema(type="string", description="Target track ID, if applicable."),
                     },
                     required=["kind"],
-                ),
-            ),
-            types.FunctionDeclaration(
-                name="queue_edit",
-                description="Legacy queue edit tool. Use draft_edit_command instead.",
-                parameters=types.Schema(
-                    type="object",
-                    properties={
-                        "caption_style": types.Schema(type="string"),
-                        "background_music": types.Schema(type="string"),
-                        "music_volume": types.Schema(type="number"),
-                        "hook_title": types.Schema(type="string"),
-                        "hook_duration_seconds": types.Schema(type="number"),
-                        "move_selected_text_y_delta": types.Schema(type="number"),
-                        "replace_selected_media_url": types.Schema(type="string"),
-                        "add_text_overlay": types.Schema(type="object"),
-                        "update_selected_text": types.Schema(type="string"),
-                        "trim_selected_element": types.Schema(type="object"),
-                        "delete_selected_element": types.Schema(type="boolean"),
-                        "insert_media_asset": types.Schema(type="object"),
-                    },
                 ),
             ),
             types.FunctionDeclaration(
@@ -170,7 +149,14 @@ async def _dispatch_voice_tool(
         )
 
     if name == "draft_edit_command":
-        cmd = {"kind": args.get("kind"), "args": args.get("args", {})}
+        raw_args = args.get("args") or {}
+        if isinstance(raw_args, str):
+            import json as _json
+            try:
+                raw_args = _json.loads(raw_args)
+            except Exception:
+                raw_args = {}
+        cmd: dict = {"kind": args.get("kind"), "args": raw_args}
         if args.get("element_id"):
             cmd["element_id"] = args["element_id"]
         if args.get("track_id"):

@@ -142,6 +142,14 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
         if element:
             element.setdefault("props", {})["volume"] = changes["music_volume"]
 
+    if "voiceover_volume" in changes:
+        vo_volume = changes["voiceover_volume"]
+        for track in patched.get("tracks", []):
+            if track.get("name") == "Voiceover":
+                for elem in track.get("elements", []):
+                    elem.setdefault("props", {})["volume"] = vo_volume
+                break
+
     if "move_selected_text_y_delta" in changes:
         delta = float(changes["move_selected_text_y_delta"])
         for _, elem in _find_selected_elements(patched, editor_context):
@@ -319,6 +327,8 @@ async def _project_commands(
     kind_to_changes_key: dict[str, str | None] = {
         "set_caption_style": "caption_style",
         "set_background_music": None,
+        "set_music_volume": None,
+        "set_voiceover_volume": None,
         "add_text_overlay": "add_text_overlay",
         "update_selected_text": "update_selected_text",
         "move_selected_element": "move_selected_text_y_delta",
@@ -360,6 +370,20 @@ async def _project_commands(
                 changes["background_music"] = preset
             if volume is not None:
                 changes["music_volume"] = max(0.0, min(1.0, float(volume)))
+
+        elif kind == "set_music_volume":
+            volume = args.get("volume")
+            if volume is None:
+                errors.append("set_music_volume: 'volume' (0.0–1.0) is required")
+                continue
+            changes["music_volume"] = max(0.0, min(1.0, float(volume)))
+
+        elif kind == "set_voiceover_volume":
+            volume = args.get("volume")
+            if volume is None:
+                errors.append("set_voiceover_volume: 'volume' (0.0–1.0) is required")
+                continue
+            changes["voiceover_volume"] = max(0.0, min(1.0, float(volume)))
 
         elif kind == "add_hook_title":
             text = args.get("text") or args.get("hook_title", "")

@@ -40,20 +40,6 @@ export function AgentPanel({
 }: AgentPanelProps) {
   if (!agentPanelOpen) return null;
 
-  const confirmedActions = agentMessages
-    .filter((m) => m.proposal?.state === "confirmed")
-    .map((m) => m.proposal!.summary)
-    .slice(-6)
-    .reverse();
-
-  const recentActions = confirmedActions.length > 0
-    ? confirmedActions
-    : agentMessages
-        .flatMap((message) => message.actions ?? [])
-        .filter((action, index, actions) => actions.indexOf(action) === index)
-        .slice(-6)
-        .reverse();
-
   return (
     <div className="flex h-full w-[340px] flex-col border-l border-editor-border bg-editor-surface">
       <div className="flex items-center justify-between border-b border-editor-border px-4 py-3">
@@ -76,21 +62,6 @@ export function AgentPanel({
       </div>
 
       <div className="editor-scroll flex-1 space-y-3 overflow-y-auto p-3">
-        {recentActions.length > 0 && (
-          <div className="rounded-2xl border border-editor-border bg-editor-surface-raised p-3">
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-editor-text-dim">Applied Changes</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {recentActions.map((action) => (
-                <span
-                  key={action}
-                  className="rounded-full border border-primary/30 bg-primary/15 px-2 py-1 text-[11px] text-editor-text"
-                >
-                  {action}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
 
         {agentMessages.map((msg) => (
           <div
