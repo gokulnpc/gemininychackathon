@@ -465,7 +465,7 @@ export default function ProjectDetailPage() {
   const projectId = params.id as string;
   const router = useRouter();
   const { isCollapsed } = useSidebar();
-  const { idToken } = useAuth();
+  const { idToken, user, loading: authLoading } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -485,8 +485,9 @@ export default function ProjectDetailPage() {
   }, [projectId]);
 
   useEffect(() => {
-    fetchProject();
-  }, [fetchProject]);
+    if (authLoading || !user) return;
+    void fetchProject();
+  }, [fetchProject, authLoading, user]);
 
   useEffect(() => {
     if (!project) return;
