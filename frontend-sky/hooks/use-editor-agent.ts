@@ -160,6 +160,23 @@ export function useEditorAgent({
               if (event.project_json) {
                 applyLiveProjectJson(event.project_json as ProjectJSON, event.changes as Record<string, unknown> | undefined);
               }
+            } else if (event.type === "lyria_generating") {
+              agentText = "Generating your AI music...";
+              setAgentMessages((prev) =>
+                prev.map((m) =>
+                  m.id === thinkingId
+                    ? { ...m, isLyriaGenerating: true, text: agentText, isThinking: true }
+                    : m
+                )
+              );
+            } else if (event.type === "lyria_ready") {
+              setAgentMessages((prev) =>
+                prev.map((m) =>
+                  m.id === thinkingId
+                    ? { ...m, isLyriaGenerating: false, lyriaPreviewUrl: event.url as string }
+                    : m
+                )
+              );
             } else if (event.type === "error") {
               agentText = event.message ?? "Something went wrong.";
             }

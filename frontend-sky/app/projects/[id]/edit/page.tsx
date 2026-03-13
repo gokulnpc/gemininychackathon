@@ -273,6 +273,7 @@ export default function EditorPage() {
                   setAgentInput={setAgentInput}
                   sendAgentInstruction={sendAgentInstructionWithScreenshot}
                   startVoiceEdit={voiceSession.startVoiceEdit}
+                  stopVoiceEdit={voiceSession.stopVoiceEdit}
                   onProjectJsonChange={syncProjectJson}
                   serializeProjectJson={(json) => serializeProjectJson(json) ?? json}
                   exportPortalRef={exportPortalRef}

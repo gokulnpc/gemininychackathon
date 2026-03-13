@@ -80,6 +80,16 @@ def _get_tool_declarations():
             description="Apply all queued edits to the live timeline and save them. Call ONCE after drafting all commands.",
             parameters=types.Schema(type="object", properties={}),
         ),
+        types.FunctionDeclaration(
+            name="generate_lyria_music",
+            description=(
+                "Generate AI background music using Lyria for this video. "
+                "Call this when the user selects the 'lyria' music option or asks for AI-generated music. "
+                "Generates ~30s of unique AI music, saves it to the user's audio library, "
+                "and returns a preview URL. After this returns, draft set_background_music with preset='lyria' and call apply_live_edits."
+            ),
+            parameters=types.Schema(type="object", properties={}),
+        ),
     ]
     return _TOOL_DECLARATIONS
 
@@ -169,6 +179,7 @@ async def run_edit_text_agent(
         "draft_edit_command": "Drafting edit command...",
         "apply_live_edits": "Building proposal...",
         "generate_style_preview": "Generating style preview...",
+        "generate_lyria_music": "Generating AI music with Lyria...",
     }
 
     client = get_client()
@@ -236,6 +247,57 @@ async def run_edit_text_agent(
             for fc in function_calls:
                 args = dict(fc.args) if fc.args else {}
                 logger.info("Scout edit tool call: %s(%s)", fc.name, list(args.keys()))
+
+                # generate_lyria_music: generate AI music, save to user assets, yield preview
+                if fc.name == "generate_lyria_music":
+                    yield {"type": "agent_step", "tool": "generate_lyria_music", "message": "Generating AI music with Lyria..."}
+                    yield {"type": "lyria_generating"}
+                    lyria_result: dict = {"status": "error", "error": "Lyria not available"}
+                    try:
+                        import os as _os
+                        from datetime import datetime as _dt, timezone as _tz
+                        from uuid import uuid4 as _uuid4
+                        from config import get_settings as _get_settings
+                        from services.media import lyria as _lyria_svc
+                        from services.storage import gcs as _gcs
+                        from services.storage.assets import resolve_asset_url as _resolve_url
+
+                        _cfg = _get_settings()
+                        _wav_path = await _lyria_svc.generate_music(
+                            music_preset="lyria",
+                            project_id=_cfg.google_cloud_project,
+                            location=_cfg.vertex_ai_location,
+                        )
+                        _asset_id = str(_uuid4())
+                        _filename = f"lyria_{_asset_id[:8]}.wav"
+                        _gcs_key = f"user_assets/{uid}/music/{_asset_id}/{_filename}"
+                        await _gcs.upload_file(_wav_path, _gcs_key, "audio/wav")
+                        _os.unlink(_wav_path)
+
+                        _meta = {
+                            "id": _asset_id,
+                            "uid": uid,
+                            "filename": _filename,
+                            "content_type": "audio/wav",
+                            "uploaded_at": _dt.now(_tz.utc).isoformat(),
+                            "gcs_key": _gcs_key,
+                        }
+                        await _gcs.store_json(_meta, f"user_assets/{uid}/music/{_asset_id}/meta.json")
+
+                        _preview_url = await _resolve_url(uid, "music", _asset_id)
+                        lyria_result = {"status": "generated", "asset_id": _asset_id, "preview_url": _preview_url or ""}
+                        if _preview_url:
+                            yield {"type": "lyria_ready", "url": _preview_url, "asset_id": _asset_id}
+                    except Exception as _lyria_exc:
+                        logger.warning("generate_lyria_music failed: %s", _lyria_exc)
+                        lyria_result = {"status": "error", "error": str(_lyria_exc)}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": lyria_result},
+                        )
+                    ))
+                    continue
 
                 # Intercept apply_live_edits: build proposal without auto-applying
                 if fc.name == "apply_live_edits":
