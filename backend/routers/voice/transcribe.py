@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from services.gemini.live import transcribe_live
 from services.gemini.audio import transcribe_with_tone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["transcribe"])
 
@@ -80,26 +83,36 @@ async def transcribe_websocket(websocket: WebSocket):
             await audio_queue.put(None)
 
     async def on_transcript_chunk(text: str):
+        if websocket.client_state.value != 1:  # 1 is CONNECTED
+            return
         try:
             await websocket.send_json({"type": "transcript_chunk", "text": text})
-        except WebSocketDisconnect:
+        except Exception:
             pass
 
     try:
         receive_task = asyncio.create_task(_receive_loop())
+        
+        # We wrap the main logic to ensure cleanup even on failure
         final_result = await transcribe_live(
             audio_chunks=_audio_stream(),
             on_transcript_chunk=on_transcript_chunk,
         )
-        await receive_task
+        
+        # Stop receive loop if it's still waiting
+        if not receive_task.done():
+            receive_task.cancel()
+        
         await websocket.send_json({"type": "complete", **final_result})
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     except Exception as e:
-        try:
-            await websocket.send_json({"type": "error", "message": str(e)})
-        except WebSocketDisconnect:
-            pass
+        logger.exception("Transcription WebSocket failed")
+        if websocket.client_state.value == 1:
+            try:
+                await websocket.send_json({"type": "error", "message": str(e)})
+            except Exception:
+                pass
     finally:
         try:
             await websocket.close()

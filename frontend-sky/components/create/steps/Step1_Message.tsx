@@ -197,6 +197,9 @@ export function Step1_Message() {
         language: "en",
       }).then(r => r.data);
       setTranscript(data.transcript ?? null);
+      if (data.transcript) {
+        dispatch({ type: "SET_MESSAGE_TEXT", payload: data.transcript });
+      }
     } catch {
       // fallback strictly if it errors out
       setTranscript("Transcription failed or no speech detected.");
@@ -321,6 +324,9 @@ export function Step1_Message() {
           setTranscript(msg.text);
         } else if (msg.type === "complete") {
           setTranscript(msg.transcript);
+          if (msg.transcript) {
+            dispatch({ type: "SET_MESSAGE_TEXT", payload: msg.transcript });
+          }
           setTranscribing(false);
           setAudioReady(true);
         } else if (msg.type === "error") {
