@@ -27,26 +27,42 @@ interface MentionState {
   assets: AssetMeta[];
 }
 
+interface ChipOption { label: string; instruction: string }
+
 const MUSIC_PRESETS = [
   "happy_rhythm", "quiet_before_storm", "peaceful_vibes",
   "brilliant_symphony", "breathing_shadows", "lyria", "none",
 ];
-const CAPTION_STYLES = [
-  "bold_stroke", "red_highlight", "sleek", "karaoke",
-  "majestic", "beast", "elegant", "clarity",
-];
 const TEXT_POSITIONS = ["top", "middle", "bottom"];
 
-const LABEL_CHIPS: Record<string, string[]> = {
-  "Change music": MUSIC_PRESETS,
-  "Apply effect preset": CAPTION_STYLES,
-  "Add text overlay": TEXT_POSITIONS,
+const PUBLIC_IMAGES: ChipOption[] = [
+  { label: "Mountain Lake",      instruction: "Replace the selected image with Mountain Lake. Use this URL: https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=576&h=1024&fit=crop" },
+  { label: "City Skyline",       instruction: "Replace the selected image with City Skyline. Use this URL: https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=576&h=1024&fit=crop" },
+  { label: "Ocean Waves",        instruction: "Replace the selected image with Ocean Waves. Use this URL: https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=576&h=1024&fit=crop" },
+  { label: "Forest Path",        instruction: "Replace the selected image with Forest Path. Use this URL: https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=576&h=1024&fit=crop" },
+  { label: "Sunset Clouds",      instruction: "Replace the selected image with Sunset Clouds. Use this URL: https://images.unsplash.com/photo-1495616811223-4d98c6e9c869?w=576&h=1024&fit=crop" },
+  { label: "Neon Lights",        instruction: "Replace the selected image with Neon Lights. Use this URL: https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=576&h=1024&fit=crop" },
+  { label: "Desert Dunes",       instruction: "Replace the selected image with Desert Dunes. Use this URL: https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=576&h=1024&fit=crop" },
+  { label: "Abstract Gradient",  instruction: "Replace the selected image with Abstract Gradient. Use this URL: https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=576&h=1024&fit=crop" },
+];
+
+const LABEL_CHIPS: Record<string, ChipOption[]> = {
+  "Change music":        MUSIC_PRESETS.map((p) => ({ label: p.replace(/_/g, " "), instruction: p })),
+  "Add text overlay":    TEXT_POSITIONS.map((p) => ({ label: p, instruction: p })),
+  "Swap selected image": PUBLIC_IMAGES,
+  "Adjust volume": [
+    { label: "music louder",  instruction: "Turn up the background music volume" },
+    { label: "music quieter", instruction: "Turn down the background music volume" },
+    { label: "voice louder",  instruction: "Turn up the voiceover volume" },
+    { label: "voice quieter", instruction: "Turn down the voiceover volume" },
+  ],
 };
 
-function detectOptionSet(text: string): { options: string[] } | null {
-  if (MUSIC_PRESETS.filter((p) => text.includes(p)).length >= 3) return { options: MUSIC_PRESETS };
-  if (CAPTION_STYLES.filter((s) => text.includes(s)).length >= 3) return { options: CAPTION_STYLES };
-  if (TEXT_POSITIONS.filter((p) => text.toLowerCase().includes(p)).length >= 2) return { options: TEXT_POSITIONS };
+function detectOptionSet(text: string): { options: ChipOption[] } | null {
+  if (MUSIC_PRESETS.filter((p) => text.includes(p)).length >= 3)
+    return { options: MUSIC_PRESETS.map((p) => ({ label: p.replace(/_/g, " "), instruction: p })) };
+  if (TEXT_POSITIONS.filter((p) => text.toLowerCase().includes(p)).length >= 2)
+    return { options: TEXT_POSITIONS.map((p) => ({ label: p, instruction: p })) };
   return null;
 }
 
@@ -67,11 +83,36 @@ const QUICK_ACTIONS = [
       "Swap or replace the currently selected image. Check my uploaded assets or ask me what image I want.",
   },
   {
-    label: "Apply effect preset",
+    label: "Adjust volume",
     instruction:
-      "Apply a caption style or visual effect preset. Caption options: bold_stroke, red_highlight, sleek, karaoke, majestic, beast, elegant, clarity. Ask me which one.",
+      "Adjust the background music or voiceover volume. Ask me whether to adjust music or voiceover, and whether to make it louder or quieter.",
   },
 ] as const;
+
+function renderAgentText(text: string): React.ReactNode {
+  const parts = text.split("•").map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    const [intro, ...items] = parts;
+    return (
+      <>
+        {intro && <p className="mb-2 text-sm leading-relaxed">{intro}</p>}
+        <ul className="space-y-1">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-start gap-1.5 text-sm leading-relaxed">
+              <span className="mt-0.5 shrink-0 text-primary">•</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  }
+  return <span>{text}</span>;
+}
+
+function cleanTextForChips(text: string): string {
+  return text.replace(/[.?]?\s*Options:[\s\S]*$/i, "").trim() || text;
+}
 
 interface AgentPanelProps {
   agentPanelOpen: boolean;
@@ -234,32 +275,34 @@ export function AgentPanel({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>Thinking...</span>
                 </div>
-              ) : (
-                msg.text || (
-                  <span className="italic text-muted-foreground">
-                    Processing...
-                  </span>
-                )
+              ) : msg.text ? (() => {
+                const isLastAgentMsg = msg.role === "agent" && msg === agentMessages.filter((m) => m.role === "agent").at(-1);
+                const hasChips = (isLastAgentMsg && pendingChipsLabel && LABEL_CHIPS[pendingChipsLabel])
+                  || detectOptionSet(msg.text);
+                const displayText = hasChips ? cleanTextForChips(msg.text) : msg.text;
+                return renderAgentText(displayText);
+              })() : (
+                <span className="italic text-muted-foreground">Processing...</span>
               )}
 
               {/* Option chips — shown when agent asks user to pick a preset/style/position */}
               {msg.role === "agent" && !msg.isThinking && !msg.proposal && (() => {
                 const isLastAgentMsg = msg === agentMessages.filter((m) => m.role === "agent").at(-1);
-                const chips =
-                  (isLastAgentMsg && pendingChipsLabel && LABEL_CHIPS[pendingChipsLabel])
-                  ?? (msg.text ? detectOptionSet(msg.text)?.options : null);
+                const chips: ChipOption[] | null =
+                  (isLastAgentMsg && pendingChipsLabel ? LABEL_CHIPS[pendingChipsLabel] ?? null : null)
+                  ?? (msg.text ? detectOptionSet(msg.text)?.options ?? null : null);
                 if (!chips) return null;
                 return (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {chips.map((opt) => (
+                    {chips.map((chip) => (
                       <button
-                        key={opt}
+                        key={chip.instruction}
                         type="button"
-                        onClick={() => handleSend(opt)}
+                        onClick={() => handleSend(chip.instruction)}
                         disabled={agentLoading}
                         className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-foreground/80 transition-colors hover:bg-primary/25 disabled:opacity-40"
                       >
-                        {opt.replace(/_/g, " ")}
+                        {chip.label}
                       </button>
                     ))}
                   </div>

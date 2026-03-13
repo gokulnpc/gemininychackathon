@@ -739,6 +739,8 @@ class EditAgentRequest(BaseModel):
 class EditCommandKind(str, Enum):
     set_caption_style = "set_caption_style"
     set_background_music = "set_background_music"
+    set_music_volume = "set_music_volume"
+    set_voiceover_volume = "set_voiceover_volume"
     add_text_overlay = "add_text_overlay"
     update_selected_text = "update_selected_text"
     move_selected_element = "move_selected_element"

@@ -67,7 +67,7 @@ def _get_tool_declarations():
             parameters=types.Schema(
                 type="object",
                 properties={
-                    "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
+                    "kind": types.Schema(type="string", description="set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
                     "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}'),
                     "element_id": types.Schema(type="string", description="Target element ID, if applicable."),
                     "track_id": types.Schema(type="string", description="Target track ID, if applicable."),
