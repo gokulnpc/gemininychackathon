@@ -295,12 +295,15 @@ async def run_edit_voice_agent(
 
     async with client.aio.live.connect(model=_LIVE_MODEL, config=live_config) as session:
         send_task: asyncio.Task | None = None
+        user_ended_stream = False
 
         async def _send_audio() -> None:
+            nonlocal user_ended_stream
             async for chunk in audio_chunks:
                 await session.send_realtime_input(
                     audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
                 )
+            user_ended_stream = True
             await session.send_realtime_input(audio_stream_end=True)
 
         send_task = asyncio.create_task(_send_audio())
@@ -382,7 +385,7 @@ async def run_edit_voice_agent(
                 if turn_complete:
                     user_transcript_parts = []
                     agent_transcript_parts = []
-                if send_task.done() and turn_complete:
+                if user_ended_stream and turn_complete:
                     break
         except Exception as exc:
             message = str(exc)
