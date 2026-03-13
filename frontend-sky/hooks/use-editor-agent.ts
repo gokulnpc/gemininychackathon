@@ -42,11 +42,12 @@ export function useEditorAgent({
 
   const sendAgentInstruction = useCallback(async (
     instruction: string,
+    displayText?: string,
     screenshotCtx?: { image_b64: string; mime_type: string; width: number; height: number }
   ) => {
     if (!instruction.trim() || agentLoading) return;
 
-    const userMsg: AgentMessage = { id: Date.now().toString(), role: "user", text: instruction };
+    const userMsg: AgentMessage = { id: Date.now().toString(), role: "user", text: displayText ?? instruction };
     const thinkingId = `${Date.now()}-t`;
     const thinkingMsg: AgentMessage = {
       id: thinkingId,
@@ -155,8 +156,8 @@ export function useEditorAgent({
                 ),
               );
             } else if (event.type === "complete") {
+              if (event.message) agentText = event.message as string;
               if (event.project_json) {
-                agentText = event.message ?? "Done! Changes applied.";
                 applyLiveProjectJson(event.project_json as ProjectJSON, event.changes as Record<string, unknown> | undefined);
               }
             } else if (event.type === "error") {
@@ -170,7 +171,7 @@ export function useEditorAgent({
                       ...message,
                       text: agentText,
                       actions: [...actions],
-                      isThinking: event.type !== "proposal" && event.type !== "complete" && event.type !== "error",
+                      isThinking: !["proposal", "complete", "error", "agent_text"].includes(event.type as string),
                     }
                   : message,
               ),

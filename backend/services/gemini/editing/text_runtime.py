@@ -1,20 +1,11 @@
-"""ADK text runtime for Scout's edit workflow."""
+"""Gemini generate_content text runtime for Scout's edit workflow."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from uuid import uuid4
-
-try:
-    from google.adk.tools import ToolContext
-except ImportError:  # pragma: no cover - import fallback for test envs
-    ToolContext = object  # type: ignore[misc,assignment]
 
 from .commands import (
     _build_proposal_from_commands,
-    _build_proposal_from_pending_edits,
-    _queue_pending_edits,
 )
 from .constants import _EDIT_SYSTEM, _TEXT_MODEL
 from .context import _summarize_editor_context
@@ -22,6 +13,75 @@ from .env import settings_env
 from .projector import _apply_live_edits, _project_commands
 
 logger = logging.getLogger(__name__)
+
+_TOOL_DECLARATIONS = None
+
+
+def _get_tool_declarations():
+    """Lazily build FunctionDeclaration list (avoids import cost at module load)."""
+    global _TOOL_DECLARATIONS
+    if _TOOL_DECLARATIONS is not None:
+        return _TOOL_DECLARATIONS
+    from google.genai import types
+
+    _TOOL_DECLARATIONS = [
+        types.FunctionDeclaration(
+            name="get_project_info",
+            description="Get the current video's settings — hook, caption style, music.",
+            parameters=types.Schema(type="object", properties={}),
+        ),
+        types.FunctionDeclaration(
+            name="get_editor_context",
+            description="Get the current editor selection and playhead context for live timeline edits.",
+            parameters=types.Schema(type="object", properties={}),
+        ),
+        types.FunctionDeclaration(
+            name="get_user_assets",
+            description="List the user's uploaded assets for a given category (images, videos, music, voice_memos). Call before drafting insert_media_asset or replace_selected_media.",
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "category": types.Schema(type="string", description="images | videos | music | voice_memos"),
+                },
+                required=["category"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="generate_style_preview",
+            description=(
+                "Generate ONE fast preview image showing what a style or concept looks like. "
+                "Use this when the user wants to SEE options before deciding."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "brief": types.Schema(type="string", description="Visual concept to preview."),
+                    "art_style": types.Schema(type="string", description="Art style: realism | ghibli | comic | polaroid | disney | painting | creepy_comic"),
+                },
+                required=["brief"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="draft_edit_command",
+            description="Draft a single normalized edit command. Call this to queue edits before applying.",
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
+                    "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}'),
+                    "element_id": types.Schema(type="string", description="Target element ID, if applicable."),
+                    "track_id": types.Schema(type="string", description="Target track ID, if applicable."),
+                },
+                required=["kind"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="apply_live_edits",
+            description="Apply all queued edits to the live timeline and save them. Call ONCE after drafting all commands.",
+            parameters=types.Schema(type="object", properties={}),
+        ),
+    ]
+    return _TOOL_DECLARATIONS
 
 
 async def run_edit_text_agent(
@@ -74,137 +134,11 @@ async def run_edit_text_agent(
         yield {"type": "complete", **result}
         return
 
-    from google.adk.agents import Agent
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-    from google.genai import types as genai_types
+    from google.genai import types
+    from services.gemini.client import get_client
+    from .voice_runtime import _dispatch_voice_tool
 
     settings_env()
-
-    app_name = "edit-agent"
-    user_id = "user"
-    session_id = str(uuid4())
-
-    creative_blocks_buffer: list[dict] = []
-
-    def generate_style_preview(
-        brief: str,
-        art_style: str | None = None,
-        tool_context: ToolContext = None,
-    ) -> dict:
-        """Generate 3 preview images showing style/concept options.
-        Emits creative_preview_option events for each option — one per style variation.
-        art_style (optional override): realism|ghibli|comic|polaroid|disney|painting|creepy_comic
-        """
-        import queue as _std_queue
-        from .preview import _generate_multi_preview
-
-        sync_q: _std_queue.Queue = _std_queue.Queue()
-
-        async def _run() -> dict:
-            async def _put(event: dict) -> None:
-                sync_q.put(event)
-
-            return await _generate_multi_preview(brief=brief, art_style=art_style, on_event=_put)
-
-        result = asyncio.run(_run())
-        while not sync_q.empty():
-            creative_blocks_buffer.append(sync_q.get_nowait())
-        return result
-
-    def get_project_info(tool_context: ToolContext) -> dict:  # noqa: F841
-        """Get current caption style, music, and hook for this video."""
-        data = tool_context.state.get("project_data", {})
-        return {
-            "hook": data.get("hook", ""),
-            "caption_style": data.get("caption_style", "beast"),
-            "background_music": data.get("background_music", "none"),
-            "music_volume": data.get("music_volume", 0.15),
-            "platforms": data.get("platforms", ["instagram_reels"]),
-        }
-
-    def get_editor_context(tool_context: ToolContext) -> dict:  # noqa: F841
-        """Return current editor selection/playhead state for context-aware edits."""
-        pj = tool_context.state.get("current_project_json")
-        context = _summarize_editor_context(tool_context.state.get("editor_context"), project_json=pj)
-        if context["has_screenshot"]:
-            context["screenshot_note"] = (
-                "Screenshot metadata is attached for future multimodal tooling; "
-                "this text edit flow currently uses the structured editor state only."
-            )
-        return context
-
-    def draft_edit_command(
-        kind: str,
-        args: dict | None = None,
-        element_id: str | None = None,
-        track_id: str | None = None,
-        tool_context: ToolContext = None,
-    ) -> dict:
-        """Draft a normalized timeline command."""
-        drafted = tool_context.state.get("draft_commands", []) if tool_context else []
-        command = {"kind": kind, "args": args or {}}
-        if element_id:
-            command["element_id"] = element_id
-        if track_id:
-            command["track_id"] = track_id
-        drafted.append(command)
-        if tool_context:
-            tool_context.state["draft_commands"] = drafted
-        return {"drafted": command, "note": "Command drafted successfully."}
-
-    def queue_edit(
-        caption_style: str | None = None,
-        background_music: str | None = None,
-        music_volume: float | None = None,
-        hook_title: str | None = None,
-        hook_duration_seconds: float | None = None,
-        move_selected_text_y_delta: float | None = None,
-        replace_selected_media_url: str | None = None,
-        add_text_overlay: dict | None = None,
-        update_selected_text: str | None = None,
-        trim_selected_element: dict | None = None,
-        delete_selected_element: bool | None = None,
-        insert_media_asset: dict | None = None,
-        tool_context: ToolContext = None,
-    ) -> dict:
-        """Legacy compatibility fallback for updating the video project."""
-        pending_edits = tool_context.state.get("pending_edits", {}) if tool_context else {}
-        result = _queue_pending_edits(
-            pending_edits=pending_edits,
-            args={
-                "caption_style": caption_style,
-                "background_music": background_music,
-                "music_volume": music_volume,
-                "hook_title": hook_title,
-                "hook_duration_seconds": hook_duration_seconds,
-                "move_selected_text_y_delta": move_selected_text_y_delta,
-                "replace_selected_media_url": replace_selected_media_url,
-                "add_text_overlay": add_text_overlay,
-                "update_selected_text": update_selected_text,
-                "trim_selected_element": trim_selected_element,
-                "delete_selected_element": delete_selected_element,
-                "insert_media_asset": insert_media_asset,
-            },
-            editor_context=tool_context.state.get("editor_context") if tool_context else None,
-        )
-        if tool_context:
-            tool_context.state["pending_edits"] = pending_edits
-        if "error" in result:
-            return result
-        return {
-            "queued": result.get("queued", {}),
-            "note": "Changes will be applied to the editor instantly. Export to render a new video.",
-        }
-
-    def get_user_assets(
-        category: str = "images",
-        tool_context: ToolContext = None,
-    ) -> dict:
-        """List the user's uploaded assets for a given category."""
-        state = tool_context.state if tool_context else {}
-        assets = state.get(f"assets_{category}", [])
-        return {"category": category, "assets": assets[:20]}
 
     hook = project_data.get("hook", "your video")
     caption_style = project_data.get("caption_style", "beast")
@@ -225,111 +159,150 @@ async def run_edit_text_agent(
         f"  Screenshot attached: {editor_context_summary['has_screenshot']}\n\n"
         "Workflow: call get_project_info to see current state; call get_editor_context when selection matters; "
         "call get_user_assets when inserting or replacing media; then call draft_edit_command with the exact changes.\n"
-        "(Note: queue_edit is a legacy fallback, prefer draft_edit_command.)\n"
         "Do NOT try to render or export - the user will export when ready."
     )
-
-    initial_state: dict = {
-        "project_id": project_id,
-        "project_data": project_data,
-        "draft_commands": [],
-        "pending_edits": {},
-        "current_project_json": current_project_json or {},
-        "editor_context": editor_context or {},
-        "uid": uid,
-    }
-    if uid:
-        try:
-            from services.storage.assets import list_user_assets
-
-            tasks = [list_user_assets(uid, category) for category in ("images", "videos", "music", "voice_memos")]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for index, category in enumerate(("images", "videos", "music", "voice_memos")):
-                result = results[index]
-                if not isinstance(result, Exception):
-                    initial_state[f"assets_{category}"] = result
-        except Exception:
-            pass
-
-    session_service = InMemorySessionService()
-    await session_service.create_session(
-        app_name=app_name,
-        user_id=user_id,
-        session_id=session_id,
-        state=initial_state,
-    )
-
-    agent = Agent(
-        name="video_edit_agent",
-        model=_TEXT_MODEL,
-        instruction=system,
-        tools=[get_project_info, get_editor_context, get_user_assets, draft_edit_command, queue_edit, generate_style_preview],
-        generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
-        ),
-    )
-
-    runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
-
-    instruction_parts: list[genai_types.Part] = [genai_types.Part(text=instruction)]
-    screenshot = (editor_context or {}).get("screenshot") or {}
-    image_b64 = screenshot.get("image_b64")
-    if image_b64:
-        import base64
-        image_bytes = base64.b64decode(image_b64)
-        mime = screenshot.get("mime_type", "image/png")
-        instruction_parts.append(genai_types.Part(inline_data=genai_types.Blob(data=image_bytes, mime_type=mime)))
-    new_message = genai_types.Content(role="user", parts=instruction_parts)
 
     labels: dict[str, str] = {
         "get_project_info": "Checking your current video settings...",
         "get_editor_context": "Checking your current editor selection...",
         "get_user_assets": "Looking up your media assets...",
         "draft_edit_command": "Drafting edit command...",
-        "queue_edit": "Queuing timeline edit...",
+        "apply_live_edits": "Building proposal...",
         "generate_style_preview": "Generating style preview...",
     }
 
-    logger.info("ADK edit agent starting: project=%s instruction=%.60s", project_id, instruction)
+    client = get_client()
+    draft_commands: list[dict] = []
+    events_buffer: list[dict] = []
+    proposal_yielded = False
+    proposal: dict = {}
+    agent_last_text: str = ""
+
+    async def _on_event(event: dict) -> None:
+        events_buffer.append(event)
+
+    # Build initial message
+    initial_parts: list[types.Part] = [types.Part(text=instruction)]
+    screenshot = (editor_context or {}).get("screenshot") or {}
+    image_b64 = screenshot.get("image_b64")
+    if image_b64:
+        import base64
+        image_bytes = base64.b64decode(image_b64)
+        mime = screenshot.get("mime_type", "image/png")
+        initial_parts.append(types.Part(inline_data=types.Blob(data=image_bytes, mime_type=mime)))
+
+    contents: list[types.Content] = [
+        types.Content(role="user", parts=initial_parts)
+    ]
+
+    gen_config = types.GenerateContentConfig(
+        system_instruction=system,
+        tools=[types.Tool(function_declarations=_get_tool_declarations())],
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+    )
+
+    logger.info("Text edit agent starting: project=%s instruction=%.60s", project_id, instruction)
 
     try:
-        async for event in runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=new_message,
-        ):
-            # Flush creative blocks from generate_style_preview
-            while creative_blocks_buffer:
-                buffered = creative_blocks_buffer.pop(0)
-                yield buffered
+        for _turn in range(12):
+            response = await client.aio.models.generate_content(
+                model=_TEXT_MODEL,
+                contents=contents,
+                config=gen_config,
+            )
 
-            if not event.content or not event.content.parts:
-                continue
-            for part in event.content.parts:
-                function_call = getattr(part, "function_call", None)
-                if function_call and function_call.name in labels:
-                    yield {"type": "agent_step", "tool": function_call.name, "message": labels[function_call.name]}
+            candidate = response.candidates[0]
+            contents.append(candidate.content)
 
-        session = await session_service.get_session(
-            app_name=app_name,
-            user_id=user_id,
-            session_id=session_id,
-        )
-        drafted = (session.state or {}).get("draft_commands", [])
-        pending = (session.state or {}).get("pending_edits", {})
+            # Capture any text the agent produced (clarifying questions, capabilities, etc.)
+            text_parts = [
+                p.text for p in (candidate.content.parts or [])
+                if getattr(p, "text", None)
+            ]
+            if text_parts:
+                agent_last_text = " ".join(text_parts).strip()
 
-        if pending:
-            proposal = _build_proposal_from_pending_edits(pending, editor_context)
-            drafted.extend(proposal.get("commands", []))
+            function_calls = [
+                p.function_call
+                for p in (candidate.content.parts or [])
+                if getattr(p, "function_call", None)
+            ]
 
-        if not drafted:
-            yield {"type": "error", "message": "Agent did not queue any changes - try rephrasing your request."}
-            return
+            if not function_calls:
+                break  # Agent finished without tool calls (may have responded with text)
 
-        proposal = _build_proposal_from_commands(drafted)
-        logger.info("ADK edit agent built proposal: project=%s commands=%d", project_id, len(proposal["commands"]))
-        yield {"type": "proposal", "proposal": proposal}
-        yield {"type": "complete", "message": proposal["summary"], "project_json": None, "changes": {}}
+            function_response_parts: list[types.Part] = []
+
+            for fc in function_calls:
+                args = dict(fc.args) if fc.args else {}
+                logger.info("Scout edit tool call: %s(%s)", fc.name, list(args.keys()))
+
+                # Intercept apply_live_edits: build proposal without auto-applying
+                if fc.name == "apply_live_edits":
+                    if draft_commands:
+                        proposal = _build_proposal_from_commands(draft_commands)
+                        yield {"type": "proposal", "proposal": proposal}
+                        proposal_yielded = True
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": {"status": "proposal_sent"}},
+                        )
+                    ))
+                    continue
+
+                if fc.name in labels:
+                    yield {"type": "agent_step", "tool": fc.name, "message": labels[fc.name]}
+
+                # Flush buffered events from async tools (e.g. generate_style_preview)
+                while events_buffer:
+                    yield events_buffer.pop(0)
+
+                result = await _dispatch_voice_tool(
+                    fc.name,
+                    args,
+                    project_id,
+                    project_data,
+                    draft_commands,
+                    current_project_json,
+                    editor_context,
+                    _on_event,
+                    uid=uid,
+                )
+
+                # Flush events emitted during dispatch
+                while events_buffer:
+                    yield events_buffer.pop(0)
+
+                function_response_parts.append(types.Part(
+                    function_response=types.FunctionResponse(
+                        name=fc.name,
+                        response={"result": result},
+                    )
+                ))
+
+            contents.append(types.Content(role="user", parts=function_response_parts))
+
+            if proposal_yielded:
+                break
+
+        # Flush any remaining buffered events
+        while events_buffer:
+            yield events_buffer.pop(0)
+
+        # Fallback: if agent never called apply_live_edits, build proposal from accumulated draft_commands
+        if not proposal_yielded:
+            if not draft_commands:
+                # Agent gave a clarifying question or capabilities list — show the text, not an error
+                msg = agent_last_text or "Agent did not queue any changes - try rephrasing your request."
+                yield {"type": "complete", "message": msg, "project_json": None, "changes": {}}
+                return
+            proposal = _build_proposal_from_commands(draft_commands)
+            yield {"type": "proposal", "proposal": proposal}
+
+        logger.info("Text edit agent built proposal: project=%s commands=%d", project_id, len(proposal.get("commands", [])))
+        yield {"type": "complete", "message": proposal.get("summary", ""), "project_json": None, "changes": {}}
+
     except Exception as exc:
-        logger.exception("ADK edit agent failed: project=%s", project_id)
+        logger.exception("Text edit agent failed: project=%s", project_id)
         yield {"type": "error", "message": str(exc)}

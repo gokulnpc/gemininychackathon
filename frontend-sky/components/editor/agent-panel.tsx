@@ -1,14 +1,77 @@
 "use client";
 
 import type { RefObject } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Loader2, Mic, MicOff, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 import type {
   AgentMessage,
   CreativeBlock,
   CreativePreviewOption,
   EditProposal,
 } from "@/components/editor/types";
+
+interface AssetMeta {
+  id: string;
+  filename: string;
+  content_type: string;
+  uploaded_at: string;
+  gcs_key: string;
+}
+
+interface MentionState {
+  visible: boolean;
+  query: string;
+  atIndex: number;
+  assets: AssetMeta[];
+}
+
+const MUSIC_PRESETS = [
+  "happy_rhythm", "quiet_before_storm", "peaceful_vibes",
+  "brilliant_symphony", "breathing_shadows", "lyria", "none",
+];
+const CAPTION_STYLES = [
+  "bold_stroke", "red_highlight", "sleek", "karaoke",
+  "majestic", "beast", "elegant", "clarity",
+];
+const TEXT_POSITIONS = ["top", "middle", "bottom"];
+
+const LABEL_CHIPS: Record<string, string[]> = {
+  "Change music": MUSIC_PRESETS,
+  "Apply effect preset": CAPTION_STYLES,
+  "Add text overlay": TEXT_POSITIONS,
+};
+
+function detectOptionSet(text: string): { options: string[] } | null {
+  if (MUSIC_PRESETS.filter((p) => text.includes(p)).length >= 3) return { options: MUSIC_PRESETS };
+  if (CAPTION_STYLES.filter((s) => text.includes(s)).length >= 3) return { options: CAPTION_STYLES };
+  if (TEXT_POSITIONS.filter((p) => text.toLowerCase().includes(p)).length >= 2) return { options: TEXT_POSITIONS };
+  return null;
+}
+
+const QUICK_ACTIONS = [
+  {
+    label: "Change music",
+    instruction:
+      "Change the background music. Options: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria, none. Ask me which one.",
+  },
+  {
+    label: "Add text overlay",
+    instruction:
+      "Add a text overlay to the video. Ask me what text to add and where to place it (top / middle / bottom).",
+  },
+  {
+    label: "Swap selected image",
+    instruction:
+      "Swap or replace the currently selected image. Check my uploaded assets or ask me what image I want.",
+  },
+  {
+    label: "Apply effect preset",
+    instruction:
+      "Apply a caption style or visual effect preset. Caption options: bold_stroke, red_highlight, sleek, karaoke, majestic, beast, elegant, clarity. Ask me which one.",
+  },
+] as const;
 
 interface AgentPanelProps {
   agentPanelOpen: boolean;
@@ -19,7 +82,7 @@ interface AgentPanelProps {
   agentBottomRef: RefObject<HTMLDivElement | null>;
   setAgentPanelOpen: (open: boolean) => void;
   setAgentInput: (value: string) => void;
-  sendAgentInstruction: (instruction: string) => void;
+  sendAgentInstruction: (instruction: string, displayText?: string) => void;
   startVoiceEdit: () => void | Promise<void>;
   confirmProposal: (proposal: EditProposal) => void;
   rejectProposal: (proposal: EditProposal) => void;
@@ -43,6 +106,78 @@ export function AgentPanel({
   revertLastEdit,
   hasUndo,
 }: AgentPanelProps) {
+  const [mentionState, setMentionState] = useState<MentionState | null>(null);
+  const [pendingChipsLabel, setPendingChipsLabel] = useState<string | null>(null);
+  const mentionedAssetsRef = useRef<Record<string, AssetMeta>>({});
+  const assetCacheRef = useRef<AssetMeta[] | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const fetchMentionAssets = useCallback(async (): Promise<AssetMeta[]> => {
+    if (assetCacheRef.current) return assetCacheRef.current;
+    try {
+      const [imgRes, musicRes] = await Promise.all([
+        apiFetch("/api/v1/assets?category=images"),
+        apiFetch("/api/v1/assets?category=music"),
+      ]);
+      const imgs = imgRes.ok ? (await imgRes.json() as { assets: AssetMeta[] }).assets : [];
+      const music = musicRes.ok ? (await musicRes.json() as { assets: AssetMeta[] }).assets : [];
+      assetCacheRef.current = [...imgs, ...music];
+      return assetCacheRef.current;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const handleInputChange = useCallback(async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setAgentInput(value);
+
+    const cursor = e.target.selectionStart ?? value.length;
+    const before = value.slice(0, cursor);
+    const match = before.match(/@(\w*)$/);
+
+    if (match) {
+      const query = match[1].toLowerCase();
+      const all = await fetchMentionAssets();
+      const filtered = all
+        .filter((a) => a.filename.toLowerCase().includes(query))
+        .slice(0, 8);
+      if (filtered.length > 0) {
+        setMentionState({ visible: true, query, atIndex: cursor - match[0].length, assets: filtered });
+      } else {
+        setMentionState(null);
+      }
+    } else {
+      setMentionState(null);
+    }
+  }, [fetchMentionAssets, setAgentInput]);
+
+  const insertMention = useCallback((asset: AssetMeta) => {
+    if (!mentionState) return;
+    const token = `@${asset.filename}`;
+    const before = agentInput.slice(0, mentionState.atIndex);
+    const after = agentInput.slice(mentionState.atIndex + 1 + mentionState.query.length);
+    const newValue = before + token + after;
+    setAgentInput(newValue);
+    mentionedAssetsRef.current[token] = asset;
+    setMentionState(null);
+    textareaRef.current?.focus();
+  }, [agentInput, mentionState, setAgentInput]);
+
+  const handleSend = useCallback((instruction: string, displayText?: string) => {
+    if (!instruction.trim()) return;
+    const mentions = Object.values(mentionedAssetsRef.current);
+    const enriched = mentions.length > 0
+      ? `${instruction}\n\n[Mentioned assets: ${mentions.map((a) => `${a.filename} (id:${a.id}, category:${a.content_type.startsWith("image") ? "images" : "music"})`).join(", ")}]`
+      : instruction;
+    const shown = displayText ?? instruction;
+    mentionedAssetsRef.current = {};
+    setMentionState(null);
+    // Track which quick action fired so we can show context chips after agent responds
+    setPendingChipsLabel(displayText && LABEL_CHIPS[displayText] ? displayText : null);
+    sendAgentInstruction(enriched, shown);
+  }, [sendAgentInstruction]);
+
   if (!agentPanelOpen) return null;
 
   return (
@@ -106,6 +241,31 @@ export function AgentPanel({
                   </span>
                 )
               )}
+
+              {/* Option chips — shown when agent asks user to pick a preset/style/position */}
+              {msg.role === "agent" && !msg.isThinking && !msg.proposal && (() => {
+                const isLastAgentMsg = msg === agentMessages.filter((m) => m.role === "agent").at(-1);
+                const chips =
+                  (isLastAgentMsg && pendingChipsLabel && LABEL_CHIPS[pendingChipsLabel])
+                  ?? (msg.text ? detectOptionSet(msg.text)?.options : null);
+                if (!chips) return null;
+                return (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {chips.map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => handleSend(opt)}
+                        disabled={agentLoading}
+                        className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-foreground/80 transition-colors hover:bg-primary/25 disabled:opacity-40"
+                      >
+                        {opt.replace(/_/g, " ")}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {msg.previewOptions && msg.previewOptions.length > 0 && (
                 <div className="mt-2">
                   <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
@@ -133,7 +293,7 @@ export function AgentPanel({
                         <button
                           type="button"
                           onClick={() =>
-                            sendAgentInstruction(
+                            handleSend(
                               `Use the "${opt.title}" style (option ${opt.index + 1} from the last preview)`,
                             )
                           }
@@ -163,7 +323,7 @@ export function AgentPanel({
                         <button
                           type="button"
                           onClick={() =>
-                            sendAgentInstruction(
+                            handleSend(
                               `Apply the style from preview ${i + 1}`,
                             )
                           }
@@ -262,20 +422,15 @@ export function AgentPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-t border-editor-border px-3 py-2">
-        {[
-          "Change music",
-          "Add text overlay",
-          "Swap selected image",
-          "Change caption style",
-        ].map((action) => (
+        {QUICK_ACTIONS.map(({ label, instruction }) => (
           <button
-            key={action}
+            key={label}
             type="button"
-            onClick={() => sendAgentInstruction(action)}
+            onClick={() => handleSend(instruction, label)}
             disabled={agentLoading}
             className="rounded-lg border border-editor-border bg-editor-surface-raised px-2 py-1.5 text-xs text-foreground/70 transition-colors hover:border-primary/45 hover:bg-editor-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {action}
+            {label}
           </button>
         ))}
       </div>
@@ -293,17 +448,49 @@ export function AgentPanel({
       )}
 
       <div className="border-t border-editor-border p-3">
-        <div className="rounded-xl border border-editor-border bg-editor-surface-raised px-3 py-2 transition-colors focus-within:border-primary/55">
+        <div className="relative rounded-xl border border-editor-border bg-editor-surface-raised px-3 py-2 transition-colors focus-within:border-primary/55">
+          {/* @mention dropdown */}
+          {mentionState?.visible && mentionState.assets.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 mb-1 overflow-hidden rounded-xl border border-editor-border bg-editor-surface shadow-lg z-50">
+              <p className="border-b border-editor-border px-3 py-1.5 text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
+                Your assets
+              </p>
+              <div className="flex max-h-48 flex-col overflow-y-auto">
+                {mentionState.assets.map((asset) => (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertMention(asset);
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-left text-xs text-foreground/80 hover:bg-editor-surface-raised"
+                  >
+                    <span className="truncate">{asset.filename}</span>
+                    <span className="ml-auto shrink-0 text-[9px] text-editor-text-dim">
+                      {asset.content_type.startsWith("image") ? "img" : "music"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <textarea
+            ref={textareaRef}
             value={agentInput}
-            onChange={(event) => setAgentInput(event.target.value)}
+            onChange={(e) => { void handleInputChange(e); }}
             onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setMentionState(null);
+                return;
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                sendAgentInstruction(agentInput);
+                handleSend(agentInput);
               }
             }}
-            placeholder="Describe your edit..."
+            placeholder="Describe your edit... (type @ to tag an asset)"
             rows={2}
             className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder-muted-foreground focus:outline-none"
           />
@@ -332,7 +519,7 @@ export function AgentPanel({
               </button>
               <button
                 type="button"
-                onClick={() => sendAgentInstruction(agentInput)}
+                onClick={() => handleSend(agentInput)}
                 disabled={!agentInput.trim() || agentLoading}
                 className="rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40"
               >
