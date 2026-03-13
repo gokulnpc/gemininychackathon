@@ -194,7 +194,12 @@ export function useVoiceEditSession({
                   message.id === userMessageId ? { ...message, text: data.text ?? message.text } : message,
                 );
               }
-              return [...prev, { id: userMessageId, role: "user", text: data.text ?? "" }];
+              const agentIdx = prev.findIndex((m) => m.id === voiceMsgId);
+              const newMsg = { id: userMessageId, role: "user" as const, text: data.text ?? "" };
+              if (agentIdx >= 0) {
+                return [...prev.slice(0, agentIdx), newMsg, ...prev.slice(agentIdx)];
+              }
+              return [...prev, newMsg];
             });
           } else if (data.type === "creative_block" && data.block) {
             setAgentMessages((prev) =>

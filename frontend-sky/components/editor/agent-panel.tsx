@@ -247,7 +247,7 @@ export function AgentPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-t border-editor-border px-3 py-2">
-        {["Show me horror looks", "Change caption style", "Add hook title", "Change music mood"].map((action) => (
+        {["Change background music", "Add text overlay", "Swap selected image", "Change caption style"].map((action) => (
           <button
             key={action}
             type="button"

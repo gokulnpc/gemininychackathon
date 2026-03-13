@@ -31,7 +31,6 @@ _TRANSCRIPTION_SYSTEM = (
 _LIVE_CONFIG = {
     "response_modalities": ["AUDIO"],
     "input_audio_transcription": {},
-    "output_audio_transcription": {},
     "system_instruction": {"parts": [{"text": _TRANSCRIPTION_SYSTEM}]}
 }
 
@@ -65,44 +64,54 @@ async def transcribe_live(
 
     client = get_client(force_api_key=True)
 
-    transcript_parts: list[str] = []
-
+    full_transcript = ""
     async with client.aio.live.connect(model=MODEL, config=_LIVE_CONFIG) as session:
 
         # ── Send audio chunks concurrently with receiving ──────────────────
         async def _send_audio() -> None:
-            async for chunk in audio_chunks:
-                await session.send_realtime_input(
-                    audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
-                )
-            await session.send_realtime_input(audio_stream_end=True)
+            try:
+                async for chunk in audio_chunks:
+                    await session.send_realtime_input(
+                        audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
+                    )
+                await session.send_realtime_input(audio_stream_end=True)
+            except Exception as e:
+                logger.warning("Live audio send task aborted: %s", e)
 
         send_task = asyncio.create_task(_send_audio())
 
         # ── Collect transcript as text chunks arrive ───────────────────────
+        completed_text = ""
+        current_turn_parts: list[str] = []
+
         async for response in session.receive():
-            
-            # Extract transcript text (Agent/System output)
             server_content = getattr(response, "server_content", None)
-            if server_content and server_content.output_transcription:
-                text = server_content.output_transcription.text
-                if text and text.strip():
-                    transcript_parts.append(text.strip())
-                    await on_transcript_chunk(" ".join(transcript_parts))
             
-            # Extract user audio transcription (User input)
-            if server_content and server_content.input_transcription:
-                text = server_content.input_transcription.text
-                if text and text.strip():
-                    transcript_parts.append(text.strip())
-                    await on_transcript_chunk(" ".join(transcript_parts))
+            it = getattr(server_content, "input_transcription", None) if server_content else None
+            if it and getattr(it, "text", None):
+                t = it.text.strip()
+                if t:
+                    current_turn_parts.append(t)
+                    combined = f"{completed_text} {' '.join(current_turn_parts)}".strip()
+                    logger.info("LIVE_TRANSCRIPT: input chunk='%s', combined='%s'", t, combined)
+                    await on_transcript_chunk(combined)
             
-            # Check for turn completion
+            await asyncio.sleep(0)
+            
             turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
-            if send_task.done() and turn_complete:
-                break
+            if turn_complete:
+                if current_turn_parts:
+                    completed_text = f"{completed_text} {' '.join(current_turn_parts)}".strip()
+                    logger.info("LIVE_TRANSCRIPT: turn_complete. completed_text='%s'", completed_text)
+                    current_turn_parts = []
+                
+                if send_task.done():
+                    break
 
         await send_task
+        if current_turn_parts:
+            completed_text = f"{completed_text} {' '.join(current_turn_parts)}".strip()
+        full_transcript = completed_text
 
         # ── Tone classification: follow-up turn in the same session ────────
         detected_tone = "conversational"
@@ -129,13 +138,12 @@ async def transcribe_live(
         except Exception as _tone_exc:
             logger.warning("Tone detection failed: %s — defaulting to conversational", _tone_exc)
 
-    full_transcript = " ".join(transcript_parts).strip()
     logger.info(
         "Live transcription complete: %d chars, tone=%s",
         len(full_transcript), detected_tone,
     )
     return {
-        "transcript":    full_transcript,
+        "transcript":    full_transcript.strip(),
         "detected_tone": detected_tone,
         "language":      "en-US",
     }

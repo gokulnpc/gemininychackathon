@@ -264,6 +264,9 @@ async def run_edit_text_agent(
         model=_TEXT_MODEL,
         instruction=system,
         tools=[get_project_info, get_editor_context, get_user_assets, draft_edit_command, queue_edit, generate_style_preview],
+        generate_content_config=genai_types.GenerateContentConfig(
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+        ),
     )
 
     runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
