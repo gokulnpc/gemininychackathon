@@ -661,7 +661,7 @@ export default function ProjectDetailPage() {
                           Version History
                         </h2>
                         <p className="text-sm text-white/40 mt-1">
-                          Review and restore previous export versions of your video.
+                          Review and edit previous export versions of your video.
                         </p>
                       </div>
                     </div>
@@ -685,19 +685,13 @@ export default function ProjectDetailPage() {
                             transition={{ delay: index * 0.05 }}
                             className="group relative flex items-center gap-6 p-4 rounded-2xl bg-[#2a2a2a] border border-white/5 hover:border-white/10 hover:bg-[#323232] transition-all"
                           >
-                            {/* Version Thumbnail */}
+                            {/* Version Thumbnail (Using main project thumbnail since export thumbnails may not be ready) */}
                             <div className="w-32 aspect-video rounded-lg overflow-hidden bg-black/40 border border-white/10 relative shrink-0">
-                              {entry.thumbnail_url ? (
-                                <img 
-                                  src={`${API}/api/v1/projects/${project.project_id}/thumbnail-export/${entry.export_id}${idToken ? `?token=${idToken}` : ""}`}
-                                  alt={`Version ${arr.length - index}`}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <Video className="w-6 h-6 text-white/10" />
-                                </div>
-                              )}
+                              <img 
+                                src={`${API}/api/v1/projects/${project.project_id}/thumbnail${idToken ? `?token=${idToken}` : ""}`}
+                                alt={`Version ${arr.length - index}`}
+                                className="w-full h-full object-cover"
+                              />
                             </div>
 
                             {/* Info */}
