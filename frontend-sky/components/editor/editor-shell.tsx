@@ -105,6 +105,7 @@ interface EditorShellProps {
   setAgentInput: (value: string) => void;
   sendAgentInstruction: (instruction: string) => void;
   startVoiceEdit: () => void | Promise<void>;
+  stopVoiceEdit: () => void;
   onProjectJsonChange: (projectJson: ProjectJSON) => void;
   serializeProjectJson: (projectJson: ProjectJSON) => ProjectJSON;
   exportPortalRef?: RefObject<HTMLDivElement | null>;
@@ -127,6 +128,7 @@ export function EditorShell({
   setAgentInput,
   sendAgentInstruction,
   startVoiceEdit,
+  stopVoiceEdit,
   onProjectJsonChange,
   serializeProjectJson,
   exportPortalRef,
@@ -430,6 +432,7 @@ export function EditorShell({
         setAgentInput={setAgentInput}
         sendAgentInstruction={sendAgentInstruction}
         startVoiceEdit={startVoiceEdit}
+        stopVoiceEdit={stopVoiceEdit}
         confirmProposal={confirmProposal}
         rejectProposal={rejectProposal}
         revertLastEdit={revertLastEdit}

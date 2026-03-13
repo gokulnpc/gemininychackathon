@@ -238,6 +238,7 @@ interface AgentPanelProps {
   setAgentInput: (value: string) => void;
   sendAgentInstruction: (instruction: string, displayText?: string) => void;
   startVoiceEdit: () => void | Promise<void>;
+  stopVoiceEdit: () => void;
   confirmProposal: (proposal: EditProposal) => void;
   rejectProposal: (proposal: EditProposal) => void;
   revertLastEdit: () => void;
@@ -255,6 +256,7 @@ export function AgentPanel({
   setAgentInput,
   sendAgentInstruction,
   startVoiceEdit,
+  stopVoiceEdit,
   confirmProposal,
   rejectProposal,
   revertLastEdit,
@@ -692,7 +694,8 @@ export function AgentPanel({
               <button
                 type="button"
                 onClick={() => {
-                  void startVoiceEdit();
+                  if (isVoiceActive) stopVoiceEdit();
+                  else void startVoiceEdit();
                 }}
                 className={cn(
                   "rounded-lg p-1.5 transition-colors",

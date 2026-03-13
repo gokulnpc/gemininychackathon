@@ -214,7 +214,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
 
     if "add_text_overlay" in changes:
         position_y: dict[str, float] = {
-            "top": -720.0, "middle": 0.0, "bottom": 500.0, "bottom_center": 500.0,
+            "top": -380.0, "middle": 0.0, "bottom": 380.0, "bottom_center": 380.0,
         }
         ov = changes["add_text_overlay"]
         pos_y = position_y.get(str(ov.get("position_hint", "bottom")), 500.0)

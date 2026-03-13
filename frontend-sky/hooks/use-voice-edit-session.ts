@@ -33,7 +33,6 @@ export function useVoiceEditSession({
   focusedAssetRef,
 }: UseVoiceEditSessionArgs) {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
-  const userStoppedRef = useRef(false);
   const captureAudioCtxRef = useRef<AudioContext | null>(null);
   const playbackAudioCtxRef = useRef<AudioContext | null>(null);
   const playbackNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -90,7 +89,6 @@ export function useVoiceEditSession({
   }, []);
 
   const stopVoiceEdit = useCallback(() => {
-    userStoppedRef.current = true;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "done" }));
       wsRef.current.close();
@@ -114,13 +112,7 @@ export function useVoiceEditSession({
   }, [isVoiceActiveRef]);
 
   const startVoiceEdit = useCallback(async () => {
-    if (isVoiceActive) {
-      stopVoiceEdit();
-      return;
-    }
-
     try {
-      userStoppedRef.current = false;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       const token = await auth.currentUser?.getIdToken();
@@ -299,19 +291,13 @@ export function useVoiceEditSession({
         mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
         mediaStreamRef.current = null;
         wsRef.current = null;
-
-        if (isVoiceActiveRef.current && !userStoppedRef.current) {
-          // Unexpected close — auto-reconnect after brief delay
-          setTimeout(() => void startVoiceEdit(), 1500);
-        } else {
-          playbackNodeRef.current?.port.postMessage({ type: "clear" });
-          playbackNodeRef.current?.disconnect();
-          playbackNodeRef.current = null;
-          playbackAudioCtxRef.current?.close().catch(() => {});
-          playbackAudioCtxRef.current = null;
-          setIsVoiceActive(false);
-          isVoiceActiveRef.current = false;
-        }
+        playbackNodeRef.current?.port.postMessage({ type: "clear" });
+        playbackNodeRef.current?.disconnect();
+        playbackNodeRef.current = null;
+        playbackAudioCtxRef.current?.close().catch(() => {});
+        playbackAudioCtxRef.current = null;
+        setIsVoiceActive(false);
+        isVoiceActiveRef.current = false;
       };
     } catch {
       setAgentMessages((prev) => [
@@ -323,9 +309,9 @@ export function useVoiceEditSession({
     agentPanelOpen,
     applyLiveProjectJson,
     editorBridgeRef,
+    focusedAssetRef,
     getCurrentCanonicalProjectJson,
     initPlaybackContext,
-    isVoiceActive,
     isVoiceActiveRef,
     projectId,
     queuePcmAudio,
