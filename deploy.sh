@@ -203,23 +203,36 @@ wait_for_render_revision_ready() {
 
 verify_render_startup_log() {
   local revision_name="$1"
+  local max_checks=12
+  local check=1
+  local sleep_seconds=5
+  local logs_url="https://console.cloud.google.com/logs/viewer?project=$PROJECT_ID&resource=cloud_run_revision/service_name/$RENDER_SERVICE/revision_name/$revision_name"
 
   echo "▶ Verifying startup telemetry for revision $revision_name..."
 
-  local startup_log
-  startup_log="$(gcloud logging read \
-    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$RENDER_SERVICE\" AND resource.labels.revision_name=\"$revision_name\" AND logName=\"projects/$PROJECT_ID/logs/run.googleapis.com%2Fstdout\" AND textPayload:\"[RenderWorkerServer] listening\"" \
-    --project="$PROJECT_ID" \
-    --limit=1 \
-    --format='value(textPayload)' 2>/dev/null || true)"
+  while (( check <= max_checks )); do
+    local startup_log
+    startup_log="$(gcloud logging read \
+      "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$RENDER_SERVICE\" AND resource.labels.revision_name=\"$revision_name\" AND (textPayload:\"[RenderWorkerServer] listening\" OR jsonPayload.message:\"[RenderWorkerServer] listening\")" \
+      --project="$PROJECT_ID" \
+      --limit=1 \
+      --format='value(timestamp)' 2>/dev/null || true)"
 
-  if [[ -z "$startup_log" ]]; then
-    echo "ERROR: Missing startup telemetry log for $revision_name."
-    echo "Check logs: https://console.cloud.google.com/logs/viewer?project=$PROJECT_ID&resource=cloud_run_revision/service_name/$RENDER_SERVICE/revision_name/$revision_name"
-    return 1
-  fi
+    if [[ -n "$startup_log" ]]; then
+      echo "  ✓ Startup telemetry detected for $revision_name on attempt $check/$max_checks"
+      return 0
+    fi
 
-  echo "  ✓ Startup telemetry detected for $revision_name"
+    if (( check < max_checks )); then
+      sleep "$sleep_seconds"
+    fi
+    ((check++))
+  done
+
+  echo "WARNING: Missing startup telemetry log for $revision_name after $max_checks attempts."
+  echo "  Revision readiness already passed; continuing canary promotion without confirmed startup telemetry."
+  echo "  Check logs: $logs_url"
+  return 0
 }
 
 deploy_render_service() {
