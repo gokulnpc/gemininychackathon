@@ -28,6 +28,8 @@ Rules:
 - Supported edit kinds for draft_edit_command:
   - set_caption_style: { "style": "..." }
   - set_background_music: { "preset": "...", "volume": 0.15 }
+  - set_music_volume: { "volume": 0.0-1.0 }  — adjust bg music loudness without changing preset
+  - set_voiceover_volume: { "volume": 0.0-1.0 }  — adjust voiceover/narration loudness
   - add_hook_title: { "text": "...", "duration_seconds": N }
   - move_selected_element: { "dy": pixels }
   - replace_selected_media: { "src": "..." } OR { "asset_id": "..." }
