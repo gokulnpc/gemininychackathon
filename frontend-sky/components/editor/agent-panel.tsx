@@ -3,7 +3,12 @@
 import type { RefObject } from "react";
 import { Loader2, Mic, MicOff, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentMessage, CreativeBlock, CreativePreviewOption, EditProposal } from "@/components/editor/types";
+import type {
+  AgentMessage,
+  CreativeBlock,
+  CreativePreviewOption,
+  EditProposal,
+} from "@/components/editor/types";
 
 interface AgentPanelProps {
   agentPanelOpen: boolean;
@@ -49,7 +54,9 @@ export function AgentPanel({
           </div>
           <div>
             <p className="text-sm font-semibold text-editor-text">AI Copilot</p>
-            <p className="text-xs text-editor-text-muted">Live edits · Creative preview · Screen analysis</p>
+            <p className="text-xs text-editor-text-muted">
+              Live edits · Creative preview · Screen analysis
+            </p>
           </div>
         </div>
         <button
@@ -62,11 +69,13 @@ export function AgentPanel({
       </div>
 
       <div className="editor-scroll flex-1 space-y-3 overflow-y-auto p-3">
-
         {agentMessages.map((msg) => (
           <div
             key={msg.id}
-            className={cn("flex flex-col gap-1", msg.role === "user" ? "items-end" : "items-start")}
+            className={cn(
+              "flex flex-col gap-1",
+              msg.role === "user" ? "items-end" : "items-start",
+            )}
           >
             <div
               className={cn(
@@ -91,16 +100,24 @@ export function AgentPanel({
                   <span>Thinking...</span>
                 </div>
               ) : (
-                msg.text || <span className="italic text-muted-foreground">Processing...</span>
+                msg.text || (
+                  <span className="italic text-muted-foreground">
+                    Processing...
+                  </span>
+                )
               )}
               {msg.previewOptions && msg.previewOptions.length > 0 && (
                 <div className="mt-2">
                   <p className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
-                    {msg.previewOptions.length} style option{msg.previewOptions.length !== 1 ? "s" : ""}
+                    {msg.previewOptions.length} style option
+                    {msg.previewOptions.length !== 1 ? "s" : ""}
                   </p>
                   <div className="flex flex-col gap-2">
                     {msg.previewOptions.map((opt: CreativePreviewOption) => (
-                      <div key={opt.option_id} className="group overflow-hidden rounded-lg border border-editor-border">
+                      <div
+                        key={opt.option_id}
+                        className="group overflow-hidden rounded-lg border border-editor-border"
+                      >
                         <div className="relative">
                           <img
                             src={`data:${opt.image.mime_type ?? "image/png"};base64,${opt.image.content}`}
@@ -108,12 +125,18 @@ export function AgentPanel({
                             className="w-full object-cover"
                           />
                           <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/60 to-transparent p-2">
-                            <span className="text-xs font-semibold text-white">{opt.title}</span>
+                            <span className="text-xs font-semibold text-white">
+                              {opt.title}
+                            </span>
                           </div>
                         </div>
                         <button
                           type="button"
-                          onClick={() => sendAgentInstruction(`Use the "${opt.title}" style (option ${opt.index + 1} from the last preview)`)}
+                          onClick={() =>
+                            sendAgentInstruction(
+                              `Use the "${opt.title}" style (option ${opt.index + 1} from the last preview)`,
+                            )
+                          }
                           className="w-full border-t border-editor-border bg-editor-surface-raised py-1.5 text-xs text-foreground/70 transition-colors hover:bg-editor-surface hover:text-foreground"
                         >
                           Use this style →
@@ -125,22 +148,31 @@ export function AgentPanel({
               )}
               {msg.creativeBlocks && msg.creativeBlocks.length > 0 && (
                 <div className="mt-2 flex flex-col gap-2">
-                  {msg.creativeBlocks.filter((b: CreativeBlock) => b.type === "image").map((block: CreativeBlock, i: number) => (
-                    <div key={i} className="group relative overflow-hidden rounded-lg border border-editor-border">
-                      <img
-                        src={`data:${block.mime_type ?? "image/png"};base64,${block.content}`}
-                        alt={`Preview ${i + 1}`}
-                        className="w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => sendAgentInstruction(`Apply the style from preview ${i + 1}`)}
-                        className="absolute inset-x-0 bottom-0 bg-black/70 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  {msg.creativeBlocks
+                    .filter((b: CreativeBlock) => b.type === "image")
+                    .map((block: CreativeBlock, i: number) => (
+                      <div
+                        key={i}
+                        className="group relative overflow-hidden rounded-lg border border-editor-border"
                       >
-                        Use this style →
-                      </button>
-                    </div>
-                  ))}
+                        <img
+                          src={`data:${block.mime_type ?? "image/png"};base64,${block.content}`}
+                          alt={`Preview ${i + 1}`}
+                          className="w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            sendAgentInstruction(
+                              `Apply the style from preview ${i + 1}`,
+                            )
+                          }
+                          className="absolute inset-x-0 bottom-0 bg-black/70 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          Use this style →
+                        </button>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
@@ -164,21 +196,29 @@ export function AgentPanel({
                     ? "border-primary/30 bg-editor-surface-raised"
                     : msg.proposal.state === "confirmed"
                       ? "border-emerald-500/30 bg-emerald-500/10"
-                      : "border-editor-border bg-editor-surface opacity-60"
+                      : "border-editor-border bg-editor-surface opacity-60",
                 )}
               >
                 {msg.proposal.state === "pending" && (
                   <>
                     <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.15em] text-editor-text-dim">
-                      {msg.proposal.commands.length} suggested change{msg.proposal.commands.length !== 1 ? "s" : ""}
+                      {msg.proposal.commands.length} suggested change
+                      {msg.proposal.commands.length !== 1 ? "s" : ""}
                     </p>
                     <ul className="mb-3 space-y-1">
                       {msg.proposal.commands.map((cmd, i) => (
-                        <li key={i} className="text-xs font-mono text-foreground/70">
+                        <li
+                          key={i}
+                          className="text-xs font-mono text-foreground/70"
+                        >
                           {cmd.kind.replace(/_/g, " ")}
                           {Object.keys(cmd.args).length > 0 && (
                             <span className="ml-1 text-editor-text-dim">
-                              ({Object.values(cmd.args).filter(Boolean).join(", ")})
+                              (
+                              {Object.values(cmd.args)
+                                .filter(Boolean)
+                                .join(", ")}
+                              )
                             </span>
                           )}
                         </li>
@@ -205,10 +245,14 @@ export function AgentPanel({
                   </>
                 )}
                 {msg.proposal.state === "confirmed" && (
-                  <p className="text-xs font-medium text-emerald-300">Applied</p>
+                  <p className="text-xs font-medium text-emerald-300">
+                    Applied
+                  </p>
                 )}
                 {msg.proposal.state === "rejected" && (
-                  <p className="text-xs italic text-editor-text-dim">Discarded</p>
+                  <p className="text-xs italic text-editor-text-dim">
+                    Discarded
+                  </p>
                 )}
               </div>
             )}
@@ -218,7 +262,12 @@ export function AgentPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-t border-editor-border px-3 py-2">
-        {["Change background music", "Add text overlay", "Swap selected image", "Change caption style"].map((action) => (
+        {[
+          "Change music",
+          "Add text overlay",
+          "Swap selected image",
+          "Change caption style",
+        ].map((action) => (
           <button
             key={action}
             type="button"
@@ -265,15 +314,21 @@ export function AgentPanel({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => { void startVoiceEdit(); }}
+                onClick={() => {
+                  void startVoiceEdit();
+                }}
                 className={cn(
                   "rounded-lg p-1.5 transition-colors",
                   isVoiceActive
                     ? "animate-pulse bg-destructive/20 text-destructive"
-                    : "text-editor-text-dim hover:bg-muted hover:text-foreground"
+                    : "text-editor-text-dim hover:bg-muted hover:text-foreground",
                 )}
               >
-                {isVoiceActive ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                {isVoiceActive ? (
+                  <MicOff className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
               </button>
               <button
                 type="button"
@@ -281,7 +336,11 @@ export function AgentPanel({
                 disabled={!agentInput.trim() || agentLoading}
                 className="rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {agentLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {agentLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </button>
             </div>
           </div>

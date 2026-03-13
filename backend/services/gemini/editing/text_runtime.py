@@ -271,14 +271,14 @@ async def run_edit_text_agent(
 
     runner = Runner(agent=agent, app_name=app_name, session_service=session_service)
 
-    instruction_parts: list[genai_types.Part] = [genai_types.Part.from_text(instruction)]
+    instruction_parts: list[genai_types.Part] = [genai_types.Part(text=instruction)]
     screenshot = (editor_context or {}).get("screenshot") or {}
     image_b64 = screenshot.get("image_b64")
     if image_b64:
         import base64
         image_bytes = base64.b64decode(image_b64)
         mime = screenshot.get("mime_type", "image/png")
-        instruction_parts.append(genai_types.Part.from_bytes(data=image_bytes, mime_type=mime))
+        instruction_parts.append(genai_types.Part(inline_data=genai_types.Blob(data=image_bytes, mime_type=mime)))
     new_message = genai_types.Content(role="user", parts=instruction_parts)
 
     labels: dict[str, str] = {
