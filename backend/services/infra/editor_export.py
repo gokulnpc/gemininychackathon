@@ -149,6 +149,46 @@ def append_editor_export_history(
     return history
 
 
+def normalize_editor_export_history(
+    existing_history: list[dict[str, Any]] | None,
+    *,
+    current_export: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    history: list[dict[str, Any]] = []
+
+    for entry in existing_history or []:
+        if not isinstance(entry, dict):
+            continue
+        normalized = build_editor_export_history_item(entry)
+        if (
+            not normalized.get("export_id")
+            or not normalized.get("completed_at")
+            or not normalized.get("download_url")
+        ):
+            continue
+        history.append(normalized)
+
+    export_state = build_editor_export_state(current_export)
+    if (
+        export_state.get("status") == "completed"
+        and export_state.get("export_id")
+        and export_state.get("completed_at")
+        and export_state.get("download_url")
+        and not any(item.get("export_id") == export_state["export_id"] for item in history)
+    ):
+        history.append(
+            build_editor_export_history_item(
+                export_id=export_state["export_id"],
+                completed_at=export_state["completed_at"],
+                download_url=export_state["download_url"],
+                thumbnail_url=export_state.get("thumbnail_url"),
+            )
+        )
+
+    history.sort(key=lambda item: item.get("completed_at") or "", reverse=True)
+    return history
+
+
 def get_editor_export_gcs_key(project_id: str, export_id: str) -> str:
     return f"projects/{project_id}/editor_exports/{export_id}/master.mp4"
 

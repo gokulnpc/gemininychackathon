@@ -1,8 +1,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import sys
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+
+sys.modules.setdefault(
+    "firebase_admin",
+    SimpleNamespace(
+        _apps=[object()],
+        initialize_app=lambda *args, **kwargs: None,
+        auth=SimpleNamespace(verify_id_token=lambda token: {"uid": "test"}),
+        credentials=SimpleNamespace(ApplicationDefault=lambda: None),
+    ),
+)
 
 from deps.auth import get_current_user
 from main import app
@@ -97,3 +109,45 @@ def test_restore_export_version_rejects_unknown_or_non_restorable_export(monkeyp
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Restorable export version not found"
+
+
+def test_get_project_backfills_history_from_current_completed_export(monkeypatch):
+    project_doc = {
+        "uid": "user-1",
+        "project_id": PROJECT_ID,
+        "status": "completed",
+        "created_at": "2026-03-12T00:00:00Z",
+        "video_urls": {"instagram_reels": "https://cdn.example/original.mp4"},
+        "editor_export": {
+            "export_id": "export-1",
+            "status": "completed",
+            "completed_at": "2026-03-12T12:00:00Z",
+            "download_url": "https://cdn.example/export-1.mp4",
+        },
+        "editor_export_history": [],
+    }
+
+    async def fake_get_project_for_user(project_id: str, uid: str) -> dict:
+        return deepcopy(project_doc)
+
+    app.dependency_overrides[get_current_user] = lambda: {"uid": "user-1"}
+    monkeypatch.setattr("services.storage.firestore_db.get_project_for_user", fake_get_project_for_user)
+
+    try:
+        client = TestClient(app)
+        response = client.get(f"/api/v1/projects/{PROJECT_ID}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["editor_export"]["export_id"] == "export-1"
+    assert payload["editor_export_history"] == [
+        {
+            "export_id": "export-1",
+            "completed_at": "2026-03-12T12:00:00Z",
+            "download_url": "https://cdn.example/export-1.mp4",
+            "thumbnail_url": None,
+            "project_json_snapshot": None,
+        }
+    ]
