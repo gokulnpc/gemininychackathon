@@ -209,21 +209,24 @@ function ScriptReadyPanel({
 
 function CompletedPanel({
   project,
-  onRestoreVersion,
+  onEditFromVersion,
 }: {
   project: Project;
-  onRestoreVersion: (exportId: string) => Promise<string>;
+  onEditFromVersion: (exportId: string) => Promise<void>;
 }) {
   const platforms = Object.keys(project.video_urls ?? {});
   const { idToken } = useAuth();
   const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
-  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const editorExport = project.editor_export;
   const hasEditedExport =
     editorExport?.status === "completed" && !!editorExport.download_url;
   const editHistory = (project.editor_export_history ?? []).filter(
-    (entry) => !!entry?.export_id && !!entry?.completed_at && !!entry?.download_url,
+    (entry) =>
+      !!entry?.export_id &&
+      !!entry?.completed_at &&
+      !!entry?.download_url &&
+      entry.export_id !== editorExport?.export_id,
   );
 
   return (
@@ -306,16 +309,9 @@ function CompletedPanel({
         </div>
       )}
 
-      {(restoreMessage || restoreError) && (
-        <div
-          className={cn(
-            "rounded-xl border px-4 py-3 text-sm",
-            restoreError
-              ? "border-red-500/30 bg-red-500/10 text-red-300"
-              : "border-green-500/30 bg-green-500/10 text-green-300",
-          )}
-        >
-          {restoreError ?? restoreMessage}
+      {restoreError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {restoreError}
         </div>
       )}
 
@@ -367,19 +363,16 @@ function CompletedPanel({
                     onClick={async () => {
                       if (!entry.project_json_snapshot) return;
                       const confirmed = window.confirm(
-                        "Restore this edited version? This replaces the project's current timeline, but your original generated video stays unchanged.",
+                        "Open this version in the editor? Your current timeline will be replaced with this export's version.",
                       );
                       if (!confirmed) return;
 
                       setRestoreError(null);
-                      setRestoreMessage(null);
                       setRestoringExportId(entry.export_id);
                       try {
-                        const message = await onRestoreVersion(entry.export_id);
-                        setRestoreMessage(message);
+                        await onEditFromVersion(entry.export_id);
                       } catch (err) {
-                        setRestoreError(err instanceof Error ? err.message : "Failed to restore this version");
-                      } finally {
+                        setRestoreError(err instanceof Error ? err.message : "Failed to open this version");
                         setRestoringExportId(null);
                       }
                     }}
@@ -388,10 +381,10 @@ function CompletedPanel({
                     {restoringExportId === entry.export_id ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Restoring
+                        Opening...
                       </>
                     ) : (
-                      "Restore this version"
+                      "Edit"
                     )}
                   </Button>
                 </div>
@@ -527,15 +520,12 @@ export default function ProjectDetailPage() {
     await fetchProject();
   }
 
-  async function handleRestoreExportVersion(exportId: string) {
-    if (!project) {
-      throw new Error("Project is not loaded");
-    }
-    const res = await apiClient.post(`/api/v1/projects/${project.project_id}/restore-export-version`, {
+  async function handleEditFromVersion(exportId: string) {
+    if (!project) throw new Error("Project is not loaded");
+    await apiClient.post(`/api/v1/projects/${project.project_id}/restore-export-version`, {
       export_id: exportId,
     });
-    await fetchProject();
-    return res.data?.message ?? "Timeline restored. Open the editor to continue from this version.";
+    router.push(`/projects/${project.project_id}/edit`);
   }
 
   const firstPlatform = project
@@ -671,7 +661,7 @@ export default function ProjectDetailPage() {
                   {project.status === "completed" && (
                     <CompletedPanel
                       project={project}
-                      onRestoreVersion={handleRestoreExportVersion}
+                      onEditFromVersion={handleEditFromVersion}
                     />
                   )}
 

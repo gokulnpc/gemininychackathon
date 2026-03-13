@@ -27,7 +27,7 @@ from models.schemas import (
     RestoreEditorExportVersionResponse,
     ScriptEditRequest,
 )
-from services.infra.editor_export import build_editor_export_state
+from services.infra.editor_export import build_editor_export_state, normalize_editor_export_history
 from services.storage import firestore_db, gcs
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,14 @@ async def get_project(project_id: UUID, current_user: dict = Depends(get_current
     """Get metadata and video URLs for a single project (ownership enforced)."""
     data = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
     try:
-        return ProjectMetadata(**data)
+        normalized = {
+            **data,
+            "editor_export_history": normalize_editor_export_history(
+                data.get("editor_export_history"),
+                current_export=data.get("editor_export"),
+            ),
+        }
+        return ProjectMetadata(**normalized)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Malformed project metadata: {e}")
 
@@ -357,7 +364,10 @@ async def restore_project_export_version(
 ):
     """Restore a completed export history timeline snapshot into the project's live project_json."""
     doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
-    history = doc.get("editor_export_history") or []
+    history = normalize_editor_export_history(
+        doc.get("editor_export_history"),
+        current_export=doc.get("editor_export"),
+    )
 
     matching_entry = None
     for entry in history:

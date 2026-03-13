@@ -125,6 +125,29 @@ def test_append_editor_export_history_deduplicates_existing_export_id():
     ]
 
 
+def test_normalize_editor_export_history_backfills_completed_current_export():
+    history = editor_export.normalize_editor_export_history(
+        None,
+        current_export={
+            "export_id": "current-export",
+            "status": "completed",
+            "completed_at": "2026-03-12T15:00:00Z",
+            "download_url": "https://cdn.example/current.mp4",
+            "thumbnail_url": "https://cdn.example/current.jpg",
+        },
+    )
+
+    assert history == [
+        {
+            "export_id": "current-export",
+            "completed_at": "2026-03-12T15:00:00Z",
+            "download_url": "https://cdn.example/current.mp4",
+            "thumbnail_url": "https://cdn.example/current.jpg",
+            "project_json_snapshot": None,
+        }
+    ]
+
+
 def test_render_timeline_to_file_calls_remote_worker_with_oidc(monkeypatch, tmp_path):
     captured: dict = {}
 
