@@ -176,6 +176,7 @@ async def run_edit_text_agent(
     events_buffer: list[dict] = []
     proposal_yielded = False
     proposal: dict = {}
+    agent_last_text: str = ""
 
     async def _on_event(event: dict) -> None:
         events_buffer.append(event)
@@ -213,6 +214,14 @@ async def run_edit_text_agent(
             candidate = response.candidates[0]
             contents.append(candidate.content)
 
+            # Capture any text the agent produced (clarifying questions, capabilities, etc.)
+            text_parts = [
+                p.text for p in (candidate.content.parts or [])
+                if getattr(p, "text", None)
+            ]
+            if text_parts:
+                agent_last_text = " ".join(text_parts).strip()
+
             function_calls = [
                 p.function_call
                 for p in (candidate.content.parts or [])
@@ -220,7 +229,7 @@ async def run_edit_text_agent(
             ]
 
             if not function_calls:
-                break  # Agent finished without tool calls
+                break  # Agent finished without tool calls (may have responded with text)
 
             function_response_parts: list[types.Part] = []
 
@@ -284,7 +293,9 @@ async def run_edit_text_agent(
         # Fallback: if agent never called apply_live_edits, build proposal from accumulated draft_commands
         if not proposal_yielded:
             if not draft_commands:
-                yield {"type": "error", "message": "Agent did not queue any changes - try rephrasing your request."}
+                # Agent gave a clarifying question or capabilities list — show the text, not an error
+                msg = agent_last_text or "Agent did not queue any changes - try rephrasing your request."
+                yield {"type": "complete", "message": msg, "project_json": None, "changes": {}}
                 return
             proposal = _build_proposal_from_commands(draft_commands)
             yield {"type": "proposal", "proposal": proposal}

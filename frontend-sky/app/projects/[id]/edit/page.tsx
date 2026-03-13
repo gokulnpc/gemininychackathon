@@ -140,12 +140,12 @@ export default function EditorPage() {
 
   const INSPECT_KEYWORDS = /\b(what('s| is) wrong|look at|analyze|inspect|critique|feedback on|what do you (see|think)|how does this (look|feel)|what's weak|what is weak)\b/i;
 
-  const sendAgentInstructionWithScreenshot = useCallback((instruction: string) => {
+  const sendAgentInstructionWithScreenshot = useCallback((instruction: string, displayText?: string) => {
     let screenshotCtx: { image_b64: string; mime_type: string; width: number; height: number } | undefined;
     if (INSPECT_KEYWORDS.test(instruction)) {
       screenshotCtx = captureEditorScreenshot() ?? undefined;
     }
-    void sendAgentInstruction(instruction, screenshotCtx);
+    void sendAgentInstruction(instruction, displayText, screenshotCtx);
   }, [captureEditorScreenshot, sendAgentInstruction]);
 
   useEffect(() => {
