@@ -75,7 +75,12 @@ interface Project {
   }>;
 }
 
-const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "generating_video", "in_progress"];
+const ACTIVE_STATUSES: ProjectStatus[] = [
+  "queued",
+  "generating_script",
+  "generating_video",
+  "in_progress",
+];
 
 function timeAgo(iso?: string): string {
   if (!iso) return "";
@@ -90,17 +95,43 @@ function timeAgo(iso?: string): string {
 
 function StatusPill({ status }: { status: ProjectStatus }) {
   const config: Record<ProjectStatus, { label: string; className: string }> = {
-    queued: { label: "Queued", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    generating_script: { label: "Generating Script", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    script_ready: { label: "Script Ready", className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
-    generating_video: { label: "Generating Video", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    in_progress: { label: "Generating Video", className: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    completed: { label: "Completed", className: "bg-green-500/20 text-green-300 border-green-500/30" },
-    failed: { label: "Failed", className: "bg-red-500/20 text-red-300 border-red-500/30" },
+    queued: {
+      label: "Queued",
+      className: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    },
+    generating_script: {
+      label: "Generating Script",
+      className: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    },
+    script_ready: {
+      label: "Script Ready",
+      className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+    },
+    generating_video: {
+      label: "Generating Video",
+      className: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+    },
+    in_progress: {
+      label: "Generating Video",
+      className: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+    },
+    completed: {
+      label: "Completed",
+      className: "bg-green-500/20 text-green-300 border-green-500/30",
+    },
+    failed: {
+      label: "Failed",
+      className: "bg-red-500/20 text-red-300 border-red-500/30",
+    },
   };
   const { label, className } = config[status] ?? config.failed;
   return (
-    <span className={cn("text-xs px-2.5 py-1 rounded-full border font-medium", className)}>
+    <span
+      className={cn(
+        "text-xs px-2.5 py-1 rounded-full border font-medium",
+        className,
+      )}
+    >
       {label}
     </span>
   );
@@ -116,7 +147,9 @@ function ScriptReadyPanel({
   onApprove: () => Promise<void>;
 }) {
   const [hook, setHook] = useState(project.hook ?? "");
-  const [voiceover, setVoiceover] = useState(project.voiceover_full_script ?? "");
+  const [voiceover, setVoiceover] = useState(
+    project.voiceover_full_script ?? "",
+  );
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -130,11 +163,16 @@ function ScriptReadyPanel({
       setSaveError(null);
       const updatedScript = {
         ...(project.script ?? {}),
-        hook: { ...(project.script?.hook as Record<string, unknown> ?? {}), text: hook },
+        hook: {
+          ...((project.script?.hook as Record<string, unknown>) ?? {}),
+          text: hook,
+        },
         voiceover_full_script: voiceover,
       };
       try {
-        await apiClient.put(`/api/v1/projects/${project.project_id}/script`, { script: updatedScript });
+        await apiClient.put(`/api/v1/projects/${project.project_id}/script`, {
+          script: updatedScript,
+        });
       } catch {
         setSaveError("Failed to save edits");
       } finally {
@@ -147,13 +185,20 @@ function ScriptReadyPanel({
     <div className="flex flex-col gap-6">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Hook</label>
+          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+            Hook
+          </label>
           {saving && <span className="text-xs text-white/30">Saving...</span>}
-          {saveError && <span className="text-xs text-red-400">{saveError}</span>}
+          {saveError && (
+            <span className="text-xs text-red-400">{saveError}</span>
+          )}
         </div>
         <textarea
           value={hook}
-          onChange={(e) => { setHook(e.target.value); scheduleAutoSave(); }}
+          onChange={(e) => {
+            setHook(e.target.value);
+            scheduleAutoSave();
+          }}
           className="w-full bg-[#2a2a2a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 resize-none focus:outline-none focus:border-[#5a9ab5]/50 transition-colors"
           rows={2}
         />
@@ -172,7 +217,10 @@ function ScriptReadyPanel({
         </label>
         <textarea
           value={voiceover}
-          onChange={(e) => { setVoiceover(e.target.value); scheduleAutoSave(); }}
+          onChange={(e) => {
+            setVoiceover(e.target.value);
+            scheduleAutoSave();
+          }}
           className="w-full bg-[#2a2a2a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/80 placeholder-white/30 resize-none focus:outline-none focus:border-[#5a9ab5]/50 transition-colors leading-relaxed"
           rows={10}
         />
@@ -184,22 +232,38 @@ function ScriptReadyPanel({
           disabled={regenerating}
           onClick={async () => {
             setRegenerating(true);
-            try { await onRegenerate(); } finally { setRegenerating(false); }
+            try {
+              await onRegenerate();
+            } finally {
+              setRegenerating(false);
+            }
           }}
           className="flex-1 rounded-full border-white/20 text-white/70 hover:text-white hover:bg-white/10 bg-transparent"
         >
-          {regenerating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+          {regenerating ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <RefreshCw className="w-4 h-4 mr-2" />
+          )}
           Regenerate Script
         </Button>
         <Button
           disabled={approving}
           onClick={async () => {
             setApproving(true);
-            try { await onApprove(); } finally { setApproving(false); }
+            try {
+              await onApprove();
+            } finally {
+              setApproving(false);
+            }
           }}
           className="flex-1 rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
         >
-          {approving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ThumbsUp className="w-4 h-4 mr-2" />}
+          {approving ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <ThumbsUp className="w-4 h-4 mr-2" />
+          )}
           Approve & Generate Video
         </Button>
       </div>
@@ -209,25 +273,11 @@ function ScriptReadyPanel({
 
 function CompletedPanel({
   project,
-  onEditFromVersion,
 }: {
   project: Project;
-  onEditFromVersion: (exportId: string) => Promise<void>;
 }) {
   const platforms = Object.keys(project.video_urls ?? {});
   const { idToken } = useAuth();
-  const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
-  const editorExport = project.editor_export;
-  const hasEditedExport =
-    editorExport?.status === "completed" && !!editorExport.download_url;
-  const editHistory = (project.editor_export_history ?? []).filter(
-    (entry) =>
-      !!entry?.export_id &&
-      !!entry?.completed_at &&
-      !!entry?.download_url &&
-      entry.export_id !== editorExport?.export_id,
-  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -241,7 +291,9 @@ function CompletedPanel({
         {typeof project.scenes_count === "number" && (
           <div className="bg-[#2a2a2a] rounded-xl p-3 border border-white/10">
             <p className="text-xs text-white/40 mb-1">Scenes</p>
-            <p className="text-lg font-medium text-white">{project.scenes_count}</p>
+            <p className="text-lg font-medium text-white">
+              {project.scenes_count}
+            </p>
           </div>
         )}
         {platforms.length > 0 && (
@@ -252,145 +304,38 @@ function CompletedPanel({
         )}
       </div>
 
-      {platforms.filter(p => p !== 'master').length > 0 && (
+      {project.voiceover_full_script && (
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Download</label>
-          {platforms.filter(p => p !== 'master').map((platform) => (
-            <a
-              key={platform}
-              href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}${idToken ? `?token=${idToken}` : ''}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#2a2a2a] border border-white/10 hover:border-[#5a9ab5]/40 transition-colors group"
-            >
-              <span className="text-sm text-white/70 group-hover:text-white capitalize transition-colors">
-                {platform.replace(/_/g, " ")}
-              </span>
-              <Download className="w-4 h-4 text-white/40 group-hover:text-[#5a9ab5] transition-colors" />
-            </a>
-          ))}
+          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+            Voiceover Script
+          </label>
+          <div className="bg-[#2a2a2a] rounded-xl p-4 border border-white/10 text-sm text-white/70 leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar">
+            {project.voiceover_full_script}
+          </div>
         </div>
       )}
 
-      {hasEditedExport && (
-        <div className="flex flex-col gap-3 rounded-xl border border-[#5a9ab5]/25 bg-[#5a9ab5]/10 p-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium uppercase tracking-wider text-[#9fd0e2]">
-              Edited Export
-            </label>
-            <p className="text-sm text-white/70">
-              This is your separately rendered edited version. Your original generated video is still available above.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <a
-              href={editorExport.download_url ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center rounded-full bg-[#5a9ab5] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#7ab0c8]"
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Download Edited Export
-            </a>
-            <a
-              href={editorExport.download_url ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              Open Edited Export
-            </a>
-          </div>
-          {editorExport.completed_at && (
-            <p className="text-xs text-white/45">
-              Exported {timeAgo(editorExport.completed_at)}
-            </p>
-          )}
-        </div>
-      )}
-
-      {restoreError && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          {restoreError}
-        </div>
-      )}
-
-      {editHistory.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#2a2a2a] p-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium uppercase tracking-wider text-white/50">
-              Edit History
-            </label>
-            <p className="text-sm text-white/60">
-              Previous edited export versions are stored separately from your original generated video.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2">
-            {editHistory.map((entry, index) => (
-              <div
-                key={entry.export_id}
-                className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#242424] px-4 py-3 md:flex-row md:items-center md:justify-between"
+      {platforms.filter((p) => p !== "master").length > 0 && (
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+            Download
+          </label>
+          {platforms
+            .filter((p) => p !== "master")
+            .map((platform) => (
+              <a
+                key={platform}
+                href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}${idToken ? `?token=${idToken}` : ""}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#2a2a2a] border border-white/10 hover:border-[#5a9ab5]/40 transition-colors group"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">
-                    Edit {editHistory.length - index}
-                  </p>
-                  <p className="text-xs text-white/45">
-                    Exported {timeAgo(entry.completed_at)} • {entry.export_id.slice(0, 8)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <a
-                    href={entry.download_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center rounded-full bg-[#5a9ab5] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#7ab0c8]"
-                  >
-                    <Download className="mr-2 h-4 w-4" />
-                    Download
-                  </a>
-                  <a
-                    href={entry.download_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                  >
-                    Open
-                  </a>
-                  <Button
-                    type="button"
-                    disabled={!entry.project_json_snapshot || restoringExportId === entry.export_id}
-                    onClick={async () => {
-                      if (!entry.project_json_snapshot) return;
-                      const confirmed = window.confirm(
-                        "Open this version in the editor? Your current timeline will be replaced with this export's version.",
-                      );
-                      if (!confirmed) return;
-
-                      setRestoreError(null);
-                      setRestoringExportId(entry.export_id);
-                      try {
-                        await onEditFromVersion(entry.export_id);
-                      } catch (err) {
-                        setRestoreError(err instanceof Error ? err.message : "Failed to open this version");
-                        setRestoringExportId(null);
-                      }
-                    }}
-                    className="rounded-full bg-white/5 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {restoringExportId === entry.export_id ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Opening...
-                      </>
-                    ) : (
-                      "Edit"
-                    )}
-                  </Button>
-                </div>
-              </div>
+                <span className="text-sm text-white/70 group-hover:text-white capitalize transition-colors">
+                  {platform.replace(/_/g, " ")}
+                </span>
+                <Download className="w-4 h-4 text-white/40 group-hover:text-[#5a9ab5] transition-colors" />
+              </a>
             ))}
-          </div>
         </div>
       )}
     </div>
@@ -399,21 +344,29 @@ function CompletedPanel({
 
 function VideoConfigPanel({ project }: { project: Project }) {
   const cfg = project.pipeline_config ?? {};
-  
+
   // Format helpers
-  const formatKey = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  
+  const formatKey = (key: string) =>
+    key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+
   // Group configuration items
   const visualSettings = [];
-  if (cfg.art_style_override) visualSettings.push({ label: 'Art Style', value: cfg.art_style_override });
-  if (cfg.caption_style) visualSettings.push({ label: 'Captions', value: cfg.caption_style });
-  
+  if (cfg.art_style_override)
+    visualSettings.push({ label: "Art Style", value: cfg.art_style_override });
+  if (cfg.caption_style)
+    visualSettings.push({ label: "Captions", value: cfg.caption_style });
+
   const contentSettings = [];
-  if (cfg.video_duration) contentSettings.push({ label: 'Duration', value: `${cfg.video_duration}s` });
-  if (cfg.voice_id) contentSettings.push({ label: 'Voice Profile', value: cfg.voice_id });
+  if (cfg.video_duration)
+    contentSettings.push({
+      label: "Duration",
+      value: `${cfg.video_duration}s`,
+    });
+  if (cfg.voice_id)
+    contentSettings.push({ label: "Voice Profile", value: cfg.voice_id });
   const platforms = cfg.target_platforms as string[] | undefined;
   if (platforms && platforms.length > 0) {
-      contentSettings.push({ label: 'Platforms', value: platforms.join(', ') });
+    contentSettings.push({ label: "Platforms", value: platforms.join(", ") });
   }
 
   return (
@@ -423,17 +376,21 @@ function VideoConfigPanel({ project }: { project: Project }) {
           <Settings className="w-4 h-4 text-[#5a9ab5]" />
           Video Configuration
         </h3>
-        
+
         <div className="grid grid-cols-2 gap-y-6 gap-x-4">
           {/* Visual Profile */}
           {visualSettings.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Visual Profile</p>
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">
+                Visual Profile
+              </p>
               <ul className="space-y-2">
-                {visualSettings.map(s => (
+                {visualSettings.map((s) => (
                   <li key={s.label} className="flex justify-between text-sm">
                     <span className="text-white/60">{s.label}</span>
-                    <span className="text-white text-right capitalize">{String(s.value).replace(/_/g, ' ')}</span>
+                    <span className="text-white text-right capitalize">
+                      {String(s.value).replace(/_/g, " ")}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -443,12 +400,16 @@ function VideoConfigPanel({ project }: { project: Project }) {
           {/* Content Rules */}
           {contentSettings.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">Content Rules</p>
+              <p className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">
+                Content Rules
+              </p>
               <ul className="space-y-2">
-                {contentSettings.map(s => (
+                {contentSettings.map((s) => (
                   <li key={s.label} className="flex justify-between text-sm">
                     <span className="text-white/60">{s.label}</span>
-                    <span className="text-white text-right capitalize">{String(s.value).replace(/_/g, ' ')}</span>
+                    <span className="text-white text-right capitalize">
+                      {String(s.value).replace(/_/g, " ")}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -470,7 +431,14 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isActive = project ? ACTIVE_STATUSES.includes(project.status) : false;
+  const isCompleted = project?.status === "completed";
 
   const fetchProject = useCallback(async () => {
     try {
@@ -491,7 +459,6 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (!project) return;
-    const isActive = ACTIVE_STATUSES.includes(project.status);
     if (isActive) {
       pollRef.current = setInterval(fetchProject, 5000);
     } else {
@@ -500,18 +467,23 @@ export default function ProjectDetailPage() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [project, fetchProject]);
+  }, [project, fetchProject, isActive]);
 
   async function handleRegenerate() {
     if (!project) return;
     const cfg = project.pipeline_config ?? {};
-    await apiClient.post(`/api/v1/projects/${project.project_id}/queue-script`, { ...cfg });
+    await apiClient.post(
+      `/api/v1/projects/${project.project_id}/queue-script`,
+      { ...cfg },
+    );
     await fetchProject();
   }
 
   async function handleApprove() {
     if (!project) return;
-    await apiClient.post(`/api/v1/projects/${project.project_id}/approve-script`);
+    await apiClient.post(
+      `/api/v1/projects/${project.project_id}/approve-script`,
+    );
     await fetchProject();
   }
 
@@ -521,20 +493,25 @@ export default function ProjectDetailPage() {
     await fetchProject();
   }
 
-  async function handleEditFromVersion(exportId: string) {
+  async function handleEditFromVersion(exportId: string, newTab = false) {
     if (!project) throw new Error("Project is not loaded");
-    await apiClient.post(`/api/v1/projects/${project.project_id}/restore-export-version`, {
-      export_id: exportId,
-    });
-    router.push(`/projects/${project.project_id}/edit`);
+    await apiClient.post(
+      `/api/v1/projects/${project.project_id}/restore-export-version`,
+      {
+        export_id: exportId,
+      },
+    );
+    const url = `/projects/${project.project_id}/edit`;
+    if (newTab) {
+      window.open(url, "_blank");
+    } else {
+      router.push(url);
+    }
   }
 
   const firstPlatform = project
     ? (Object.keys(project.video_urls ?? {})[0] ?? "master")
     : "master";
-
-  const isActive = project ? ACTIVE_STATUSES.includes(project.status) : false;
-  const isCompleted = project?.status === "completed";
 
   return (
     <div className="flex min-h-screen bg-[#2B2B2B]">
@@ -543,7 +520,7 @@ export default function ProjectDetailPage() {
       <div
         className={cn(
           "flex-1 flex flex-col min-h-screen transition-all duration-300",
-          isCollapsed ? "ml-[80px]" : "ml-[280px]"
+          isCollapsed ? "ml-[80px]" : "ml-[280px]",
         )}
       >
         {/* Header */}
@@ -563,7 +540,8 @@ export default function ProjectDetailPage() {
         <main className="px-8 py-8 flex-1">
           {loading && (
             <div className="flex items-center justify-center py-24 text-white/40">
-              <Loader2 className="w-6 h-6 animate-spin mr-3" /> Loading project...
+              <Loader2 className="w-6 h-6 animate-spin mr-3" /> Loading
+              project...
             </div>
           )}
 
@@ -603,10 +581,10 @@ export default function ProjectDetailPage() {
                   <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10">
                     {isCompleted ? (
                       <video
-                        src={`${API}/api/v1/projects/${projectId}/stream/${firstPlatform}${idToken ? `?token=${idToken}` : ''}`}
+                        src={`${API}/api/v1/projects/${projectId}/stream/${firstPlatform}${idToken ? `?token=${idToken}` : ""}`}
                         controls
                         className="w-full h-full object-contain"
-                        poster={`${API}/api/v1/projects/${projectId}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
+                        poster={`${API}/api/v1/projects/${projectId}/thumbnail${idToken ? `?token=${idToken}` : ""}`}
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
@@ -620,7 +598,10 @@ export default function ProjectDetailPage() {
                         ) : project.status === "script_ready" ? (
                           <>
                             <CheckCircle2 className="w-10 h-10 text-yellow-400/60" />
-                            <p className="text-xs text-white/40 text-center">Script ready — review and approve to generate video</p>
+                            <p className="text-xs text-white/40 text-center">
+                              Script ready — review and approve to generate
+                              video
+                            </p>
                           </>
                         ) : project.status === "failed" ? (
                           <AlertCircle className="w-10 h-10 text-red-400/60" />
@@ -631,14 +612,16 @@ export default function ProjectDetailPage() {
                     )}
 
                     {/* Progress bar */}
-                    {isActive && typeof project.progress_pct === "number" && project.progress_pct > 0 && (
-                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
-                        <div
-                          className="h-full bg-[#5a9ab5] transition-all duration-500"
-                          style={{ width: `${project.progress_pct}%` }}
-                        />
-                      </div>
-                    )}
+                    {isActive &&
+                      typeof project.progress_pct === "number" &&
+                      project.progress_pct > 0 && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+                          <div
+                            className="h-full bg-[#5a9ab5] transition-all duration-500"
+                            style={{ width: `${project.progress_pct}%` }}
+                          />
+                        </div>
+                      )}
                   </div>
                 </div>
 
@@ -662,40 +645,155 @@ export default function ProjectDetailPage() {
                   {project.status === "completed" && (
                     <CompletedPanel
                       project={project}
-                      onEditFromVersion={handleEditFromVersion}
                     />
                   )}
 
-                  {project.status === "failed" && (
-                    <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
-                      <AlertCircle className="w-12 h-12 text-red-400 opacity-70" />
-                      <p className="text-white font-medium">Generation Failed</p>
-                      {project.error && (
-                        <p className="text-red-400/80 text-sm max-w-sm">{project.error}</p>
-                      )}
-                      {project.error_code && (
-                        <p className="text-white/35 text-xs">
-                          Error code: {project.error_code}
-                          {typeof project.script_attempt_count === "number" ? ` • Attempts: ${project.script_attempt_count}` : ""}
-                        </p>
-                      )}
-                      {project.retryable && (
-                        <Button
-                          onClick={handleRetryScript}
-                          className="rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
-                        >
-                          <RefreshCw className="w-4 h-4 mr-2" />
-                          Retry Script
-                        </Button>
-                      )}
-                    </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
-        </main>
+
+                {/* NEW: Version History Section (Full Width) */}
+                {isCompleted && project.editor_export_history && project.editor_export_history.length > 0 && (
+                  <div className="mt-12 pt-12 border-t border-white/10">
+                    <div className="flex items-center justify-between mb-8">
+                      <div>
+                        <h2 className="text-xl font-medium text-white flex items-center gap-2">
+                          <Clock className="w-5 h-5 text-[#5a9ab5]" />
+                          Version History
+                        </h2>
+                        <p className="text-sm text-white/40 mt-1">
+                          Review and restore previous export versions of your video.
+                        </p>
+                      </div>
+                    </div>
+
+                    {restoreError && (
+                      <div className="flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-4">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span className="text-sm">{restoreError}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {(project.editor_export_history ?? [])
+                        .filter((entry) => !!entry?.export_id && !!entry?.completed_at && !!entry?.download_url)
+                        .filter((entry) => entry.export_id !== project.editor_export?.export_id)
+                        .map((entry, index, arr) => (
+                          <motion.div
+                            key={entry.export_id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="group relative flex items-center gap-6 p-4 rounded-2xl bg-[#2a2a2a] border border-white/5 hover:border-white/10 hover:bg-[#323232] transition-all"
+                          >
+                            {/* Version Thumbnail */}
+                            <div className="w-32 aspect-video rounded-lg overflow-hidden bg-black/40 border border-white/10 relative shrink-0">
+                              {entry.thumbnail_url ? (
+                                <img 
+                                  src={`${API}/api/v1/projects/${project.project_id}/thumbnail-export/${entry.export_id}${idToken ? `?token=${idToken}` : ""}`}
+                                  alt={`Version ${arr.length - index}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Video className="w-6 h-6 text-white/10" />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-semibold text-white">
+                                  Version {arr.length - index}
+                                </h4>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-white/40 font-mono uppercase">
+                                  {entry.export_id.slice(0, 8)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs text-white/40">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  Exported {timeAgo(entry.completed_at)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={entry.download_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="h-10 px-4 flex items-center justify-center rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+                              >
+                                <Download className="w-4 h-4 mr-2 text-white/50" />
+                                Download
+                              </a>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!entry.project_json_snapshot || restoringExportId === entry.export_id}
+                                onClick={async () => {
+                                  if (!entry.project_json_snapshot) return;
+
+                                  setRestoreError(null);
+                                  setRestoringExportId(entry.export_id);
+                                  try {
+                                    await handleEditFromVersion(entry.export_id, true);
+                                    setRestoringExportId(null);
+                                  } catch (err) {
+                                    setRestoreError(err instanceof Error ? err.message : "Failed to open version for editing");
+                                    setRestoringExportId(null);
+                                  }
+                                }}
+                                className="h-10 px-4 rounded-xl border-[#5a9ab5]/30 bg-[#5a9ab5]/10 text-[#5a9ab5] hover:bg-[#5a9ab5] hover:text-white transition-all transition-colors"
+                              >
+                                {restoringExportId === entry.export_id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                ) : (
+                                  <Settings className="w-4 h-4 mr-2" />
+                                )}
+                                Edit
+                              </Button>
+                            </div>
+                          </motion.div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {project.status === "failed" && (
+                  <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
+                    <AlertCircle className="w-12 h-12 text-red-400 opacity-70" />
+                    <p className="text-white font-medium">Generation Failed</p>
+                    {project.error && (
+                      <p className="text-red-400/80 text-sm max-w-sm">
+                        {project.error}
+                      </p>
+                    )}
+                    {project.error_code && (
+                      <p className="text-white/35 text-xs">
+                        Error code: {project.error_code}
+                        {typeof project.script_attempt_count === "number"
+                          ? ` • Attempts: ${project.script_attempt_count}`
+                          : ""}
+                      </p>
+                    )}
+                    {project.retryable && (
+                      <Button
+                        onClick={handleRetryScript}
+                        className="rounded-full bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Retry Script
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </main>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
