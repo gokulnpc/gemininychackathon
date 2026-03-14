@@ -3,16 +3,21 @@
 import type { RefObject } from "react";
 import { useCallback, useRef, useState } from "react";
 import {
+  Check,
+  ChevronUp,
   Loader2,
   Mic,
   MicOff,
   Monitor,
   MonitorOff,
   Pause,
+  Pencil,
   Play,
+  ScanEye,
   Search,
   Send,
   Sparkles,
+  Wand2,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -189,38 +194,109 @@ function detectOptionSet(text: string): DetectResult | null {
   return null;
 }
 
-const QUICK_ACTIONS = [
+type AgentMode = "live_edit" | "creative" | "screen_aware";
+
+const MODES = [
   {
-    label: "Change music",
-    instruction:
-      "Change the background music. Ask which preset: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria (AI-generated), none.",
-  },
-  // {
-  //   label: "Add text overlay",
-  //   instruction:
-  //     "Add a text overlay to the video. First ask me what text to display (a single question only). Only after I provide the text, ask where to place it (top / middle / bottom).",
-  // },
-  {
-    label: "Swap selected image",
-    instruction:
-      "Swap the currently selected image with a public stock photo. Do NOT call get_user_assets — the user will @mention their own uploaded assets in the chat if they want to use them. Just ask which stock photo they want from the chips shown, or wait for them to @mention an asset.",
+    key: "live_edit" as AgentMode,
+    label: "Live Edit",
+    Icon: Pencil,
+    description: "Apply confirmed edits to the timeline",
+    placeholder: "Tell Scout what to change...",
+    accent: "text-sky-400",
+    activeBg: "bg-sky-500/30 text-sky-100 shadow-sm",
   },
   {
-    label: "Creative direction ✨",
-    instruction:
-      "Generate creative direction for this video — visual concepts, hook ideas, caption themes, and mood suggestions with generated preview images. Use mode=social_content.",
+    key: "creative" as AgentMode,
+    label: "Creative",
+    Icon: Wand2,
+    description: "Generate visual concepts, images & ideas",
+    placeholder: "Describe a creative direction or concept...",
+    accent: "text-violet-400",
+    activeBg: "bg-violet-500/30 text-violet-100 shadow-sm",
   },
   {
-    label: "New thumbnail ✨",
-    instruction:
-      "Generate 2 new clickbait thumbnail options for this video based on what you see on screen. Use the current screen as reference.",
-  },
-  {
-    label: "Adjust volume",
-    instruction:
-      "Adjust the background music or voiceover volume. Ask me whether to adjust music or voiceover, and whether to make it louder or quieter.",
+    key: "screen_aware" as AgentMode,
+    label: "Screen Aware",
+    Icon: ScanEye,
+    description: "Analyse the canvas and act on what's visible",
+    placeholder: "What do you see? Ask Scout to analyse or fix it...",
+    accent: "text-emerald-400",
+    activeBg: "bg-emerald-500/30 text-emerald-100 shadow-sm",
   },
 ] as const;
+
+const MODE_QUICK_ACTIONS: Record<
+  AgentMode,
+  readonly { label: string; instruction: string }[]
+> = {
+  live_edit: [
+    {
+      label: "Change music",
+      instruction:
+        "Change the background music. Ask which preset: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria (AI-generated), none.",
+    },
+    {
+      label: "Swap selected image",
+      instruction:
+        "Swap the currently selected image with a public stock photo. Do NOT call get_user_assets — the user will @mention their own uploaded assets in the chat if they want to use them. Just ask which stock photo they want from the chips shown, or wait for them to @mention an asset.",
+    },
+    {
+      label: "Adjust volume",
+      instruction:
+        "Adjust the background music or voiceover volume. Ask me whether to adjust music or voiceover, and whether to make it louder or quieter.",
+    },
+    {
+      label: "Add text overlay",
+      instruction:
+        "Add a text overlay to the video. First ask me what text to display (a single question only). Only after I provide the text, ask where to place it (top / middle / bottom).",
+    },
+  ],
+  creative: [
+    {
+      label: "Creative direction ✦",
+      instruction:
+        "Generate creative direction for this video — visual concepts, hook ideas, caption themes, and mood suggestions with generated preview images. Use mode=social_content.",
+    },
+    {
+      label: "New thumbnail ✦",
+      instruction:
+        "Generate 2 new clickbait thumbnail options for this video based on what you see on screen. Use the current screen as reference.",
+    },
+    {
+      label: "Generate image ✦",
+      instruction:
+        "Generate an AI image for the currently selected scene and replace it. First check what is selected, then generate a fitting image based on the video's theme.",
+    },
+    {
+      label: "Style preview ✦",
+      instruction:
+        "Show me a style preview — generate a visual concept image that captures the overall mood and aesthetic direction for this video.",
+    },
+  ],
+  screen_aware: [
+    {
+      label: "Inspect screen",
+      instruction:
+        "Analyse my screen carefully. What do you see? Note any visual improvements I could make — text positioning, caption style, contrast, pacing. Maximum 3 sentences.",
+    },
+    {
+      label: "What's wrong?",
+      instruction:
+        "Look at what's visible on screen and tell me the top 2–3 things I should fix to make this video more engaging.",
+    },
+    {
+      label: "Suggest edits",
+      instruction:
+        "Based on what you see on screen, suggest the most impactful edit I could make right now and apply it.",
+    },
+    {
+      label: "Fix selected element",
+      instruction:
+        "Look at the currently selected element on screen. What's wrong with it and how should I improve it? Then apply the fix.",
+    },
+  ],
+};
 
 function renderAgentText(text: string): React.ReactNode {
   const parts = text
@@ -376,6 +452,9 @@ export function AgentPanel({
   revertLastEdit,
   hasUndo,
 }: AgentPanelProps) {
+  const [agentMode, setAgentMode] = useState<AgentMode>("live_edit");
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const activeMode = MODES.find((m) => m.key === agentMode)!;
   const [mentionState, setMentionState] = useState<MentionState | null>(null);
   const [pendingChipsLabel, setPendingChipsLabel] = useState<string | null>(
     null,
@@ -485,8 +564,8 @@ export function AgentPanel({
           </div>
           <div>
             <p className="text-sm font-semibold text-editor-text">AI Copilot</p>
-            <p className="text-xs text-editor-text-muted">
-              Live edits · Creative preview · Screen analysis
+            <p className="text-[10px] text-editor-text-dim">
+              {activeMode.description}
             </p>
           </div>
         </div>
@@ -699,7 +778,10 @@ export function AgentPanel({
                   </p>
                   <div className="flex flex-col gap-2">
                     {msg.thumbnailOptions.map((opt: ThumbnailOption) => (
-                      <div key={opt.index} className="group overflow-hidden rounded-lg border border-editor-border">
+                      <div
+                        key={opt.index}
+                        className="group overflow-hidden rounded-lg border border-editor-border"
+                      >
                         <img
                           src={`data:${opt.mime_type};base64,${opt.image_b64}`}
                           alt={`Thumbnail option ${opt.index + 1}`}
@@ -707,7 +789,12 @@ export function AgentPanel({
                         />
                         <button
                           type="button"
-                          onClick={() => handleSend(`Apply thumbnail option ${opt.index + 1}`, `Apply thumbnail ${opt.index + 1}`)}
+                          onClick={() =>
+                            handleSend(
+                              `Apply thumbnail option ${opt.index + 1}`,
+                              `Apply thumbnail ${opt.index + 1}`,
+                            )
+                          }
                           disabled={agentLoading}
                           className="w-full border-t border-editor-border bg-editor-surface-raised py-1.5 text-xs font-medium text-foreground/70 transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
                         >
@@ -805,7 +892,7 @@ export function AgentPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-t border-editor-border px-3 py-2">
-        {QUICK_ACTIONS.map(({ label, instruction }) => (
+        {MODE_QUICK_ACTIONS[agentMode].map(({ label, instruction }) => (
           <button
             key={label}
             type="button"
@@ -875,14 +962,67 @@ export function AgentPanel({
                 handleSend(agentInput);
               }
             }}
-            placeholder="Describe your edit... (type @ to tag an asset)"
+            placeholder={`${activeMode.placeholder} (type @ to tag an asset)`}
             rows={2}
             className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder-muted-foreground focus:outline-none"
           />
           <div className="mt-2 flex items-center justify-between">
-            <p className="text-[11px] text-editor-text-dim">
-              Live edits update the timeline immediately.
-            </p>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowModeMenu((v) => !v)}
+                className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-editor-text-dim transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <activeMode.Icon className="h-3 w-3" />
+                {activeMode.label}
+                <ChevronUp className="h-2.5 w-2.5" />
+              </button>
+
+              {showModeMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowModeMenu(false)}
+                  />
+                  <div className="absolute bottom-full left-0 z-50 mb-1.5 w-52 overflow-hidden rounded-xl border border-editor-border bg-editor-surface shadow-xl">
+                    {MODES.map((mode) => {
+                      const Icon = mode.Icon;
+                      const isActive = agentMode === mode.key;
+                      return (
+                        <button
+                          key={mode.key}
+                          type="button"
+                          onClick={() => {
+                            setAgentMode(mode.key);
+                            setShowModeMenu(false);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-editor-surface-raised",
+                            isActive ? "text-foreground" : "text-foreground/60",
+                          )}
+                        >
+                          <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+                            {isActive ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Icon className="h-3.5 w-3.5" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-[12px] font-medium leading-tight">
+                              {mode.label}
+                            </p>
+                            <p className="text-[10px] text-editor-text-dim">
+                              {mode.description}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"

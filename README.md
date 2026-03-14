@@ -145,58 +145,7 @@ Direct YouTube upload via OAuth2. Instagram / TikTok manual download with format
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                     Browser (Next.js 15 App Router)                  │
-│  10-step wizard · project dashboard · Twick timeline editor          │
-│  Scout agent panel · screen capture (getDisplayMedia) · VAD mic      │
-└──────────┬───────────────────────────────────┬───────────────────────┘
-           │  REST + WebSocket + SSE            │
-           ▼                                    ▼
-┌──────────────────────────────┐  ┌────────────────────────────────────┐
-│  voicevid-api                │  │  Timeline Render Worker            │
-│  (Cloud Run, 512 MB, ×10)    │  │  (Cloud Run, Node.js)              │
-│  FastAPI + Uvicorn           │  │  Puppeteer + Twick + FFmpeg        │
-│                              │  │  POST /render  →  MP4              │
-│  /generate-script ──► Agent  │  └────────────────────────────────────┘
-│  /generate-video  ──► Tasks  │
-│  /recompose       ──► GCS    │
-│  /creative-director ──► AI   │
-│  /transcribe      ──► Gemini │
-│  /edit-voice  (WS)──► Scout  │  ← screen frames + audio in
-│  /edit-agent  (SSE)──► Scout │
-│  /live-voice  (WS)──► Gemini │
-└──────────┬───────────────────┘
-           │ Cloud Tasks
-           ▼
-┌──────────────────────────────┐   ┌──────────────────────────────────┐
-│  voicevid-worker             │   │       Google Cloud Services       │
-│  (Cloud Run, 4 GB, ×5)       │   │                                   │
-│  containerConcurrency: 1     │   │  Cloud Firestore  — metadata      │
-│                              │   │  Cloud Storage    — assets        │
-│  Stage 3  TTS (Gemini)       │   │  Cloud Tasks      — job queue     │
-│  Stage 4  Image Gen          │   │  Secret Manager   — secrets       │
-│  Stage 4b Thumbnail          │   │  Artifact Registry — Docker       │
-│  Stage 4c Visual QA          │   │  Cloud Build      — CI/CD         │
-│  Stage 5  Captions           │   │  Vertex AI        — Gemini 2.5    │
-│  Stage 6  Compose (FFmpeg)   │   └──────────────────────────────────┘
-│  Stage 7  Export + GCS       │
-└──────────┬───────────────────┘
-           │
-           ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                     Gemini API / Vertex AI                           │
-│                                                                      │
-│  gemini-2.5-pro                  Script ReAct agent (14-turn loop)   │
-│  gemini-2.5-flash                Secondary reasoning                 │
-│  gemini-2.5-flash-preview-tts    Voiceover TTS → WAV                 │
-│  gemini-image-3.1-flash          Scene image generation              │
-│  gemini-2.0-flash-preview-       Creative Director interleaved       │
-│    image-generation                text+image stream                 │
-│  gemini-2.5-flash-native-        Scout voice agent (Live API)        │
-│    audio-preview                   real-time audio, screen frames    │
-└──────────────────────────────────────────────────────────────────────┘
-```
+![Architecture Diagram](docs/architecture.svg)
 
 ---
 

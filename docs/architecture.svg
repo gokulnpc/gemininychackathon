@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 680" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+
+  <!-- ── ARROW MARKERS ── -->
+  <defs>
+    <marker id="ah" viewBox="0 0 10 7" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#5f6368"/>
+    </marker>
+    <marker id="ah-red" viewBox="0 0 10 7" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#EA4335"/>
+    </marker>
+    <marker id="ah-blue" viewBox="0 0 10 7" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#4285F4"/>
+    </marker>
+    <marker id="ah-yellow" viewBox="0 0 10 7" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#F9AB00"/>
+    </marker>
+    <marker id="ah-yellow-r" viewBox="0 0 10 7" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto-start-reverse">
+      <polygon points="0 0,10 3.5,0 7" fill="#F9AB00"/>
+    </marker>
+    <marker id="ah-purple" viewBox="0 0 10 7" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#9C27B0"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="680" fill="#FAFAFA"/>
+
+  <!-- ══════════════════════════════════════════════════
+       TITLE
+  ══════════════════════════════════════════════════ -->
+  <text x="550" y="20" text-anchor="middle" font-size="14" font-weight="700" fill="#202124">Story Factory — System Architecture (Gemini Live Agent Challenge)</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ROW 1 · BROWSER
+  ══════════════════════════════════════════════════ -->
+  <rect x="30" y="30" width="1040" height="72" rx="8" fill="#E8F0FE" stroke="#4285F4" stroke-width="2"/>
+  <!-- header bar -->
+  <rect x="30" y="30" width="1040" height="24" rx="8" fill="#4285F4"/>
+  <rect x="30" y="42" width="1040" height="12" fill="#4285F4"/>
+  <text x="550" y="47" text-anchor="middle" font-size="12" font-weight="700" fill="#FFFFFF">Browser — Next.js 15 · React 19 · Tailwind CSS v4</text>
+  <!-- body text -->
+  <text x="550" y="70" text-anchor="middle" font-size="10.5" fill="#3c4043">10-step Creation Wizard  ·  Twick Timeline Editor  ·  Scout Agent Panel (voice + quick-action chips)</text>
+  <text x="550" y="88" text-anchor="middle" font-size="10.5" fill="#3c4043">Screen Capture via getDisplayMedia (1 FPS JPEG)  ·  Voice Activity Detection (VAD mic)  ·  Firebase Auth</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ARROW 1: Browser → voicevid-api
+  ══════════════════════════════════════════════════ -->
+  <line x1="262" y1="102" x2="262" y2="127" stroke="#5f6368" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="165" y="119" font-size="10" fill="#5f6368" text-anchor="middle">REST + WS + SSE</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ROW 2 LEFT · VOICEVID-API
+  ══════════════════════════════════════════════════ -->
+  <rect x="30" y="130" width="505" height="205" rx="8" fill="#E6F4EA" stroke="#34A853" stroke-width="2"/>
+  <rect x="30" y="130" width="505" height="24" rx="8" fill="#34A853"/>
+  <rect x="30" y="142" width="505" height="12" fill="#34A853"/>
+  <text x="282" y="147" text-anchor="middle" font-size="12" font-weight="700" fill="#FFFFFF">voicevid-api  ·  Cloud Run  ·  512 MB  ·  60s  ·  ×10 instances</text>
+  <!-- track badge -->
+  <rect x="38" y="159" width="102" height="14" rx="3" fill="#34A853" opacity="0.2"/>
+  <text x="89" y="170" font-size="9" font-weight="700" fill="#1e7e34" text-anchor="middle">⬤ Live Agents track</text>
+  <text x="38" y="191" font-size="10" fill="#202124" font-style="italic">FastAPI + Uvicorn — Public REST + WebSocket API</text>
+  <text x="38" y="208" font-size="10" fill="#3c4043">POST  /generate-script         Gemini 2.5 Pro ReAct agent (14-turn loop)</text>
+  <text x="38" y="223" font-size="10" fill="#3c4043">POST  /generate-video          Cloud Tasks enqueue → 7-stage pipeline</text>
+  <text x="38" y="238" font-size="10" fill="#3c4043">POST  /creative-director       Interleaved text + image streaming</text>
+  <text x="38" y="253" font-size="10" fill="#3c4043">WS    /edit-voice               Scout: audio in · screen frames · edits out</text>
+  <text x="38" y="268" font-size="10" fill="#3c4043">SSE   /edit-agent               Scout: text quick-action editing</text>
+  <text x="38" y="283" font-size="10" fill="#3c4043">WS    /live-voice               Gemini Live transcription + tone detection</text>
+  <text x="38" y="298" font-size="10" fill="#3c4043">POST  /recompose  ·  /publish  ·  /transcribe  ·  /ocr-pdf</text>
+  <text x="38" y="313" font-size="10" fill="#3c4043">GET   /projects  ·  /status  ·  /assets  ·  /presets  ·  /voices</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ARROW 2: voicevid-api ↔ Google Cloud (bidirectional)
+  ══════════════════════════════════════════════════ -->
+  <line x1="535" y1="224" x2="563" y2="224" stroke="#F9AB00" stroke-width="2" marker-end="url(#ah-yellow)" marker-start="url(#ah-yellow-r)"/>
+  <text x="549" y="217" font-size="9" fill="#b06000" text-anchor="middle">R/W</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ROW 2 RIGHT · GOOGLE CLOUD SERVICES
+  ══════════════════════════════════════════════════ -->
+  <rect x="565" y="130" width="505" height="205" rx="8" fill="#FEF7E0" stroke="#F9AB00" stroke-width="2"/>
+  <rect x="565" y="130" width="505" height="24" rx="8" fill="#F9AB00"/>
+  <rect x="565" y="142" width="505" height="12" fill="#F9AB00"/>
+  <text x="817" y="147" text-anchor="middle" font-size="12" font-weight="700" fill="#202124">Google Cloud Services  ·  us-central1</text>
+  <!-- Storage column -->
+  <text x="583" y="173" font-size="10.5" font-weight="700" fill="#202124">Storage &amp; Data</text>
+  <text x="583" y="190" font-size="10" fill="#3c4043">Cloud Firestore     project metadata (projects collection)</text>
+  <text x="583" y="206" font-size="10" fill="#3c4043">Cloud Storage       storylab-assets (video · audio · images)</text>
+  <text x="583" y="222" font-size="10" fill="#3c4043">Secret Manager      API keys · YouTube OAuth credentials</text>
+  <!-- Compute column -->
+  <text x="583" y="244" font-size="10.5" font-weight="700" fill="#202124">Compute &amp; CI/CD</text>
+  <text x="583" y="261" font-size="10" fill="#3c4043">Cloud Run            voicevid-api (public) + voicevid-worker (internal)</text>
+  <text x="583" y="277" font-size="10" fill="#3c4043">Cloud Tasks          video-generation queue  (2 retries, 1800s, 5 concurrent)</text>
+  <text x="583" y="293" font-size="10" fill="#3c4043">Artifact Registry    Docker image repository</text>
+  <text x="583" y="309" font-size="10" fill="#3c4043">Cloud Build          git push → build → deploy  (deploy.sh)</text>
+  <text x="583" y="325" font-size="10" fill="#3c4043">Vertex AI            Gemini 2.5 Pro stable inference</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ARROW 3: voicevid-api → Timeline Worker (purple dashed)
+  ══════════════════════════════════════════════════ -->
+  <line x1="118" y1="335" x2="118" y2="372" stroke="#9C27B0" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ah-purple)"/>
+  <text x="55" y="358" font-size="9.5" fill="#9C27B0">POST /render</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ARROW 4: voicevid-api → voicevid-worker (red, Cloud Tasks)
+  ══════════════════════════════════════════════════ -->
+  <line x1="370" y1="335" x2="430" y2="372" stroke="#EA4335" stroke-width="2" marker-end="url(#ah-red)"/>
+  <text x="440" y="360" font-size="9.5" fill="#EA4335">Cloud Tasks queue</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ARROW 5: voicevid-api → Gemini (blue dashed diagonal)
+  ══════════════════════════════════════════════════ -->
+  <line x1="500" y1="270" x2="855" y2="372" stroke="#4285F4" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ah-blue)"/>
+  <text x="720" y="315" font-size="9.5" fill="#4285F4" text-anchor="middle">Script Agent · Live Voice · Creative Director</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ROW 3 LEFT · TIMELINE RENDER WORKER
+  ══════════════════════════════════════════════════ -->
+  <rect x="30" y="375" width="248" height="225" rx="8" fill="#F3E8FD" stroke="#9C27B0" stroke-width="2"/>
+  <rect x="30" y="375" width="248" height="24" rx="8" fill="#9C27B0"/>
+  <rect x="30" y="387" width="248" height="12" fill="#9C27B0"/>
+  <text x="154" y="392" text-anchor="middle" font-size="11" font-weight="700" fill="#FFFFFF">Timeline Render Worker</text>
+  <!-- track badge -->
+  <rect x="38" y="403" width="112" height="14" rx="3" fill="#9C27B0" opacity="0.2"/>
+  <text x="94" y="414" font-size="9" font-weight="700" fill="#6a0dad" text-anchor="middle">⬤ UI Navigator track</text>
+  <text x="38" y="432" font-size="9.5" fill="#202124" font-style="italic">Cloud Run  ·  Node.js  ·  port 4001</text>
+  <text x="38" y="450" font-size="10" fill="#3c4043">POST /render  →  ProjectJSON → MP4</text>
+  <text x="38" y="466" font-size="10" fill="#3c4043">GET  /health</text>
+  <text x="38" y="487" font-size="10.5" font-weight="700" fill="#202124">Stack</text>
+  <text x="38" y="504" font-size="10" fill="#3c4043">Puppeteer (headless Chromium)</text>
+  <text x="38" y="520" font-size="10" fill="#3c4043">@twick/core + @twick/renderer</text>
+  <text x="38" y="536" font-size="10" fill="#3c4043">@twick/ffmpeg  →  576×1024 MP4</text>
+  <text x="38" y="558" font-size="10" fill="#777">Twick ProjectJSON → Puppeteer</text>
+  <text x="38" y="573" font-size="10" fill="#777">→ FFmpeg → exact fidelity MP4</text>
+  <text x="38" y="588" font-size="10" fill="#777">(no re-render of TTS/images)</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ROW 3 MIDDLE · VOICEVID-WORKER
+  ══════════════════════════════════════════════════ -->
+  <rect x="292" y="375" width="348" height="225" rx="8" fill="#FCE8E6" stroke="#EA4335" stroke-width="2"/>
+  <rect x="292" y="375" width="348" height="24" rx="8" fill="#EA4335"/>
+  <rect x="292" y="387" width="348" height="12" fill="#EA4335"/>
+  <text x="466" y="392" text-anchor="middle" font-size="11.5" font-weight="700" fill="#FFFFFF">voicevid-worker  ·  Cloud Run  ·  4 GB  ·  900s  ·  ×5</text>
+  <text x="308" y="412" font-size="9.5" fill="#202124" font-style="italic">containerConcurrency: 1  ·  Internal ingress only</text>
+  <text x="308" y="432" font-size="10" fill="#3c4043">Stage 3    TTS  →  Gemini 2.5 Flash TTS  →  WAV</text>
+  <text x="308" y="448" font-size="10" fill="#3c4043">Stage 4    Image Gen  →  Gemini 3.1 Flash  →  576×1024</text>
+  <text x="308" y="464" font-size="10" fill="#3c4043">Stage 4b   Thumbnail generation</text>
+  <text x="308" y="480" font-size="10" fill="#3c4043">Stage 4c   Visual QA  →  auto-regenerate on fail</text>
+  <text x="308" y="496" font-size="10" fill="#3c4043">Stage 5    Word-level SRT captions (8 style presets)</text>
+  <text x="308" y="512" font-size="10" fill="#3c4043">Stage 6    FFmpeg: Ken Burns + caption burn + music</text>
+  <text x="308" y="528" font-size="10" fill="#3c4043">Stage 7    Platform export (1080×1920)  →  GCS upload</text>
+  <text x="308" y="544" font-size="10" fill="#3c4043">           + Twick JSON timeline generation</text>
+  <text x="308" y="563" font-size="9" fill="#777">POST /worker/generate-video  (Cloud Tasks callback)</text>
+  <text x="308" y="578" font-size="9" fill="#777">POST /worker/generate-script  ·  /worker/generate-export</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ARROW 6: voicevid-worker → Gemini (blue dashed)
+  ══════════════════════════════════════════════════ -->
+  <line x1="640" y1="476" x2="653" y2="476" stroke="#4285F4" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ah-blue)"/>
+  <text x="647" y="468" font-size="9" fill="#4285F4" text-anchor="middle">TTS · Images</text>
+
+  <!-- ══════════════════════════════════════════════════
+       ROW 3 RIGHT · GEMINI API
+  ══════════════════════════════════════════════════ -->
+  <rect x="656" y="375" width="414" height="225" rx="8" fill="#E8F0FE" stroke="#4285F4" stroke-width="2"/>
+  <rect x="656" y="375" width="414" height="24" rx="8" fill="#4285F4"/>
+  <rect x="656" y="387" width="414" height="12" fill="#4285F4"/>
+  <text x="863" y="392" text-anchor="middle" font-size="12" font-weight="700" fill="#FFFFFF">Gemini API  ·  Vertex AI  ·  Google GenAI SDK</text>
+  <!-- table header -->
+  <text x="672" y="416" font-size="9.5" font-weight="700" fill="#202124">Model</text>
+  <text x="840" y="416" font-size="9.5" font-weight="700" fill="#202124">Purpose</text>
+  <line x1="672" y1="420" x2="1058" y2="420" stroke="#BBDEFB" stroke-width="1"/>
+  <!-- rows -->
+  <text x="672" y="436" font-size="9.5" fill="#1a237e">gemini-2.5-pro</text>
+  <text x="840" y="436" font-size="9.5" fill="#5f6368">Script ReAct agent (14-turn reasoning loop)</text>
+  <text x="672" y="452" font-size="9.5" fill="#1a237e">gemini-2.5-flash</text>
+  <text x="840" y="452" font-size="9.5" fill="#5f6368">Secondary reasoning &amp; analysis</text>
+  <text x="672" y="468" font-size="9.5" fill="#1a237e">gemini-2.5-flash-preview-tts</text>
+  <text x="840" y="468" font-size="9.5" fill="#5f6368">Voiceover synthesis → WAV + word timestamps</text>
+  <text x="672" y="484" font-size="9.5" fill="#1a237e">gemini-image-3.1-flash</text>
+  <text x="840" y="484" font-size="9.5" fill="#5f6368">Scene images 576×1024 (chained for consistency)</text>
+  <text x="672" y="500" font-size="9.5" fill="#1a237e">gemini-2.0-flash-preview-image</text>
+  <text x="840" y="500" font-size="9.5" fill="#5f6368">Creative Director — interleaved text+image stream</text>
+  <text x="672" y="516" font-size="9.5" fill="#1a237e">gemini-2.5-flash-native-audio</text>
+  <text x="840" y="516" font-size="9.5" fill="#5f6368">Scout Live Agent — voice + screen frames in real-time</text>
+  <line x1="672" y1="522" x2="1058" y2="522" stroke="#BBDEFB" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="672" y="538" font-size="9.5" fill="#1a237e">gemini-2.5-flash (Vision)</text>
+  <text x="840" y="538" font-size="9.5" fill="#5f6368">Transcription · OCR · Visual QA</text>
+  <text x="672" y="557" font-size="9" fill="#888">USE_VERTEX_AI=true/false toggles Vertex AI ↔ Gemini API key</text>
+  <text x="672" y="572" font-size="9" fill="#888">Preview models (TTS, image-gen) require API key — not Vertex AI</text>
+
+  <!-- ══════════════════════════════════════════════════
+       LEGEND
+  ══════════════════════════════════════════════════ -->
+  <rect x="30" y="614" width="1040" height="52" rx="6" fill="#F1F3F4" stroke="#DADCE0" stroke-width="1"/>
+
+  <!-- Arrow legend -->
+  <line x1="50" y1="632" x2="86" y2="632" stroke="#5f6368" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="90" y="636" font-size="9.5" fill="#5f6368">REST / WebSocket / SSE</text>
+
+  <line x1="240" y1="632" x2="276" y2="632" stroke="#EA4335" stroke-width="2" marker-end="url(#ah-red)"/>
+  <text x="280" y="636" font-size="9.5" fill="#EA4335">Cloud Tasks (async)</text>
+
+  <line x1="400" y1="632" x2="436" y2="632" stroke="#4285F4" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ah-blue)"/>
+  <text x="440" y="636" font-size="9.5" fill="#4285F4">Gemini API calls</text>
+
+  <line x1="565" y1="632" x2="601" y2="632" stroke="#9C27B0" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ah-purple)"/>
+  <text x="605" y="636" font-size="9.5" fill="#9C27B0">Timeline export (POST /render)</text>
+
+  <line x1="780" y1="632" x2="816" y2="632" stroke="#F9AB00" stroke-width="2" marker-end="url(#ah-yellow)" marker-start="url(#ah-yellow-r)"/>
+  <text x="820" y="636" font-size="9.5" fill="#b06000">Firestore / GCS reads + writes</text>
+
+  <!-- Track legend -->
+  <rect x="50" y="645" width="10" height="10" rx="2" fill="#34A853"/>
+  <text x="65" y="654" font-size="9.5" fill="#3c4043">Live Agents (primary)</text>
+
+  <rect x="200" y="645" width="10" height="10" rx="2" fill="#F9AB00"/>
+  <text x="215" y="654" font-size="9.5" fill="#3c4043">Creative Storyteller</text>
+
+  <rect x="340" y="645" width="10" height="10" rx="2" fill="#9C27B0"/>
+  <text x="355" y="654" font-size="9.5" fill="#3c4043">UI Navigator</text>
+
+  <rect x="460" y="645" width="10" height="10" rx="2" fill="#EA4335"/>
+  <text x="475" y="654" font-size="9.5" fill="#3c4043">7-stage video pipeline worker</text>
+
+  <rect x="650" y="645" width="10" height="10" rx="2" fill="#4285F4"/>
+  <text x="665" y="654" font-size="9.5" fill="#3c4043">Gemini API / Vertex AI</text>
+
+</svg>
