@@ -268,12 +268,15 @@ export default function EditorPage() {
                   agentInput={agentInput}
                   agentLoading={agentLoading}
                   isVoiceActive={voiceSession.isVoiceActive}
+                  isScreenShareActive={voiceSession.isScreenShareActive}
                   agentBottomRef={agentBottomRef}
                   setAgentPanelOpen={setAgentPanelOpen}
                   setAgentInput={setAgentInput}
                   sendAgentInstruction={sendAgentInstructionWithScreenshot}
                   startVoiceEdit={voiceSession.startVoiceEdit}
                   stopVoiceEdit={voiceSession.stopVoiceEdit}
+                  startScreenShare={voiceSession.startScreenShare}
+                  stopScreenShare={voiceSession.stopScreenShare}
                   onProjectJsonChange={syncProjectJson}
                   serializeProjectJson={(json) => serializeProjectJson(json) ?? json}
                   exportPortalRef={exportPortalRef}

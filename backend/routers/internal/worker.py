@@ -121,10 +121,13 @@ async def _run_script_generation(project_id: str) -> None:
         elif source == "text":
             transcript = cfg.get("transcript") or ""
             detected_tone = "conversational"
-        else:  # preset
+        elif source == "preset":
             from routers.generation.script import _PRESETS
             from models.schemas import PresetKey
-            preset_key = PresetKey(cfg["preset"])
+            preset_value = cfg.get("preset")
+            if not preset_value:
+                raise ValueError("Preset source requires a preset key")
+            preset_key = PresetKey(preset_value)
             preset_def = _PRESETS[preset_key]
             transcript = preset_def["topic"]
             if cfg.get("topic_hint"):
@@ -135,6 +138,8 @@ async def _run_script_generation(project_id: str) -> None:
                 reddit_ctx = await reddit.fetch_trending(niche=preset_def["niche"], transcript=transcript)
             except Exception as reddit_err:
                 logger.warning("Reddit context failed (non-fatal): %s", reddit_err)
+        else:
+            raise ValueError(f"Unsupported script source: {source}")
 
         # ── Step 2: Inject context preambles ─────────────────────────────────
         if cfg.get("plot_summary"):

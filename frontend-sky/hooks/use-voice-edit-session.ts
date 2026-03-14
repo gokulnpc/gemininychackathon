@@ -79,12 +79,17 @@ export function useVoiceEditSession({
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [voiceTurnState, setVoiceTurnStateState] = useState<VoiceTurnState>("idle");
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
+  const [isScreenShareActive, setIsScreenShareActive] = useState(false);
 
   const captureAudioCtxRef = useRef<AudioContext | null>(null);
   const playbackAudioCtxRef = useRef<AudioContext | null>(null);
   const playbackNodeRef = useRef<AudioWorkletNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recorderNodeRef = useRef<AudioWorkletNode | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const screenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const screenFrameIntervalRef = useRef<number | null>(null);
 
   const turnCounterRef = useRef(0);
   const currentTurnIdRef = useRef<string | null>(null);
@@ -485,6 +490,16 @@ export function useVoiceEditSession({
     playbackAudioCtxRef.current = null;
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
+    // Clean up screen share
+    if (screenFrameIntervalRef.current !== null) {
+      window.clearInterval(screenFrameIntervalRef.current);
+      screenFrameIntervalRef.current = null;
+    }
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    screenVideoRef.current = null;
+    screenCanvasRef.current = null;
+    setIsScreenShareActive(false);
     resetVadState();
     finishAgentMessage();
     clearActiveTurnRefs();
@@ -499,6 +514,75 @@ export function useVoiceEditSession({
   const stopVoiceEdit = useCallback(() => {
     cleanupVoiceSession(true);
   }, [cleanupVoiceSession]);
+
+  const stopScreenShare = useCallback(() => {
+    const ws = wsRef.current;
+    if (screenFrameIntervalRef.current !== null) {
+      window.clearInterval(screenFrameIntervalRef.current);
+      screenFrameIntervalRef.current = null;
+    }
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    screenVideoRef.current = null;
+    screenCanvasRef.current = null;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "screen_share_end" }));
+    }
+    setIsScreenShareActive(false);
+  }, [wsRef]);
+
+  const startScreenShare = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !sessionReadyRef.current) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      screenStreamRef.current = stream;
+
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      screenVideoRef.current = video;
+
+      const canvas = document.createElement("canvas");
+      screenCanvasRef.current = canvas;
+
+      ws.send(JSON.stringify({ type: "screen_share_start" }));
+      setIsScreenShareActive(true);
+
+      screenFrameIntervalRef.current = window.setInterval(() => {
+        const currentWs = wsRef.current;
+        const currentVideo = screenVideoRef.current;
+        const currentCanvas = screenCanvasRef.current;
+        if (
+          !currentWs ||
+          currentWs.readyState !== WebSocket.OPEN ||
+          !currentVideo ||
+          !currentCanvas ||
+          currentVideo.videoWidth === 0
+        ) return;
+
+        currentCanvas.width = currentVideo.videoWidth;
+        currentCanvas.height = currentVideo.videoHeight;
+        const ctx = currentCanvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(currentVideo, 0, 0);
+        const dataUrl = currentCanvas.toDataURL("image/jpeg", 0.8);
+        const base64 = dataUrl.split(",")[1];
+        if (base64) {
+          currentWs.send(JSON.stringify({ type: "screen_frame", data: base64 }));
+        }
+      }, 1000); // 1 FPS — Gemini Live maximum
+
+      // Handle user stopping via browser UI (clicking the stop button in browser chrome)
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        stopScreenShare();
+      });
+    } catch {
+      // Permission denied or screen share cancelled — no-op
+    }
+  }, [wsRef, stopScreenShare]);
 
   const startVoiceEdit = useCallback(async () => {
     if (isVoiceActiveRef.current) {
@@ -786,5 +870,8 @@ export function useVoiceEditSession({
     stopVoiceEdit,
     currentTurnId,
     voiceTurnState,
+    isScreenShareActive,
+    startScreenShare,
+    stopScreenShare,
   };
 }
