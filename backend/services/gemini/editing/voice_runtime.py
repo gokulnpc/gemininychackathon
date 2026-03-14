@@ -503,9 +503,18 @@ async def _dispatch_voice_tool(
         brief = args.get("brief", "creative video concept")
         mode = args.get("mode", "social_content")
         art_style = args.get("art_style")
+        _live = get_live_state() if get_live_state else {}
+        _ec = editor_context or {}
+        reference_b64 = (
+            _live.get("latest_screen_frame_b64")
+            or (_ec.get("screenshot") or {}).get("image_b64")
+        )
         try:
             from services.gemini.interleaved import generate_creative_package
-            blocks, _ = await generate_creative_package(brief=brief, mode=mode, art_style=art_style)
+            blocks, _ = await generate_creative_package(
+                brief=brief, mode=mode, art_style=art_style,
+                reference_image_b64=reference_b64,
+            )
             for block in blocks:
                 with contextlib.suppress(Exception):
                     await on_event({"type": "creative_block", "block": block})

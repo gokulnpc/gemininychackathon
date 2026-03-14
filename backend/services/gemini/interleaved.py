@@ -148,14 +148,17 @@ def _invoke_interleaved_with_image(prompt: str, reference_image_b64: str | None 
 
     blocks: list[dict] = []
     for part in response.candidates[0].content.parts:
+        text = getattr(part, "text", None)
         blob = getattr(part, "inline_data", None)
-        if blob is not None:
+        if text and text.strip():
+            blocks.append({"type": "text", "content": text.strip()})
+        elif blob is not None:
             raw = getattr(blob, "data", None)
             mime = getattr(blob, "mime_type", "image/jpeg")
             if raw:
                 if isinstance(raw, bytes):
                     raw = base64.b64encode(raw).decode()
-                blocks.append({"image_b64": raw, "mime_type": mime})
+                blocks.append({"type": "image", "content": raw, "mime_type": mime})
     return blocks
 
 
@@ -205,7 +208,11 @@ async def generate_thumbnail_options(
 
     logger.info("Thumbnail generation starting (hook=%.40s, count=%d)", hook, count)
     blocks = await asyncio.to_thread(_invoke_interleaved_with_image, prompt, reference_image_b64)
-    result = blocks[:count]
+    image_blocks = [
+        {"image_b64": b["content"], "mime_type": b.get("mime_type", "image/jpeg")}
+        for b in blocks if b.get("type") == "image"
+    ]
+    result = image_blocks[:count]
     logger.info("Thumbnail generation done — %d images returned", len(result))
     return result
 
@@ -216,6 +223,7 @@ async def generate_creative_package(
     art_style: str | None = None,
     include_narration: bool = False,
     voice_id: str = "Aoede",
+    reference_image_b64: str | None = None,
 ) -> tuple[list[dict], str | None]:
     """Generate a rich mixed-media creative package using Gemini interleaved output.
 
@@ -236,8 +244,11 @@ async def generate_creative_package(
     """
     prompt = _build_prompt(mode, brief, art_style)
 
-    logger.info("Creative Director starting (mode=%s, art_style=%s)", mode, art_style)
-    blocks = await asyncio.to_thread(_invoke_interleaved, prompt)
+    logger.info("Creative Director starting (mode=%s, art_style=%s, has_ref=%s)", mode, art_style, bool(reference_image_b64))
+    if reference_image_b64:
+        blocks = await asyncio.to_thread(_invoke_interleaved_with_image, prompt, reference_image_b64)
+    else:
+        blocks = await asyncio.to_thread(_invoke_interleaved, prompt)
 
     n_text = sum(1 for b in blocks if b["type"] == "text")
     n_img = sum(1 for b in blocks if b["type"] == "image")
