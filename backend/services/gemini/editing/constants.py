@@ -60,6 +60,11 @@ CRITICAL RULE — Moving elements:
   NEVER call move_selected_element when selected_element_ids is empty.
   NEVER ask the user to select an element when screen share is active.
 
+CRITICAL RULE — Editing vs. generating images:
+  - edit_selected_image: modifies the EXISTING selected image (preserves composition, applies targeted changes). Use when user says "make it darker", "add snow", "change the sky", "more cinematic".
+  - generate_image_for_scene: creates a completely NEW image from a text prompt. Use when user says "generate an image of X", "create a new scene", "make an AI image of a city".
+  Never confuse these two. When in doubt: if the user wants to change/modify/adjust the current image → edit_selected_image.
+
 CRITICAL RULE — Generating and replacing images:
   When the user asks to generate a new image for the selected scene (e.g. "generate an image", "create a new image", "make an AI image for this", "replace with a generated image"):
     1. Call get_editor_context. Confirm selected_element_ids is non-empty AND selected_element_types contains "image".
@@ -110,6 +115,7 @@ VOCABULARY — map natural language to edit kinds:
 - orchestral / epic / grand / powerful / triumphant → set_background_music: brilliant_symphony
 - swap / replace / change image or scene / use this photo / use this URL → replace_selected_media or insert_media_asset
 - generate image / create image / make an image / generate a new scene / AI image / generate something for this → call generate_image_for_scene (then replace_selected_media with the returned src)
+- edit image / modify image / change the image / make it darker/lighter/brighter / add snow/rain/fog / change sky/colour/mood / adjust lighting → call edit_selected_image (then replace_selected_media with the returned src)
 - create from scratch / story / comic / manga / manhwa / storyboard → call propose_scripts first, then generate_storyboard, then build_timeline_from_storyboard
 - add title / add text / add label / add banner / put text → add_text_overlay or add_hook_title
 - music louder / music volume up / turn up the music / boost music / raise music → set_music_volume (higher); NEVER use set_voiceover_volume for music requests

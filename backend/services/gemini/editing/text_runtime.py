@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 
 from .commands import (
@@ -140,6 +142,30 @@ def _get_tool_declarations():
             ),
         ),
         types.FunctionDeclaration(
+            name="edit_selected_image",
+            description=(
+                "Edit the currently selected scene image using AI — modify its style, mood, lighting, weather, "
+                "colours, or content based on a natural-language instruction. "
+                "Unlike generate_image_for_scene (which generates a completely new image), this EDITS the existing image while preserving composition. "
+                "Call get_editor_context first to confirm an image element is selected. "
+                "After this returns a src URL, call replace_selected_media with it and then apply_live_edits."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "instruction": types.Schema(
+                        type=types.Type.STRING,
+                        description="Natural-language edit instruction, e.g. 'make it darker and more cinematic', 'add snow falling', 'change sky to sunset orange'",
+                    ),
+                    "element_id": types.Schema(
+                        type=types.Type.STRING,
+                        description="Optional element_id of the image to edit. If omitted, uses the selected element.",
+                    ),
+                },
+                required=["instruction"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="generate_lyria_music",
             description=(
                 "Generate AI background music using Lyria for this video. "
@@ -201,6 +227,19 @@ def _get_tool_declarations():
         ),
     ]
     return _TOOL_DECLARATIONS
+
+
+async def _fetch_image_b64_from_url(url: str) -> str | None:
+    """Download an image from a GCS/HTTPS URL and return base64. Returns None on failure."""
+    import base64 as _b64
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return _b64.b64encode(r.content).decode()
+    except Exception:
+        return None
 
 
 async def run_edit_text_agent(
@@ -538,6 +577,71 @@ async def run_edit_text_agent(
                         function_response=types.FunctionResponse(
                             name=fc.name,
                             response={"result": timeline_result},
+                        )
+                    ))
+                    continue
+
+                # edit_selected_image: AI-edit the existing scene image
+                if fc.name == "edit_selected_image":
+                    yield {"type": "agent_step", "tool": "edit_selected_image", "message": "Editing image with AI..."}
+                    edit_img_result: dict = {"status": "error", "error": "Image edit failed"}
+                    try:
+                        import base64 as _b64_ei
+                        import os as _os_ei
+                        from uuid import uuid4 as _uuid4_ei
+                        from services.gemini.interleaved import _invoke_interleaved_with_image as _gen_ei
+                        from services.storage import gcs as _gcs_ei
+
+                        instruction_ei = (fc.args or {}).get("instruction", "")
+                        element_id_ei = (fc.args or {}).get("element_id", "")
+
+                        # Primary: screenshot from screen share / editor context
+                        _ec_ei = editor_context or {}
+                        source_b64_ei: str | None = (_ec_ei.get("screenshot") or {}).get("image_b64")
+
+                        # Fallback: download the element's src from project JSON
+                        if not source_b64_ei and current_project_json and element_id_ei:
+                            for _track_ei in (current_project_json.get("tracks") or []):
+                                for _el_ei in (_track_ei.get("elements") or []):
+                                    if _el_ei.get("id") == element_id_ei or _el_ei.get("element_id") == element_id_ei:
+                                        _src_ei = (_el_ei.get("props") or {}).get("src") or _el_ei.get("src")
+                                        if _src_ei:
+                                            source_b64_ei = await _fetch_image_b64_from_url(_src_ei)
+                                        break
+
+                        if not source_b64_ei:
+                            edit_img_result = {"status": "error", "error": "Could not get the current image — enable screen share or select the element."}
+                        else:
+                            edit_prompt_ei = (
+                                f"Edit this image as instructed: {instruction_ei}. "
+                                "Preserve the overall composition and subject. Apply only the requested changes. "
+                                "Output exactly one edited image. 9:16 vertical format."
+                            )
+                            blocks_ei = await asyncio.to_thread(_gen_ei, edit_prompt_ei, source_b64_ei)
+                            image_blocks_ei = [b for b in blocks_ei if b.get("type") == "image"]
+                            if not image_blocks_ei:
+                                edit_img_result = {"status": "error", "error": "Model returned no edited image — try rephrasing the instruction."}
+                            else:
+                                chosen_ei = image_blocks_ei[0]
+                                img_bytes_ei = _b64_ei.b64decode(chosen_ei["content"])
+                                mime_ei = chosen_ei.get("mime_type", "image/jpeg")
+                                suffix_ei = ".jpg" if "jpeg" in mime_ei else ".png"
+                                tmp_ei = f"/tmp/edit_{_uuid4_ei().hex}{suffix_ei}"
+                                with open(tmp_ei, "wb") as f_ei:
+                                    f_ei.write(img_bytes_ei)
+                                gcs_key_ei = f"projects/{project_id}/edited/{_uuid4_ei().hex}{suffix_ei}"
+                                src_url_ei = await _gcs_ei.upload_file(tmp_ei, gcs_key_ei, mime_ei)
+                                with contextlib.suppress(OSError):
+                                    _os_ei.unlink(tmp_ei)
+                                yield {"type": "creative_block", "block": {"type": "image", "content": chosen_ei["content"], "mime_type": mime_ei}}
+                                edit_img_result = {"status": "ok", "src": src_url_ei}
+                    except Exception as _ei_exc:
+                        logger.warning("edit_selected_image failed: %s", _ei_exc)
+                        edit_img_result = {"status": "error", "error": str(_ei_exc)}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": edit_img_result},
                         )
                     ))
                     continue
