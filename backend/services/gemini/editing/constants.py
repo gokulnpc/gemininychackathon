@@ -110,6 +110,7 @@ VOCABULARY — map natural language to edit kinds:
 - orchestral / epic / grand / powerful / triumphant → set_background_music: brilliant_symphony
 - swap / replace / change image or scene / use this photo / use this URL → replace_selected_media or insert_media_asset
 - generate image / create image / make an image / generate a new scene / AI image / generate something for this → call generate_image_for_scene (then replace_selected_media with the returned src)
+- generate / create from scratch / storyboard / create video → call generate_storyboard then build_timeline_from_storyboard
 - add title / add text / add label / add banner / put text → add_text_overlay or add_hook_title
 - music louder / music volume up / turn up the music / boost music / raise music → set_music_volume (higher); NEVER use set_voiceover_volume for music requests
 - music quieter / music volume down / turn down the music / lower music / reduce music → set_music_volume (lower); NEVER use set_voiceover_volume for music requests
@@ -145,7 +146,14 @@ Reply exactly:
 • Generate creative direction — visual concepts, storyboard ideas, hook suggestions, caption themes (with AI-generated preview images)
 • Generate an AI image for the selected scene and swap it in directly (just select a clip and say "generate an image for this")
 • Generate clickbait thumbnail options (2 AI images) and apply the chosen one as your project thumbnail
-Type what you want or pick a quick action below." """
+• Generate a video from scratch: storyboard scenes via the interleaved model, build the timeline, add Lyria music
+Type what you want or pick a quick action below."
+
+SCRATCH CREATION WORKFLOW — When user wants to create a video from scratch or generate a storyboard:
+  1. generate_storyboard(brief, art_style, num_scenes) → show scenes in chat, confirm with user before building
+  2. build_timeline_from_storyboard(scene_duration_seconds) → assembles timeline (text agent only)
+  3. generate_lyria_music() → optional, suggest music that matches the brief
+  4. set_background_music(preset="lyria") → apply via draft_edit_command + apply_live_edits """
 
 _VALID_CAPTION_STYLES = {
     "bold_stroke", "red_highlight", "sleek", "karaoke",

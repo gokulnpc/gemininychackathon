@@ -7,6 +7,7 @@ import {
   Archive,
   CheckCircle2,
   Copy,
+  LayoutTemplate,
   Loader2,
   MoreVertical,
   Pencil,
@@ -280,6 +281,7 @@ function ProjectsContent() {
   const { user, loading: authLoading } = useAuth();
 
   const [tab, setTab] = useState<"active" | "archive">("active");
+  const [creatingEditor, setCreatingEditor] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -375,6 +377,28 @@ function ProjectsContent() {
         <header className="flex items-center justify-between px-8 h-[80px] border-b border-white/10">
           <div />
           <div className="flex items-center gap-4">
+            <Button
+              onClick={async () => {
+                setCreatingEditor(true);
+                try {
+                  const res = await apiClient.post<{ project_id: string }>("/api/v1/projects/create-empty");
+                  router.push(`/projects/${res.data.project_id}/edit`);
+                } catch (err) {
+                  console.error("Failed to create editor project", err);
+                } finally {
+                  setCreatingEditor(false);
+                }
+              }}
+              disabled={creatingEditor}
+              className="rounded-full px-5 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white disabled:opacity-50"
+            >
+              {creatingEditor ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <LayoutTemplate className="mr-2 h-4 w-4" />
+              )}
+              Open Editor
+            </Button>
             <Button
               onClick={() => router.push("/create")}
               className="rounded-full px-6 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white"

@@ -400,7 +400,7 @@ export function EditorShell({
       {/* Center column: canvas + timeline */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Canvas area */}
-        <div className="editor-canvas-wrapper flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-editor-bg">
+        <div className="editor-canvas-wrapper relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-editor-bg">
           <div ref={previewHostRef} className="editor-preview-host">
             {previewSize ? (
               <div

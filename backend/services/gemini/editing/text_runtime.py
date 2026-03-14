@@ -149,6 +149,29 @@ def _get_tool_declarations():
             ),
             parameters=types.Schema(type="object", properties={}),
         ),
+        types.FunctionDeclaration(
+            name="generate_storyboard",
+            description="Generate a visual storyboard from a brief using the interleaved AI model. Produces 3–6 scene images that appear in the chat. Images are cached for building the timeline.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "brief": types.Schema(type=types.Type.STRING, description="What the video is about"),
+                    "art_style": types.Schema(type=types.Type.STRING, description="Art style: cinematic, realism, ghibli, etc. Default: cinematic"),
+                    "num_scenes": types.Schema(type=types.Type.INTEGER, description="Number of scenes to generate (3–6). Default: 4"),
+                },
+                required=["brief"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="build_timeline_from_storyboard",
+            description="Takes the storyboard images cached by generate_storyboard, uploads them to GCS, and assembles a sequential timeline. Must call generate_storyboard first.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "scene_duration_seconds": types.Schema(type=types.Type.INTEGER, description="Duration per scene in seconds. Default: 4"),
+                },
+            ),
+        ),
     ]
     return _TOOL_DECLARATIONS
 
@@ -243,6 +266,8 @@ async def run_edit_text_agent(
         "generate_thumbnail_options": "Generating thumbnail options...",
         "set_thumbnail": "Applying thumbnail...",
         "generate_image_for_scene": "Generating AI image...",
+        "generate_storyboard": "Generating storyboard...",
+        "build_timeline_from_storyboard": "Building timeline...",
     }
 
     client = get_client()
@@ -358,6 +383,129 @@ async def run_edit_text_agent(
                         function_response=types.FunctionResponse(
                             name=fc.name,
                             response={"result": lyria_result},
+                        )
+                    ))
+                    continue
+
+                # generate_storyboard: generate interleaved storyboard images, cache in project_data
+                if fc.name == "generate_storyboard":
+                    yield {"type": "agent_step", "tool": "generate_storyboard", "message": "Generating storyboard..."}
+                    storyboard_result: dict = {"status": "error", "error": "Storyboard generation failed"}
+                    try:
+                        from services.gemini.interleaved import generate_creative_package as _gen_sb
+
+                        brief_sb = fc.args.get("brief", "") if fc.args else ""
+                        art_style_sb = fc.args.get("art_style", "cinematic") if fc.args else "cinematic"
+                        num_scenes_sb = min(max(int((fc.args or {}).get("num_scenes", 4)), 3), 6)
+
+                        prompt_sb = (
+                            f"Create a {num_scenes_sb}-scene visual storyboard for: {brief_sb}. "
+                            f"Art style: {art_style_sb}. Each scene should have a distinct visual moment."
+                        )
+                        blocks_sb, _ = await _gen_sb(prompt_sb, mode="storyboard", art_style=art_style_sb)
+
+                        drafts_sb: list[dict] = []
+                        descriptions_sb: list[str] = []
+                        for block_sb in blocks_sb:
+                            if block_sb.get("type") == "image":
+                                yield {"type": "creative_block", "block": block_sb}
+                                drafts_sb.append({
+                                    "image_b64": block_sb["content"],
+                                    "mime_type": block_sb.get("mime_type", "image/png"),
+                                })
+                            elif block_sb.get("type") == "text":
+                                descriptions_sb.append(block_sb["content"])
+
+                        for i_sb, d_sb in enumerate(drafts_sb):
+                            d_sb["description"] = descriptions_sb[i_sb] if i_sb < len(descriptions_sb) else f"Scene {i_sb + 1}"
+
+                        project_data["_storyboard_drafts"] = drafts_sb
+                        storyboard_result = {
+                            "status": "ok",
+                            "count": len(drafts_sb),
+                            "descriptions": [d_sb["description"] for d_sb in drafts_sb],
+                        }
+                    except Exception as _sb_exc:
+                        logger.warning("generate_storyboard failed: %s", _sb_exc)
+                        storyboard_result = {"status": "error", "error": str(_sb_exc)}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": storyboard_result},
+                        )
+                    ))
+                    continue
+
+                # build_timeline_from_storyboard: upload cached storyboard images to GCS, assemble timeline
+                if fc.name == "build_timeline_from_storyboard":
+                    yield {"type": "agent_step", "tool": "build_timeline_from_storyboard", "message": "Building timeline..."}
+                    timeline_result: dict = {"status": "error", "error": "Timeline build failed"}
+                    try:
+                        import base64 as _b64_tl
+                        import os as _os_tl
+                        from uuid import uuid4 as _uuid4_tl
+                        from services.storage import gcs as _gcs_tl
+
+                        drafts_tl = project_data.get("_storyboard_drafts", [])
+                        if not drafts_tl:
+                            timeline_result = {"status": "error", "message": "No storyboard found. Call generate_storyboard first."}
+                        else:
+                            duration_tl = int((fc.args or {}).get("scene_duration_seconds", 4))
+                            commands_tl: list[dict] = []
+
+                            for i_tl, draft_tl in enumerate(drafts_tl):
+                                img_bytes_tl = _b64_tl.b64decode(draft_tl["image_b64"])
+                                mime_tl = draft_tl.get("mime_type", "image/png")
+                                suffix_tl = ".jpg" if "jpeg" in mime_tl else ".png"
+                                tmp_path_tl = f"/tmp/storyboard_{_uuid4_tl().hex}{suffix_tl}"
+                                with open(tmp_path_tl, "wb") as _f_tl:
+                                    _f_tl.write(img_bytes_tl)
+                                gcs_key_tl = f"projects/{project_id}/storyboard/{_uuid4_tl().hex}{suffix_tl}"
+                                src_url_tl = await _gcs_tl.upload_file(tmp_path_tl, gcs_key_tl, mime_tl)
+                                try:
+                                    _os_tl.unlink(tmp_path_tl)
+                                except Exception:
+                                    pass
+
+                                commands_tl.append({
+                                    "kind": "insert_media_asset",
+                                    "args": {
+                                        "src": src_url_tl,
+                                        "start_seconds": i_tl * duration_tl,
+                                        "duration_seconds": duration_tl,
+                                        "media_kind": "image",
+                                        "name": f"Scene {i_tl + 1}",
+                                    },
+                                })
+
+                            source_json_tl = current_project_json or {}
+                            patched_tl, applied_tl, errors_tl = await _project_commands(
+                                source_json_tl, commands_tl, editor_context, uid=uid
+                            )
+                            if errors_tl:
+                                timeline_result = {"status": "error", "message": f"Some commands rejected: {'; '.join(errors_tl)}"}
+                            elif not applied_tl:
+                                timeline_result = {"status": "error", "message": "No commands were applied."}
+                            else:
+                                await _apply_live_edits(
+                                    project_id=project_id,
+                                    project_data=project_data,
+                                    patched_project_json=patched_tl,
+                                    applied_changes=applied_tl,
+                                    editor_context=editor_context,
+                                )
+                                timeline_result = {
+                                    "status": "ok",
+                                    "scenes_added": len(commands_tl),
+                                    "total_duration_seconds": len(commands_tl) * duration_tl,
+                                }
+                    except Exception as _tl_exc:
+                        logger.warning("build_timeline_from_storyboard failed: %s", _tl_exc)
+                        timeline_result = {"status": "error", "error": str(_tl_exc)}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": timeline_result},
                         )
                     ))
                     continue
