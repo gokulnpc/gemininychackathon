@@ -147,7 +147,12 @@ async def delete_youtube_credentials(uid: str) -> None:
     await asyncio.to_thread(_delete_local)
 
 
-async def create_pending_youtube_oauth_state(uid: str, state: str, redirect_uri: str) -> dict:
+async def create_pending_youtube_oauth_state(
+    uid: str,
+    state: str,
+    redirect_uri: str,
+    code_verifier: str | None = None,
+) -> dict:
     settings = get_settings()
     payload = {
         "uid": uid,
@@ -156,6 +161,8 @@ async def create_pending_youtube_oauth_state(uid: str, state: str, redirect_uri:
         "redirect_uri": redirect_uri,
         "created_at": _now_iso(),
     }
+    if code_verifier:
+        payload["code_verifier"] = code_verifier
 
     if _firestore_available() and settings.google_cloud_project:
         def _save() -> dict:

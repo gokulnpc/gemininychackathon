@@ -135,6 +135,7 @@ async def youtube_auth_init(
         uid=current_user["uid"],
         state=state,
         redirect_uri=callback_uri,
+        code_verifier=getattr(flow, "code_verifier", None),
     )
     logger.info("YouTube OAuth2 flow started for uid=%s, state=%s", current_user["uid"], state)
 
@@ -168,9 +169,10 @@ async def youtube_auth_callback(code: str, state: str):
         )
 
     flow = _build_youtube_flow(pending["redirect_uri"], state=state)
+    code_verifier = pending.get("code_verifier")
 
     try:
-        flow.fetch_token(code=code)
+        flow.fetch_token(code=code, code_verifier=code_verifier)
     except Exception as exc:
         await youtube_auth_store.delete_pending_youtube_oauth_state(state)
         logger.exception("YouTube token exchange failed")

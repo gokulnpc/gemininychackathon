@@ -32,22 +32,33 @@ class DummyFlow:
     def __init__(self, redirect_uri: str, state: str | None = None):
         self.redirect_uri = redirect_uri
         self.state = state
+        self.code_verifier = "verifier-123"
         self.credentials = DummyCredentials('{"token":"new-token"}')
-        self.fetch_token_calls: list[str] = []
+        self.fetch_token_calls: list[dict] = []
 
     def authorization_url(self, access_type: str, prompt: str):
         return "https://accounts.example/auth", "state-123"
 
-    def fetch_token(self, code: str):
-        self.fetch_token_calls.append(code)
+    def fetch_token(self, code: str, code_verifier: str | None = None):
+        self.fetch_token_calls.append({"code": code, "code_verifier": code_verifier})
 
 
 def test_youtube_auth_init_persists_pending_state(monkeypatch):
     saved_pending: dict = {}
     fake_flow = DummyFlow("https://api.example.com/api/v1/auth/youtube/callback")
 
-    async def fake_create_pending(uid: str, state: str, redirect_uri: str):
-        saved_pending.update({"uid": uid, "state": state, "redirect_uri": redirect_uri})
+    async def fake_create_pending(
+        uid: str,
+        state: str,
+        redirect_uri: str,
+        code_verifier: str | None = None,
+    ):
+        saved_pending.update({
+            "uid": uid,
+            "state": state,
+            "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier,
+        })
 
     app.dependency_overrides[get_current_user] = lambda: {"uid": "user-1"}
     monkeypatch.setattr("routers.auth.auth._build_youtube_flow", lambda redirect_uri, state=None: fake_flow)
@@ -74,6 +85,7 @@ def test_youtube_auth_init_persists_pending_state(monkeypatch):
         "uid": "user-1",
         "state": "state-123",
         "redirect_uri": "https://api.example.com/api/v1/auth/youtube/callback",
+        "code_verifier": "verifier-123",
     }
 
 
@@ -110,6 +122,7 @@ def test_youtube_callback_saves_credentials_for_correct_user(monkeypatch):
             "uid": "user-1",
             "state": state,
             "redirect_uri": "https://api.example.com/api/v1/auth/youtube/callback",
+            "code_verifier": "verifier-123",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -137,7 +150,7 @@ def test_youtube_callback_saves_credentials_for_correct_user(monkeypatch):
 
     assert response.status_code == 200
     assert "YouTube Connected" in response.text
-    assert fake_flow.fetch_token_calls == ["abc123"]
+    assert fake_flow.fetch_token_calls == [{"code": "abc123", "code_verifier": "verifier-123"}]
     assert saved == {
         "uid": "user-1",
         "credentials_json": '{"token":"new-token"}',
