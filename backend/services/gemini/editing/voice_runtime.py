@@ -209,6 +209,34 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                     required=["brief"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="generate_thumbnail_options",
+                description=(
+                    "Generate 2–3 clickbait AI thumbnail image options for this video. "
+                    "Call when the user wants a new thumbnail, thumbnail ideas, or a more eye-catching thumbnail. "
+                    "If screen sharing is active, the current screen is used as a visual reference. "
+                    "Streams each option as a thumbnail_option event."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "brief": types.Schema(type="string", description="Extra context about the video (optional)."),
+                        "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney (default: realism)"),
+                        "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 2)."),
+                    },
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="set_thumbnail",
+                description="Apply one of the generated thumbnail options as the project's permanent thumbnail. Call after generate_thumbnail_options and the user picks one.",
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "option_index": types.Schema(type="integer", description="0-based index of the chosen option."),
+                    },
+                    required=["option_index"],
+                ),
+            ),
         ])],
     }
     if transport == "vertex":
@@ -280,6 +308,19 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
         return {
             "status": result.get("status", "ok"),
             "block_count": result.get("block_count", 0),
+        }
+
+    if name == "generate_thumbnail_options":
+        return {
+            "status": result.get("status", "ok"),
+            "option_count": result.get("option_count", 0),
+            "options": result.get("options", []),
+        }
+
+    if name == "set_thumbnail":
+        return {
+            "status": result.get("status", "ok"),
+            "thumbnail_url": result.get("thumbnail_url", ""),
         }
 
     compact: dict = {}
@@ -471,6 +512,80 @@ async def _dispatch_voice_tool(
             return {"status": "ok", "block_count": len(blocks)}
         except Exception as exc:
             logger.warning("generate_creative_direction failed: %s", exc)
+            return {"error": str(exc)}
+
+    if name == "generate_thumbnail_options":
+        from services.gemini.interleaved import generate_thumbnail_options as _gen_thumbs
+
+        live_state = get_live_state() if get_live_state else {}
+        hook = project_data.get("hook", "")
+        brief = args.get("brief", "")
+        art_style = args.get("art_style", "realism")
+        count = min(3, max(1, int(args.get("count", 2))))
+        reference_b64 = live_state.get("latest_screen_frame_b64")
+
+        try:
+            options = await _gen_thumbs(
+                hook=hook,
+                brief=brief,
+                reference_image_b64=reference_b64,
+                art_style=art_style,
+                count=count,
+            )
+            result_options = []
+            for i, opt in enumerate(options):
+                with contextlib.suppress(Exception):
+                    await on_event({
+                        "type": "thumbnail_option",
+                        "index": i,
+                        "image_b64": opt["image_b64"],
+                        "mime_type": opt.get("mime_type", "image/jpeg"),
+                    })
+                result_options.append({"index": i, "mime_type": opt.get("mime_type", "image/jpeg")})
+            # Store drafts in project_data for set_thumbnail to reference by index
+            project_data["_thumbnail_drafts"] = [opt["image_b64"] for opt in options]
+            return {"status": "ok", "option_count": len(options), "options": result_options}
+        except Exception as exc:
+            logger.warning("generate_thumbnail_options failed: %s", exc)
+            return {"error": str(exc)}
+
+    if name == "set_thumbnail":
+        import os as _os
+        import tempfile as _tmp
+        import base64 as _b64
+
+        option_index = int(args.get("option_index", 0))
+        drafts = project_data.get("_thumbnail_drafts", [])
+        if not drafts or option_index >= len(drafts):
+            return {"error": "No thumbnail options available — call generate_thumbnail_options first."}
+
+        image_b64_data = drafts[option_index]
+        try:
+            from services.storage import gcs as _gcs
+            from services.storage import firestore_db as _fdb
+
+            image_bytes = _b64.b64decode(image_b64_data)
+            fd, tmp_path = _tmp.mkstemp(suffix=".jpg", prefix="thumb_set_")
+            try:
+                _os.write(fd, image_bytes)
+            finally:
+                _os.close(fd)
+
+            gcs_key = f"projects/{project_id}/thumbnail.jpg"
+            thumbnail_url = await _gcs.upload_file(tmp_path, gcs_key, "image/jpeg")
+            with contextlib.suppress(OSError):
+                _os.unlink(tmp_path)
+
+            await _fdb.save_project(project_id, {"thumbnail_url": thumbnail_url})
+            project_data["thumbnail_url"] = thumbnail_url
+            project_data.pop("_thumbnail_drafts", None)
+
+            with contextlib.suppress(Exception):
+                await on_event({"type": "thumbnail_applied", "thumbnail_url": thumbnail_url})
+
+            return {"status": "ok", "thumbnail_url": thumbnail_url}
+        except Exception as exc:
+            logger.warning("set_thumbnail failed: %s", exc)
             return {"error": str(exc)}
 
     return {"error": f"Unknown tool: {name}"}

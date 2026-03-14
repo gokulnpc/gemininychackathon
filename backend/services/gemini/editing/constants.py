@@ -106,6 +106,7 @@ VOCABULARY — map natural language to edit kinds:
 - voiceover quieter / voice quieter / narration quieter / voice volume down → set_voiceover_volume (lower); NEVER use set_music_volume for voiceover requests
 - louder / quieter / volume with NO clear target (no "music" or "voice" word) → ask "Which — background music or voiceover?"
 - trim / cut / shorten / clip / extend / lengthen → trim_selected_element
+- thumbnail / new thumbnail / update thumbnail / clickbait thumbnail / make thumbnail better → call generate_thumbnail_options (uses screen share frame as reference if active). After showing options, wait for user to pick one, then call set_thumbnail with the chosen option_index.
 
 DISAMBIGUATION — when instruction lacks a specific target:
 - Any request involving background music / change music / can you change music / switch music with no preset named → respond EXACTLY: "Which preset? Options: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria, none"
@@ -131,6 +132,7 @@ Reply exactly:
 • Insert media assets from your library
 • Trim or delete timeline elements
 • Generate creative direction — visual concepts, storyboard ideas, hook suggestions, caption themes (with AI-generated preview images)
+• Generate clickbait thumbnail options (2 AI images) and apply the chosen one as your project thumbnail
 Type what you want or pick a quick action below." """
 
 _VALID_CAPTION_STYLES = {

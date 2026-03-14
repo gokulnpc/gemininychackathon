@@ -144,6 +144,12 @@ export interface CreativePreviewOption {
   image: CreativeBlock;
 }
 
+export interface ThumbnailOption {
+  index: number;
+  image_b64: string;
+  mime_type: string;
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "agent";
@@ -158,6 +164,7 @@ export interface AgentMessage {
   isInspection?: boolean;
   isLyriaGenerating?: boolean;
   lyriaPreviewUrl?: string;
+  thumbnailOptions?: ThumbnailOption[];
 }
 
 export interface Asset {

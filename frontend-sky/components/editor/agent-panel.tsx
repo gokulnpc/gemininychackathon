@@ -22,6 +22,7 @@ import type {
   CreativeBlock,
   CreativePreviewOption,
   EditProposal,
+  ThumbnailOption,
 } from "@/components/editor/types";
 
 interface AssetMeta {
@@ -208,6 +209,11 @@ const QUICK_ACTIONS = [
     label: "Creative direction ✨",
     instruction:
       "Generate creative direction for this video — visual concepts, hook ideas, caption themes, and mood suggestions with generated preview images. Use mode=social_content.",
+  },
+  {
+    label: "New thumbnail ✨",
+    instruction:
+      "Generate 2 new clickbait thumbnail options for this video based on what you see on screen. Use the current screen as reference.",
   },
   {
     label: "Adjust volume",
@@ -683,6 +689,33 @@ export function AgentPanel({
                         </button>
                       </div>
                     ))}
+                </div>
+              )}
+
+              {msg.thumbnailOptions && msg.thumbnailOptions.length > 0 && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
+                    Thumbnail options — pick one to apply
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {msg.thumbnailOptions.map((opt: ThumbnailOption) => (
+                      <div key={opt.index} className="group overflow-hidden rounded-lg border border-editor-border">
+                        <img
+                          src={`data:${opt.mime_type};base64,${opt.image_b64}`}
+                          alt={`Thumbnail option ${opt.index + 1}`}
+                          className="w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSend(`Apply thumbnail option ${opt.index + 1}`, `Apply thumbnail ${opt.index + 1}`)}
+                          disabled={agentLoading}
+                          className="w-full border-t border-editor-border bg-editor-surface-raised py-1.5 text-xs font-medium text-foreground/70 transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                        >
+                          Use option {opt.index + 1} as thumbnail →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

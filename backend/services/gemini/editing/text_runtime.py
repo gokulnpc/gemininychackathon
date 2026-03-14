@@ -98,6 +98,33 @@ def _get_tool_declarations():
             ),
         ),
         types.FunctionDeclaration(
+            name="generate_thumbnail_options",
+            description=(
+                "Generate 2–3 clickbait AI thumbnail image options for this video. "
+                "Call when the user wants a new thumbnail or more eye-catching thumbnail ideas. "
+                "Streams each option as a thumbnail_option event."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "brief": types.Schema(type="string", description="Extra context about the video (optional)."),
+                    "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney (default: realism)"),
+                    "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 2)."),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="set_thumbnail",
+            description="Apply one of the generated thumbnail options as the project's permanent thumbnail.",
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "option_index": types.Schema(type="integer", description="0-based index of the chosen option."),
+                },
+                required=["option_index"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="generate_lyria_music",
             description=(
                 "Generate AI background music using Lyria for this video. "
@@ -198,6 +225,8 @@ async def run_edit_text_agent(
         "generate_style_preview": "Generating style preview...",
         "generate_lyria_music": "Generating AI music with Lyria...",
         "generate_creative_direction": "Generating creative direction...",
+        "generate_thumbnail_options": "Generating thumbnail options...",
+        "set_thumbnail": "Applying thumbnail...",
     }
 
     client = get_client()

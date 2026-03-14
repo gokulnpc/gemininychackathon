@@ -40,6 +40,7 @@ interface UseVoiceEditSessionArgs {
   applyLiveProjectJson: (json: ProjectJSON | null, changes?: Record<string, unknown>) => void;
   setAgentMessages: React.Dispatch<React.SetStateAction<AgentMessage[]>>;
   focusedAssetRef?: MutableRefObject<{ id: string; category: string } | null>;
+  onThumbnailApplied?: (thumbnailUrl: string) => void;
 }
 
 function pcmBufferToBase64(buffer: ArrayBuffer): string {
@@ -75,6 +76,7 @@ export function useVoiceEditSession({
   applyLiveProjectJson,
   setAgentMessages,
   focusedAssetRef,
+  onThumbnailApplied,
 }: UseVoiceEditSessionArgs) {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [voiceTurnState, setVoiceTurnStateState] = useState<VoiceTurnState>("idle");
@@ -702,6 +704,18 @@ export function useVoiceEditSession({
             actions: [...(message.actions ?? []), "generate_style_preview"],
             isThinking: false,
           }));
+        } else if (data.type === "thumbnail_option" && data.image_b64) {
+          const resolvedTurnId = ensureTurn(turnId, !turnId || currentTurnIdRef.current === turnId);
+          patchMessage(turnMessageIdsRef.current[resolvedTurnId]?.agentId ?? null, (message) => ({
+            ...message,
+            thumbnailOptions: [
+              ...(message.thumbnailOptions ?? []),
+              { index: data.index as number, image_b64: data.image_b64 as string, mime_type: (data.mime_type as string) ?? "image/jpeg" },
+            ],
+            isThinking: false,
+          }));
+        } else if (data.type === "thumbnail_applied" && data.thumbnail_url) {
+          onThumbnailApplied?.(data.thumbnail_url as string);
         } else if (data.type === "creative_preview_start") {
           const resolvedTurnId = ensureTurn(turnId, !turnId || currentTurnIdRef.current === turnId);
           patchMessage(turnMessageIdsRef.current[resolvedTurnId]?.agentId ?? null, (message) => ({
@@ -839,6 +853,7 @@ export function useVoiceEditSession({
   }, [
     agentPanelOpen,
     applyLiveProjectJson,
+    onThumbnailApplied,
     beginLocalTurn,
     cleanupVoiceSession,
     clearActiveTurnRefs,

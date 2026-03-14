@@ -269,6 +269,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
                     elif data.get("type") == "screen_frame" and screen_share_state["active"]:
                         b64 = data.get("data")
                         if b64 and isinstance(b64, str):
+                            live_state["latest_screen_frame_b64"] = b64
                             try:
                                 raw = base64.b64decode(b64)
                                 if frame_queue.full():
