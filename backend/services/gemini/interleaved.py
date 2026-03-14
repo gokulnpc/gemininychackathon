@@ -88,7 +88,11 @@ def _build_prompt(mode: str, brief: str, art_style: str | None) -> str:
         if art_style
         else ""
     )
-    return f"{system}{style_clause}\n\n---\nCreative brief:\n{brief}"
+    aspect_clause = (
+        "\n\nIMPORTANT: ALL generated images must use a 9:16 portrait (vertical) aspect ratio — "
+        "optimised for YouTube Shorts, Instagram Reels, and TikTok. Never generate landscape or square images."
+    )
+    return f"{system}{style_clause}{aspect_clause}\n\n---\nCreative brief:\n{brief}"
 
 
 def _invoke_interleaved(prompt: str) -> list[dict]:
@@ -171,7 +175,7 @@ _THUMBNAIL_PROMPT_TEMPLATE = (
     "- Bold, high-contrast colours that pop on mobile screens\n"
     "- Expressive faces or dramatic, eye-catching visuals that trigger curiosity\n"
     "- Optional short bold text overlay (3–5 words max) that teases without spoiling\n"
-    "- Landscape 16:9 composition — YouTube/Shorts thumbnail format\n"
+    "- Portrait 9:16 vertical composition — optimised for YouTube Shorts, Instagram Reels, and TikTok\n"
     "- Each option must look DISTINCTLY DIFFERENT (vary style, colour palette, and composition)\n\n"
     "Generate exactly {count} complete thumbnail images back-to-back. No commentary, just images."
 )

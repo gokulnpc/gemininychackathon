@@ -687,50 +687,47 @@ async def _dispatch_voice_tool(
                         "mime_type": opt.get("mime_type", "image/jpeg"),
                     })
                 result_options.append({"index": i, "mime_type": opt.get("mime_type", "image/jpeg")})
-            # Store drafts — persist to Firestore so next request can access them
-            project_data["_thumbnail_drafts"] = [
-                {"image_b64": opt["image_b64"], "mime_type": opt.get("mime_type", "image/jpeg")}
-                for opt in options
-            ]
-            from services.storage import firestore_db as _fdb_thumb
-            await _fdb_thumb.save_project(project_id, {"_thumbnail_drafts": project_data["_thumbnail_drafts"]})
+            # Upload each draft to GCS; store only URLs in Firestore (no base64 in Firestore)
+            import os as _os_td, base64 as _b64_td
+            from uuid import uuid4 as _uuid4_td
+            from services.storage import gcs as _gcs_td
+            from services.storage import firestore_db as _fdb_td
+
+            draft_urls: list[str] = []
+            for i, opt in enumerate(options):
+                mime_td = opt.get("mime_type", "image/jpeg")
+                suffix_td = ".jpg" if "jpeg" in mime_td else ".png"
+                tmp_td = f"/tmp/thumb_draft_{_uuid4_td().hex}{suffix_td}"
+                with open(tmp_td, "wb") as f:
+                    f.write(_b64_td.b64decode(opt["image_b64"]))
+                gcs_key_td = f"projects/{project_id}/thumbnail_draft_{i}{suffix_td}"
+                url_td = await _gcs_td.upload_file(tmp_td, gcs_key_td, mime_td)
+                with contextlib.suppress(OSError):
+                    _os_td.unlink(tmp_td)
+                draft_urls.append(url_td)
+
+            project_data["_thumbnail_draft_urls"] = draft_urls
+            project_data.pop("_thumbnail_drafts", None)  # remove old broken format if present
+            await _fdb_td.save_project(project_id, project_data)  # full doc save (correct)
             return {"status": "ok", "option_count": len(options), "options": result_options}
         except Exception as exc:
             logger.warning("generate_thumbnail_options failed: %s", exc)
             return {"error": str(exc)}
 
     if name == "set_thumbnail":
-        import os as _os
-        import tempfile as _tmp
-        import base64 as _b64
-
         option_index = int(args.get("option_index", 0))
-        drafts = project_data.get("_thumbnail_drafts", [])
-        if not drafts or option_index >= len(drafts):
+        draft_urls = project_data.get("_thumbnail_draft_urls", [])
+        if not draft_urls or option_index >= len(draft_urls):
             return {"error": "No thumbnail options available — call generate_thumbnail_options first."}
 
-        draft = drafts[option_index]
-        image_b64_data = draft["image_b64"] if isinstance(draft, dict) else draft
-        mime = draft.get("mime_type", "image/jpeg") if isinstance(draft, dict) else "image/jpeg"
         try:
-            from services.storage import gcs as _gcs
-            from services.storage import firestore_db as _fdb
+            from services.storage import firestore_db as _fdb_st
 
-            image_bytes = _b64.b64decode(image_b64_data)
-            fd, tmp_path = _tmp.mkstemp(suffix=".jpg", prefix="thumb_set_")
-            try:
-                _os.write(fd, image_bytes)
-            finally:
-                _os.close(fd)
-
-            gcs_key = f"projects/{project_id}/thumbnail.jpg"
-            thumbnail_url = await _gcs.upload_file(tmp_path, gcs_key, mime)
-            with contextlib.suppress(OSError):
-                _os.unlink(tmp_path)
-
+            thumbnail_url = draft_urls[option_index]
             project_data["thumbnail_url"] = thumbnail_url
-            project_data.pop("_thumbnail_drafts", None)
-            await _fdb.save_project(project_id, {"thumbnail_url": thumbnail_url, "_thumbnail_drafts": None})
+            project_data.pop("_thumbnail_draft_urls", None)
+            project_data.pop("_thumbnail_drafts", None)  # clean up old format
+            await _fdb_st.save_project(project_id, project_data)
 
             with contextlib.suppress(Exception):
                 await on_event({"type": "thumbnail_applied", "thumbnail_url": thumbnail_url})
