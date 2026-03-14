@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable, Coroutine
+from dataclasses import dataclass
+from collections.abc import Callable, Coroutine
+from collections import deque
+from typing import Literal, NotRequired, TypedDict
 
 try:
     from google.adk.tools import ToolContext
@@ -24,8 +28,82 @@ from .projector import _apply_live_edits, _project_commands
 
 logger = logging.getLogger(__name__)
 
+_STALL_TIMEOUT_SECONDS = 6.0
 
-def _build_voice_config(project_data: dict):
+
+VoiceLiveTransport = Literal["vertex", "gemini_api"]
+
+
+class VoiceRealtimeEvent(TypedDict):
+    kind: Literal["audio", "activity_start", "activity_end", "done"]
+    audio_b64: NotRequired[str]
+    turn_id: NotRequired[str]
+
+
+@dataclass(slots=True)
+class _VoiceSessionRestartRequired(Exception):
+    turn_id: str | None
+
+
+def _resolve_live_transport() -> VoiceLiveTransport:
+    from config import get_settings
+
+    settings = get_settings()
+    if settings.use_vertex_ai and settings.google_cloud_project:
+        return "vertex"
+    return "gemini_api"
+
+
+async def _send_realtime_event(
+    session,
+    event: VoiceRealtimeEvent,
+    *,
+    allow_audio_stream_end: bool,
+) -> None:
+    """Forward a typed realtime event to Gemini Live."""
+    from google.genai import types
+
+    kind = event["kind"]
+    turn_id = event.get("turn_id")
+
+    if kind == "audio":
+        audio_b64 = event.get("audio_b64")
+        if not audio_b64:
+            logger.debug("Skipping empty audio event turn=%s", turn_id)
+            return
+        audio_bytes = base64.b64decode(audio_b64)
+        logger.debug(
+            "Scout edit realtime -> Gemini: audio turn=%s bytes=%d",
+            turn_id,
+            len(audio_bytes),
+        )
+        await session.send_realtime_input(
+            audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+        )
+        return
+
+    if kind == "activity_start":
+        logger.info("Scout edit realtime -> Gemini: activity_start turn=%s", turn_id)
+        await session.send_realtime_input(activity_start=types.ActivityStart())
+        return
+
+    if kind == "activity_end":
+        logger.info("Scout edit realtime -> Gemini: activity_end turn=%s", turn_id)
+        await session.send_realtime_input(activity_end=types.ActivityEnd())
+        return
+
+    if kind == "done":
+        if allow_audio_stream_end:
+            logger.info("Scout edit realtime -> Gemini: audio_stream_end")
+            await session.send_realtime_input(audio_stream_end=True)
+        else:
+            logger.info("Scout edit realtime -> Gemini: session shutdown (no audio_stream_end)")
+        return
+
+    raise ValueError(f"Unsupported realtime event kind: {kind}")
+
+
+def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
     """Build LiveConnectConfig with Scout's edit tools and AUDIO output."""
     from google.genai import types
 
@@ -41,12 +119,22 @@ def _build_voice_config(project_data: dict):
         f"  Background music: {background_music}"
     )
 
-    return types.LiveConnectConfig(
-        response_modalities=["AUDIO"],
-        input_audio_transcription={},
-        output_audio_transcription={},
-        system_instruction=system,
-        tools=[types.Tool(function_declarations=[
+    realtime_input_config = types.RealtimeInputConfig(
+        automatic_activity_detection=types.AutomaticActivityDetection(
+            disabled=True,
+        ),
+    )
+    if transport == "vertex":
+        realtime_input_config.activity_handling = types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS
+        realtime_input_config.turn_coverage = types.TurnCoverage.TURN_INCLUDES_ONLY_ACTIVITY
+
+    config_kwargs: dict = {
+        "response_modalities": ["AUDIO"],
+        "input_audio_transcription": {},
+        "output_audio_transcription": {},
+        "realtime_input_config": realtime_input_config,
+        "system_instruction": system,
+        "tools": [types.Tool(function_declarations=[
             types.FunctionDeclaration(
                 name="get_project_info",
                 description="Get the current video's settings — hook, caption style, music.",
@@ -103,7 +191,80 @@ def _build_voice_config(project_data: dict):
                 parameters=types.Schema(type="object", properties={}),
             ),
         ])],
+    }
+    if transport == "vertex":
+        config_kwargs["explicit_vad_signal"] = True
+
+    return types.LiveConnectConfig(
+        **config_kwargs,
     )
+
+
+def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
+    """Return a small tool result that is safe to feed back into Gemini Live."""
+    if not isinstance(result, dict):
+        return {"status": "ok"}
+
+    if "error" in result:
+        return {"error": str(result["error"])}
+
+    if name == "get_project_info":
+        return {
+            "hook": result.get("hook", ""),
+            "caption_style": result.get("caption_style", "beast"),
+            "background_music": result.get("background_music", "none"),
+            "music_volume": result.get("music_volume", 0.15),
+            "platforms": result.get("platforms", []),
+        }
+
+    if name == "get_editor_context":
+        return {
+            "active_panel": result.get("active_panel"),
+            "playhead_seconds": result.get("playhead_seconds"),
+            "selected_element_ids": result.get("selected_element_ids", []),
+            "selected_track_ids": result.get("selected_track_ids", []),
+            "selected_element_types": result.get("selected_element_types", []),
+        }
+
+    if name == "get_user_assets":
+        assets = result.get("assets") or []
+        return {
+            "category": result.get("category", "images"),
+            "asset_count": len(assets),
+            "asset_names": [asset.get("filename", "") for asset in assets[:5] if isinstance(asset, dict)],
+        }
+
+    if name == "generate_style_preview":
+        options = result.get("options") or result.get("preview_options") or []
+        return {
+            "status": "preview_generated",
+            "preview_id": result.get("preview_id"),
+            "option_count": len(options),
+        }
+
+    if name == "draft_edit_command":
+        drafted = result.get("drafted") if isinstance(result.get("drafted"), dict) else {}
+        return {
+            "status": "queued",
+            "kind": drafted.get("kind"),
+        }
+
+    if name == "apply_live_edits":
+        return {
+            "status": "applied",
+            "summary": result.get("message", "Live edits applied."),
+            "requires_export": result.get("requires_export", True),
+        }
+
+    compact: dict = {}
+    for key, value in result.items():
+        if key in {"project_json", "changes", "editor_context", "creative_blocks", "images"}:
+            continue
+        if isinstance(value, list):
+            compact[key] = value[:5]
+        else:
+            compact[key] = value
+    return compact
 
 
 async def _dispatch_voice_tool(
@@ -274,128 +435,367 @@ async def _dispatch_voice_tool(
     return {"error": f"Unknown tool: {name}"}
 
 
+def _update_transcript_buffer(parts: list[str], text: str | None) -> str:
+    """Merge incremental transcript fragments without duplicating whole-turn text."""
+    normalized = (text or "").strip()
+    if not normalized:
+        return " ".join(parts).strip()
+
+    current = " ".join(parts).strip()
+    if not current:
+        parts[:] = [normalized]
+    elif normalized == current or current.startswith(normalized):
+        pass
+    elif normalized.startswith(current):
+        parts[:] = [normalized]
+    else:
+        parts.append(normalized)
+
+    return " ".join(parts).strip()
+
+
 async def run_edit_voice_agent(
     project_id: str,
     project_data: dict,
-    audio_chunks: AsyncIterator[bytes],
+    audio_queue: asyncio.Queue[VoiceRealtimeEvent],
     get_live_state: Callable[[], dict] | None,
     on_event: Callable[[dict], Coroutine],
+    on_audio: Callable[[bytes], Coroutine],  # replaces async generator yield
+    on_ready: Callable[[VoiceLiveTransport], Coroutine] | None = None,
     decision_queue: asyncio.Queue | None = None,
     uid: str = "",
-):
-    """Yield PCM16 audio for the edit session while streaming JSON tool/transcript events."""
+) -> None:
+    """Run the Scout edit voice session with reconnect recovery for Gemini API stalls."""
     from google.genai import types
     from services.gemini.client import get_client
 
-    client = get_client(force_api_key=True)
-    live_config = _build_voice_config(project_data)
+    transport = _resolve_live_transport()
+    client = get_client(force_api_key=transport == "gemini_api")
     draft_commands: list[dict] = []
+    session_restarted = False
 
-    logger.info("Scout edit voice session starting: project=%s", project_id)
+    while True:
+        live_config = _build_voice_config(project_data, transport)
+        session_turn: dict[str, str | None] = {
+            "input_turn_id": None,
+            "response_turn_id": None,
+        }
+        pending_turn_ids: deque[str] = deque()
+        loop = asyncio.get_running_loop()
+        stall_deadline: float | None = None
+        stall_turn_id: str | None = None
 
-    async with client.aio.live.connect(model=_LIVE_MODEL, config=live_config) as session:
-        async def _send_audio() -> None:
-            async for chunk in audio_chunks:
-                await session.send_realtime_input(
-                    audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
-                )
-            await session.send_realtime_input(audio_stream_end=True)
-
-        send_task = asyncio.create_task(_send_audio())
-
-        user_transcript_parts: list[str] = []
-        agent_transcript_parts: list[str] = []
+        logger.info(
+            "Scout edit voice session starting: project=%s transport=%s",
+            project_id,
+            transport,
+        )
 
         try:
-            async for response in session.receive():
-                if response.data:
-                    yield response.data
+            async with client.aio.live.connect(model=_LIVE_MODEL, config=live_config) as session:
+                if session_restarted:
+                    with contextlib.suppress(Exception):
+                        await on_event({"type": "session_restarted", "transport": transport})
+                elif on_ready is not None:
+                    await on_ready(transport)
 
-                server_content = getattr(response, "server_content", None)
-                output_transcription = getattr(server_content, "output_transcription", None) if server_content else None
-                if output_transcription and getattr(output_transcription, "text", None):
+                def _current_response_turn_id() -> str | None:
+                    if session_turn["response_turn_id"] is not None:
+                        return session_turn["response_turn_id"]
+                    if pending_turn_ids:
+                        session_turn["response_turn_id"] = pending_turn_ids[0]
+                        return session_turn["response_turn_id"]
+                    return session_turn["input_turn_id"]
+
+                def _arm_stall_watch(turn_id: str | None) -> None:
+                    nonlocal stall_deadline, stall_turn_id
+                    if transport != "gemini_api":
+                        return
+                    stall_turn_id = turn_id
+                    stall_deadline = loop.time() + _STALL_TIMEOUT_SECONDS
+                    logger.debug(
+                        "Scout edit Live stall watch armed turn=%s timeout=%ss",
+                        turn_id,
+                        _STALL_TIMEOUT_SECONDS,
+                    )
+
+                def _clear_stall_watch(reason: str, turn_id: str | None) -> None:
+                    nonlocal stall_deadline, stall_turn_id
+                    if transport != "gemini_api" or stall_deadline is None:
+                        return
+                    logger.debug(
+                        "Scout edit Live stall watch cleared turn=%s reason=%s",
+                        turn_id,
+                        reason,
+                    )
+                    stall_deadline = None
+                    stall_turn_id = None
+
+                async def _client_to_gemini() -> None:
+                    """Drain audio_queue and forward typed realtime events to Gemini."""
+                    while True:
+                        event = await audio_queue.get()
+                        if event["kind"] == "activity_start":
+                            session_turn["input_turn_id"] = event.get("turn_id")
+                        elif event["kind"] == "activity_end":
+                            turn_id = event.get("turn_id")
+                            if turn_id:
+                                pending_turn_ids.append(turn_id)
+                            _arm_stall_watch(turn_id)
+                        elif event["kind"] == "done":
+                            session_turn["input_turn_id"] = None
+
+                        with contextlib.suppress(Exception):
+                            await _send_realtime_event(
+                                session,
+                                event,
+                                allow_audio_stream_end=False,
+                            )
+
+                        if event["kind"] == "done":
+                            return
+
+                async def _stall_monitor() -> None:
+                    while True:
+                        await asyncio.sleep(0.1)
+                        if stall_deadline is None:
+                            continue
+                        if loop.time() >= stall_deadline:
+                            logger.warning(
+                                "Scout edit Live stall detected turn=%s transport=%s",
+                                stall_turn_id,
+                                transport,
+                            )
+                            raise _VoiceSessionRestartRequired(stall_turn_id)
+
+                async def _gemini_to_client() -> None:
+                    """Receive from Gemini forever. Never breaks on turn_complete."""
+                    tool_queue: asyncio.Queue = asyncio.Queue()
+                    user_parts: list[str] = []
+                    agent_parts: list[str] = []
+
+                    async def _process_tools() -> None:
+                        """Process tool calls from a non-blocking queue."""
+                        while True:
+                            fc = await tool_queue.get()
+                            try:
+                                args = dict(fc.args) if fc.args else {}
+                                logger.info("Scout edit tool call: %s(%s)", fc.name, list(args.keys()))
+                                live_state = get_live_state() if get_live_state else {}
+                                result = await _dispatch_voice_tool(
+                                    fc.name,
+                                    args,
+                                    project_id,
+                                    project_data,
+                                    draft_commands,
+                                    live_state.get("project_json"),
+                                    live_state.get("editor_context"),
+                                    on_event,
+                                    decision_queue=None,
+                                    get_live_state=get_live_state,
+                                    uid=uid,
+                                )
+                                with contextlib.suppress(Exception):
+                                    await on_event({"type": "tool_event", "name": fc.name, **result})
+                                gemini_result = _compact_tool_result_for_gemini(fc.name, result)
+                                with contextlib.suppress(Exception):
+                                    await session.send_tool_response(
+                                        function_responses=[types.FunctionResponse(
+                                            id=fc.id,
+                                            name=fc.name,
+                                            response={"result": gemini_result},
+                                        )]
+                                    )
+                            finally:
+                                tool_queue.task_done()
+
+                    tool_task = asyncio.create_task(_process_tools())
                     try:
-                        agent_transcript_parts.append(output_transcription.text.strip())
-                        await on_event({"type": "agent_transcript", "text": " ".join(agent_transcript_parts)})
-                    except Exception:
-                        pass
-                else:
-                    text = getattr(response, "text", None)
-                    if text and text.strip():
-                        try:
-                            agent_transcript_parts.append(text.strip())
-                            await on_event({"type": "agent_transcript", "text": " ".join(agent_transcript_parts)})
-                        except Exception:
-                            pass
+                        while True:  # re-enter receive() after each turn for multi-turn sessions
+                            async for response in session.receive():
+                                server_content = getattr(response, "server_content", None)
+                                response_turn_id = _current_response_turn_id()
+                                model_turn = getattr(server_content, "model_turn", None) if server_content else None
+                                model_parts = list(getattr(model_turn, "parts", []) or [])
 
-                input_transcription = getattr(server_content, "input_transcription", None) if server_content else None
-                if input_transcription and getattr(input_transcription, "text", None):
-                    try:
-                        user_transcript_parts.append(input_transcription.text.strip())
-                        await on_event({"type": "user_transcript", "text": " ".join(user_transcript_parts)})
-                    except Exception:
-                        pass
+                                out_t = getattr(server_content, "output_transcription", None) if server_content else None
+                                if out_t and getattr(out_t, "text", None):
+                                    text = _update_transcript_buffer(agent_parts, out_t.text)
+                                    _clear_stall_watch("output_transcription", response_turn_id)
+                                    logger.debug(
+                                        "Scout edit Live agent transcript turn=%s text=%s",
+                                        response_turn_id,
+                                        out_t.text.strip(),
+                                    )
+                                    with contextlib.suppress(Exception):
+                                        await on_event({
+                                            "type": "agent_transcript",
+                                            "text": text,
+                                            "turn_id": response_turn_id,
+                                        })
 
-                if server_content and getattr(server_content, "interrupted", False):
-                    try:
-                        await on_event({"type": "interrupted"})
-                    except Exception:
-                        pass
+                                in_t = getattr(server_content, "input_transcription", None) if server_content else None
+                                if in_t and getattr(in_t, "text", None):
+                                    text = _update_transcript_buffer(user_parts, in_t.text)
+                                    _clear_stall_watch("input_transcription", response_turn_id)
+                                    logger.debug(
+                                        "Scout edit Live user transcript turn=%s text=%s",
+                                        response_turn_id,
+                                        in_t.text.strip(),
+                                    )
+                                    with contextlib.suppress(Exception):
+                                        await on_event({
+                                            "type": "user_transcript",
+                                            "text": text,
+                                            "turn_id": response_turn_id,
+                                        })
 
-                tool_call = getattr(response, "tool_call", None)
-                if tool_call:
-                    for fc in tool_call.function_calls:
-                        args = dict(fc.args) if fc.args else {}
-                        logger.info("Scout edit tool call: %s(%s)", fc.name, list(args.keys()))
-                        live_state = get_live_state() if get_live_state else {}
+                                emitted_audio = False
+                                emitted_text_from_parts = False
+                                for part in model_parts:
+                                    inline_data = getattr(part, "inline_data", None)
+                                    audio_bytes = getattr(inline_data, "data", None) if inline_data else None
+                                    if isinstance(audio_bytes, (bytes, bytearray)) and audio_bytes:
+                                        emitted_audio = True
+                                        _clear_stall_watch("model_audio", response_turn_id)
+                                        with contextlib.suppress(Exception):
+                                            await on_audio(bytes(audio_bytes))
 
-                        result = await _dispatch_voice_tool(
-                            fc.name,
-                            args,
-                            project_id,
-                            project_data,
-                            draft_commands,
-                            live_state.get("project_json"),
-                            live_state.get("editor_context"),
-                            on_event,
-                            decision_queue=decision_queue,
-                            get_live_state=get_live_state,
-                            uid=uid,
-                        )
+                                if model_parts and not (out_t and getattr(out_t, "text", None)):
+                                    for part in model_parts:
+                                        text = getattr(part, "text", None)
+                                        if isinstance(text, str) and text.strip() and not getattr(part, "thought", False):
+                                            merged = _update_transcript_buffer(agent_parts, text)
+                                            emitted_text_from_parts = True
+                                            _clear_stall_watch("model_text", response_turn_id)
+                                            with contextlib.suppress(Exception):
+                                                await on_event({
+                                                    "type": "agent_transcript",
+                                                    "text": merged,
+                                                    "turn_id": response_turn_id,
+                                                })
 
-                        try:
-                            await on_event({"type": "tool_event", "name": fc.name, **result})
-                        except Exception:
-                            pass
+                                if not model_parts and response.data:
+                                    _clear_stall_watch("response_audio", response_turn_id)
+                                    with contextlib.suppress(Exception):
+                                        await on_audio(response.data)
 
-                        await session.send_tool_response(
-                            function_responses=[types.FunctionResponse(
-                                id=fc.id,
-                                name=fc.name,
-                                response={"result": result},
-                            )]
-                        )
+                                if not model_parts and not (out_t and getattr(out_t, "text", None)):
+                                    text = getattr(response, "text", None)
+                                    if text and text.strip():
+                                        merged = _update_transcript_buffer(agent_parts, text)
+                                        emitted_text_from_parts = True
+                                        _clear_stall_watch("response_text", response_turn_id)
+                                        with contextlib.suppress(Exception):
+                                            await on_event({
+                                                "type": "agent_transcript",
+                                                "text": merged,
+                                                "turn_id": response_turn_id,
+                                            })
 
-                turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
-                if turn_complete:
-                    user_transcript_parts = []
-                    agent_transcript_parts = []
-                if send_task.done() and turn_complete:
+                                if server_content and getattr(server_content, "interrupted", False):
+                                    logger.info("Scout edit Live interrupted turn=%s", response_turn_id)
+                                    _clear_stall_watch("interrupted", response_turn_id)
+                                    with contextlib.suppress(Exception):
+                                        await on_event({
+                                            "type": "interrupted",
+                                            "turn_id": response_turn_id,
+                                        })
+
+                                if server_content and getattr(server_content, "generation_complete", False):
+                                    logger.info("Scout edit Live generation_complete turn=%s", response_turn_id)
+                                    _clear_stall_watch("generation_complete", response_turn_id)
+                                    with contextlib.suppress(Exception):
+                                        await on_event({
+                                            "type": "generation_complete",
+                                            "turn_id": response_turn_id,
+                                        })
+
+                                tool_call = getattr(response, "tool_call", None)
+                                if tool_call:
+                                    _clear_stall_watch("tool_call", response_turn_id)
+                                    for fc in tool_call.function_calls:
+                                        await tool_queue.put(fc)
+
+                                turn_complete = (
+                                    getattr(server_content, "turn_complete", False) if server_content else False
+                                )
+                                if turn_complete:
+                                    completed_turn_id = response_turn_id
+                                    logger.info(
+                                        "Scout edit Live turn_complete turn=%s user_parts=%d agent_parts=%d",
+                                        completed_turn_id,
+                                        len(user_parts),
+                                        len(agent_parts),
+                                    )
+                                    _clear_stall_watch("turn_complete", completed_turn_id)
+                                    with contextlib.suppress(Exception):
+                                        await on_event({
+                                            "type": "turn_complete",
+                                            "turn_id": completed_turn_id,
+                                        })
+                                    user_parts.clear()
+                                    agent_parts.clear()
+                                    if pending_turn_ids and pending_turn_ids[0] == completed_turn_id:
+                                        pending_turn_ids.popleft()
+                                    elif completed_turn_id in pending_turn_ids:
+                                        pending_turn_ids.remove(completed_turn_id)
+                                    session_turn["response_turn_id"] = None
+
+                    except Exception as exc:
+                        message = str(exc)
+                        if "Operation is not implemented, or supported, or enabled" in message:
+                            raise RuntimeError(
+                                "Gemini Live rejected the current voice session configuration. "
+                                "Retry once; if it persists, use the text agent while we keep the live session on the minimal supported config."
+                            ) from exc
+                        raise
+                    finally:
+                        await tool_queue.join()
+                        tool_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await tool_task
+
+                client_task = asyncio.create_task(_client_to_gemini())
+                gemini_task = asyncio.create_task(_gemini_to_client())
+                stall_task = asyncio.create_task(_stall_monitor()) if transport == "gemini_api" else None
+
+                tasks = {client_task, gemini_task}
+                if stall_task is not None:
+                    tasks.add(stall_task)
+
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                for task in pending:
+                    task.cancel()
+                for task in pending:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
+
+                for task in done:
+                    exc = task.exception()
+                    if exc is not None:
+                        raise exc
+
+                if client_task in done:
                     break
-        except Exception as exc:
-            message = str(exc)
-            if "Operation is not implemented, or supported, or enabled" in message:
-                raise RuntimeError(
-                    "Gemini Live rejected the current voice session configuration. "
-                    "Retry once; if it persists, use the text agent while we keep the live session on the minimal supported config."
-                ) from exc
-            raise
-        finally:
-            if send_task is not None:
-                if not send_task.done():
-                    send_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await send_task
+                if gemini_task in done:
+                    break
+                if stall_task is not None and stall_task in done:
+                    raise RuntimeError("Voice session ended unexpectedly during stall monitoring.")
 
-    logger.info("Scout edit voice session ended: project=%s", project_id)
+            logger.info("Scout edit voice session ended: project=%s", project_id)
+            return
 
+        except _VoiceSessionRestartRequired as exc:
+            logger.warning(
+                "Scout edit voice session recovering: project=%s turn=%s transport=%s",
+                project_id,
+                exc.turn_id,
+                transport,
+            )
+            draft_commands.clear()
+            with contextlib.suppress(Exception):
+                await on_event({"type": "session_recovering", "turn_id": exc.turn_id})
+            session_restarted = True
+            continue
