@@ -2,7 +2,24 @@
 
 import type { RefObject } from "react";
 import { useCallback, useRef, useState } from "react";
-import { Loader2, Mic, MicOff, Monitor, MonitorOff, Pause, Play, Send, Sparkles, X } from "lucide-react";
+import {
+  Check,
+  ChevronUp,
+  Loader2,
+  Mic,
+  MicOff,
+  Monitor,
+  MonitorOff,
+  Pause,
+  Pencil,
+  Play,
+  ScanEye,
+  Search,
+  Send,
+  Sparkles,
+  Wand2,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -10,6 +27,7 @@ import type {
   CreativeBlock,
   CreativePreviewOption,
   EditProposal,
+  ThumbnailOption,
 } from "@/components/editor/types";
 
 interface AssetMeta {
@@ -27,54 +45,110 @@ interface MentionState {
   assets: AssetMeta[];
 }
 
-interface ChipOption { label: string; instruction: string }
+interface ChipOption {
+  label: string;
+  instruction: string;
+}
 
 const MUSIC_PRESETS = [
-  "happy_rhythm", "quiet_before_storm", "peaceful_vibes",
-  "brilliant_symphony", "breathing_shadows", "lyria", "none",
+  "happy_rhythm",
+  "quiet_before_storm",
+  "peaceful_vibes",
+  "brilliant_symphony",
+  "breathing_shadows",
+  "lyria",
+  "none",
 ];
 const TEXT_POSITIONS = ["top", "middle", "bottom"];
 
 const PUBLIC_IMAGES: ChipOption[] = [
-  { label: "Mountain Lake",      instruction: "Replace the selected image with Mountain Lake. Use this URL: https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=576&h=1024&fit=crop" },
-  { label: "City Skyline",       instruction: "Replace the selected image with City Skyline. Use this URL: https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=576&h=1024&fit=crop" },
-  { label: "Ocean Waves",        instruction: "Replace the selected image with Ocean Waves. Use this URL: https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=576&h=1024&fit=crop" },
-  { label: "Forest Path",        instruction: "Replace the selected image with Forest Path. Use this URL: https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=576&h=1024&fit=crop" },
-  { label: "Sunset Clouds",      instruction: "Replace the selected image with Sunset Clouds. Use this URL: https://images.unsplash.com/photo-1495616811223-4d98c6e9c869?w=576&h=1024&fit=crop" },
-  { label: "Neon Lights",        instruction: "Replace the selected image with Neon Lights. Use this URL: https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=576&h=1024&fit=crop" },
-  { label: "Desert Dunes",       instruction: "Replace the selected image with Desert Dunes. Use this URL: https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=576&h=1024&fit=crop" },
-  { label: "Abstract Gradient",  instruction: "Replace the selected image with Abstract Gradient. Use this URL: https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=576&h=1024&fit=crop" },
+  {
+    label: "Mountain Lake",
+    instruction:
+      "Replace the selected image with Mountain Lake. Use this URL: https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "City Skyline",
+    instruction:
+      "Replace the selected image with City Skyline. Use this URL: https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "Ocean Waves",
+    instruction:
+      "Replace the selected image with Ocean Waves. Use this URL: https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "Forest Path",
+    instruction:
+      "Replace the selected image with Forest Path. Use this URL: https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "Sunset Clouds",
+    instruction:
+      "Replace the selected image with Sunset Clouds. Use this URL: https://images.unsplash.com/photo-1495616811223-4d98c6e9c869?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "Neon Lights",
+    instruction:
+      "Replace the selected image with Neon Lights. Use this URL: https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "Desert Dunes",
+    instruction:
+      "Replace the selected image with Desert Dunes. Use this URL: https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=576&h=1024&fit=crop",
+  },
+  {
+    label: "Abstract Gradient",
+    instruction:
+      "Replace the selected image with Abstract Gradient. Use this URL: https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=576&h=1024&fit=crop",
+  },
 ];
 
 const LABEL_CHIPS: Record<string, ChipOption[]> = {
   "Change music": MUSIC_PRESETS.map((p) => ({
     label: p === "lyria" ? "lyria (AI ✨)" : p.replace(/_/g, " "),
-    instruction: p === "lyria" ? "Generate AI music using Lyria for this video" : p,
+    instruction:
+      p === "lyria" ? "Generate AI music using Lyria for this video" : p,
   })),
   "Swap selected image": PUBLIC_IMAGES,
   "Adjust volume": [
-    { label: "music louder",  instruction: "Turn up the background music volume" },
-    { label: "music quieter", instruction: "Turn down the background music volume" },
-    { label: "voice louder",  instruction: "Turn up the voiceover volume" },
+    {
+      label: "music louder",
+      instruction: "Turn up the background music volume",
+    },
+    {
+      label: "music quieter",
+      instruction: "Turn down the background music volume",
+    },
+    { label: "voice louder", instruction: "Turn up the voiceover volume" },
     { label: "voice quieter", instruction: "Turn down the voiceover volume" },
   ],
 };
 
-interface DetectResult { options: ChipOption[]; volumeInput?: boolean }
+interface DetectResult {
+  options: ChipOption[];
+  volumeInput?: boolean;
+}
 
 function detectOptionSet(text: string): DetectResult | null {
   if (text.includes("I can:")) return null;
   // Volume disambiguation: "a little" / "a lot" with custom input
-  if (text.toLowerCase().includes("a little") && text.toLowerCase().includes("a lot"))
+  if (
+    text.toLowerCase().includes("a little") &&
+    text.toLowerCase().includes("a lot")
+  )
     return {
       options: [
         { label: "a little", instruction: "a little" },
-        { label: "a lot",    instruction: "a lot" },
+        { label: "a lot", instruction: "a lot" },
       ],
       volumeInput: true,
     };
   // Detect "Which — background music or voiceover?" disambiguation
-  if (/background music or voiceover/i.test(text) || /music or voiceover/i.test(text)) {
+  if (
+    /background music or voiceover/i.test(text) ||
+    /music or voiceover/i.test(text)
+  ) {
     return {
       options: [
         { label: "background music", instruction: "background music" },
@@ -87,53 +161,148 @@ function detectOptionSet(text: string): DetectResult | null {
     return {
       options: MUSIC_PRESETS.map((p) => ({
         label: p === "lyria" ? "lyria (AI ✨)" : p.replace(/_/g, " "),
-        instruction: p === "lyria" ? "Generate AI music using Lyria for this video" : p,
+        instruction:
+          p === "lyria" ? "Generate AI music using Lyria for this video" : p,
       })),
     };
   // Delete overlay disambiguation: parse quoted overlay names as chips
-  if (/which should I remove/i.test(text) || /found these text overlays/i.test(text)) {
-    const quoted = [...text.matchAll(/'([^']+)'/g)].map((m) => m[1]).filter(Boolean);
+  if (
+    /which should I remove/i.test(text) ||
+    /found these text overlays/i.test(text)
+  ) {
+    const quoted = [...text.matchAll(/'([^']+)'/g)]
+      .map((m) => m[1])
+      .filter(Boolean);
     const unique = [...new Set(quoted)];
     if (unique.length >= 1) {
       const chips: ChipOption[] = unique.map((label) => ({
         label,
         instruction: `Remove the text overlay that says "${label}"`,
       }));
-      chips.push({ label: "remove all", instruction: "Remove all text overlays" });
+      chips.push({
+        label: "remove all",
+        instruction: "Remove all text overlays",
+      });
       return { options: chips };
     }
   }
   // Text position chips
   if (TEXT_POSITIONS.filter((p) => text.toLowerCase().includes(p)).length >= 2)
-    return { options: TEXT_POSITIONS.map((p) => ({ label: p, instruction: p })) };
+    return {
+      options: TEXT_POSITIONS.map((p) => ({ label: p, instruction: p })),
+    };
   return null;
 }
 
-const QUICK_ACTIONS = [
+type AgentMode = "live_edit" | "creative" | "screen_aware";
+
+const MODES = [
   {
-    label: "Change music",
-    instruction:
-      "Change the background music. Ask which preset: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria (AI-generated), none.",
+    key: "live_edit" as AgentMode,
+    label: "Live Edit",
+    Icon: Pencil,
+    description: "Apply confirmed edits to the timeline",
+    placeholder: "Tell Scout what to change...",
+    accent: "text-sky-400",
+    activeBg: "bg-sky-500/30 text-sky-100 shadow-sm",
   },
   {
-    label: "Add text overlay",
-    instruction:
-      "Add a text overlay to the video. First ask me what text to display (a single question only). Only after I provide the text, ask where to place it (top / middle / bottom).",
+    key: "creative" as AgentMode,
+    label: "Creative",
+    Icon: Wand2,
+    description: "Generate visual concepts, images & ideas",
+    placeholder: "Describe a creative direction or concept...",
+    accent: "text-violet-400",
+    activeBg: "bg-violet-500/30 text-violet-100 shadow-sm",
   },
   {
-    label: "Swap selected image",
-    instruction:
-      "Swap the currently selected image with a public stock photo. Do NOT call get_user_assets — the user will @mention their own uploaded assets in the chat if they want to use them. Just ask which stock photo they want from the chips shown, or wait for them to @mention an asset.",
-  },
-  {
-    label: "Adjust volume",
-    instruction:
-      "Adjust the background music or voiceover volume. Ask me whether to adjust music or voiceover, and whether to make it louder or quieter.",
+    key: "screen_aware" as AgentMode,
+    label: "Screen Aware",
+    Icon: ScanEye,
+    description: "Analyse the canvas and act on what's visible",
+    placeholder: "What do you see? Ask Scout to analyse or fix it...",
+    accent: "text-emerald-400",
+    activeBg: "bg-emerald-500/30 text-emerald-100 shadow-sm",
   },
 ] as const;
 
+const MODE_QUICK_ACTIONS: Record<
+  AgentMode,
+  readonly { label: string; instruction: string }[]
+> = {
+  live_edit: [
+    {
+      label: "Change music",
+      instruction:
+        "Change the background music. Ask which preset: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria (AI-generated), none.",
+    },
+    {
+      label: "Swap selected image",
+      instruction:
+        "Swap the currently selected image with a public stock photo. Do NOT call get_user_assets — the user will @mention their own uploaded assets in the chat if they want to use them. Just ask which stock photo they want from the chips shown, or wait for them to @mention an asset.",
+    },
+    {
+      label: "Adjust volume",
+      instruction:
+        "Adjust the background music or voiceover volume. Ask me whether to adjust music or voiceover, and whether to make it louder or quieter.",
+    },
+    {
+      label: "Add text overlay",
+      instruction:
+        "Add a text overlay to the video. First ask me what text to display (a single question only). Only after I provide the text, ask where to place it (top / middle / bottom).",
+    },
+  ],
+  creative: [
+    {
+      label: "Creative direction ✦",
+      instruction:
+        "Generate creative direction for this video — visual concepts, hook ideas, caption themes, and mood suggestions with generated preview images. Use mode=social_content.",
+    },
+    {
+      label: "New thumbnail ✦",
+      instruction:
+        "Generate 2 new clickbait thumbnail options for this video based on what you see on screen. Use the current screen as reference.",
+    },
+    {
+      label: "Generate image ✦",
+      instruction:
+        "Generate an AI image for the currently selected scene and replace it. First check what is selected, then generate a fitting image based on the video's theme.",
+    },
+    {
+      label: "Style preview ✦",
+      instruction:
+        "Show me a style preview — generate a visual concept image that captures the overall mood and aesthetic direction for this video.",
+    },
+  ],
+  screen_aware: [
+    {
+      label: "Inspect screen",
+      instruction:
+        "Analyse my screen carefully. What do you see? Note any visual improvements I could make — text positioning, caption style, contrast, pacing. Maximum 3 sentences.",
+    },
+    {
+      label: "What's wrong?",
+      instruction:
+        "Look at what's visible on screen and tell me the top 2–3 things I should fix to make this video more engaging.",
+    },
+    {
+      label: "Suggest edits",
+      instruction:
+        "Based on what you see on screen, suggest the most impactful edit I could make right now and apply it.",
+    },
+    {
+      label: "Fix selected element",
+      instruction:
+        "Look at the currently selected element on screen. What's wrong with it and how should I improve it? Then apply the fix.",
+    },
+  ],
+};
+
 function renderAgentText(text: string): React.ReactNode {
-  const parts = text.split("•").map((s) => s.trim()).filter(Boolean);
+  const parts = text
+    .split("•")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (parts.length >= 3) {
     const [intro, ...items] = parts;
     return (
@@ -141,7 +310,10 @@ function renderAgentText(text: string): React.ReactNode {
         {intro && <p className="mb-2 text-sm leading-relaxed">{intro}</p>}
         <ul className="space-y-1">
           {items.map((item, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-sm leading-relaxed">
+            <li
+              key={i}
+              className="flex items-start gap-1.5 text-sm leading-relaxed"
+            >
               <span className="mt-0.5 shrink-0 text-primary">•</span>
               <span>{item}</span>
             </li>
@@ -172,8 +344,13 @@ function LyriaAudioPlayer({ src }: { src: string }) {
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (playing) { a.pause(); setPlaying(false); }
-    else { void a.play(); setPlaying(true); }
+    if (playing) {
+      a.pause();
+      setPlaying(false);
+    } else {
+      void a.play();
+      setPlaying(true);
+    }
   };
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -198,7 +375,10 @@ function LyriaAudioPlayer({ src }: { src: string }) {
         src={src}
         onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-        onEnded={() => { setPlaying(false); setProgress(0); }}
+        onEnded={() => {
+          setPlaying(false);
+          setProgress(0);
+        }}
       />
       <div className="flex items-center gap-2">
         <button
@@ -206,9 +386,11 @@ function LyriaAudioPlayer({ src }: { src: string }) {
           onClick={toggle}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary-foreground hover:bg-primary/35"
         >
-          {playing
-            ? <Pause className="h-3.5 w-3.5" />
-            : <Play className="h-3.5 w-3.5" />}
+          {playing ? (
+            <Pause className="h-3.5 w-3.5" />
+          ) : (
+            <Play className="h-3.5 w-3.5" />
+          )}
         </button>
         <div
           className="h-1.5 flex-1 cursor-pointer rounded-full bg-primary/20"
@@ -242,6 +424,7 @@ interface AgentPanelProps {
   isScreenShareActive: boolean;
   startScreenShare: () => void | Promise<void>;
   stopScreenShare: () => void;
+  inspectScreen?: () => void;
   confirmProposal: (proposal: EditProposal) => void;
   rejectProposal: (proposal: EditProposal) => void;
   revertLastEdit: () => void;
@@ -263,13 +446,19 @@ export function AgentPanel({
   isScreenShareActive,
   startScreenShare,
   stopScreenShare,
+  inspectScreen,
   confirmProposal,
   rejectProposal,
   revertLastEdit,
   hasUndo,
 }: AgentPanelProps) {
+  const [agentMode, setAgentMode] = useState<AgentMode>("live_edit");
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const activeMode = MODES.find((m) => m.key === agentMode)!;
   const [mentionState, setMentionState] = useState<MentionState | null>(null);
-  const [pendingChipsLabel, setPendingChipsLabel] = useState<string | null>(null);
+  const [pendingChipsLabel, setPendingChipsLabel] = useState<string | null>(
+    null,
+  );
   const [volumeDraft, setVolumeDraft] = useState("");
   const mentionedAssetsRef = useRef<Record<string, AssetMeta>>({});
   const assetCacheRef = useRef<AssetMeta[] | null>(null);
@@ -282,8 +471,12 @@ export function AgentPanel({
         apiFetch("/api/v1/assets?category=images"),
         apiFetch("/api/v1/assets?category=music"),
       ]);
-      const imgs = imgRes.ok ? (await imgRes.json() as { assets: AssetMeta[] }).assets : [];
-      const music = musicRes.ok ? (await musicRes.json() as { assets: AssetMeta[] }).assets : [];
+      const imgs = imgRes.ok
+        ? ((await imgRes.json()) as { assets: AssetMeta[] }).assets
+        : [];
+      const music = musicRes.ok
+        ? ((await musicRes.json()) as { assets: AssetMeta[] }).assets
+        : [];
       assetCacheRef.current = [...imgs, ...music];
       return assetCacheRef.current;
     } catch {
@@ -291,55 +484,74 @@ export function AgentPanel({
     }
   }, []);
 
-  const handleInputChange = useCallback(async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setAgentInput(value);
+  const handleInputChange = useCallback(
+    async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value;
+      setAgentInput(value);
 
-    const cursor = e.target.selectionStart ?? value.length;
-    const before = value.slice(0, cursor);
-    const match = before.match(/@(\w*)$/);
+      const cursor = e.target.selectionStart ?? value.length;
+      const before = value.slice(0, cursor);
+      const match = before.match(/@(\w*)$/);
 
-    if (match) {
-      const query = match[1].toLowerCase();
-      const all = await fetchMentionAssets();
-      const filtered = all
-        .filter((a) => a.filename.toLowerCase().includes(query))
-        .slice(0, 8);
-      if (filtered.length > 0) {
-        setMentionState({ visible: true, query, atIndex: cursor - match[0].length, assets: filtered });
+      if (match) {
+        const query = match[1].toLowerCase();
+        const all = await fetchMentionAssets();
+        const filtered = all
+          .filter((a) => a.filename.toLowerCase().includes(query))
+          .slice(0, 8);
+        if (filtered.length > 0) {
+          setMentionState({
+            visible: true,
+            query,
+            atIndex: cursor - match[0].length,
+            assets: filtered,
+          });
+        } else {
+          setMentionState(null);
+        }
       } else {
         setMentionState(null);
       }
-    } else {
+    },
+    [fetchMentionAssets, setAgentInput],
+  );
+
+  const insertMention = useCallback(
+    (asset: AssetMeta) => {
+      if (!mentionState) return;
+      const token = `@${asset.filename}`;
+      const before = agentInput.slice(0, mentionState.atIndex);
+      const after = agentInput.slice(
+        mentionState.atIndex + 1 + mentionState.query.length,
+      );
+      const newValue = before + token + after;
+      setAgentInput(newValue);
+      mentionedAssetsRef.current[token] = asset;
       setMentionState(null);
-    }
-  }, [fetchMentionAssets, setAgentInput]);
+      textareaRef.current?.focus();
+    },
+    [agentInput, mentionState, setAgentInput],
+  );
 
-  const insertMention = useCallback((asset: AssetMeta) => {
-    if (!mentionState) return;
-    const token = `@${asset.filename}`;
-    const before = agentInput.slice(0, mentionState.atIndex);
-    const after = agentInput.slice(mentionState.atIndex + 1 + mentionState.query.length);
-    const newValue = before + token + after;
-    setAgentInput(newValue);
-    mentionedAssetsRef.current[token] = asset;
-    setMentionState(null);
-    textareaRef.current?.focus();
-  }, [agentInput, mentionState, setAgentInput]);
-
-  const handleSend = useCallback((instruction: string, displayText?: string) => {
-    if (!instruction.trim()) return;
-    const mentions = Object.values(mentionedAssetsRef.current);
-    const enriched = mentions.length > 0
-      ? `${instruction}\n\n[Mentioned assets: ${mentions.map((a) => `${a.filename} (id:${a.id}, category:${a.content_type.startsWith("image") ? "images" : "music"})`).join(", ")}]`
-      : instruction;
-    const shown = displayText ?? instruction;
-    mentionedAssetsRef.current = {};
-    setMentionState(null);
-    // Track which quick action fired so we can show context chips after agent responds
-    setPendingChipsLabel(displayText && LABEL_CHIPS[displayText] ? displayText : null);
-    sendAgentInstruction(enriched, shown);
-  }, [sendAgentInstruction]);
+  const handleSend = useCallback(
+    (instruction: string, displayText?: string) => {
+      if (!instruction.trim()) return;
+      const mentions = Object.values(mentionedAssetsRef.current);
+      const enriched =
+        mentions.length > 0
+          ? `${instruction}\n\n[Mentioned assets: ${mentions.map((a) => `${a.filename} (id:${a.id}, category:${a.content_type.startsWith("image") ? "images" : "music"})`).join(", ")}]`
+          : instruction;
+      const shown = displayText ?? instruction;
+      mentionedAssetsRef.current = {};
+      setMentionState(null);
+      // Track which quick action fired so we can show context chips after agent responds
+      setPendingChipsLabel(
+        displayText && LABEL_CHIPS[displayText] ? displayText : null,
+      );
+      sendAgentInstruction(enriched, shown);
+    },
+    [sendAgentInstruction],
+  );
 
   if (!agentPanelOpen) return null;
 
@@ -352,8 +564,8 @@ export function AgentPanel({
           </div>
           <div>
             <p className="text-sm font-semibold text-editor-text">AI Copilot</p>
-            <p className="text-xs text-editor-text-muted">
-              Live edits · Creative preview · Screen analysis
+            <p className="text-[10px] text-editor-text-dim">
+              {activeMode.description}
             </p>
           </div>
         </div>
@@ -397,72 +609,99 @@ export function AgentPanel({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>Thinking...</span>
                 </div>
-              ) : msg.text ? (() => {
-                const isLastAgentMsg = msg.role === "agent" && msg === agentMessages.filter((m) => m.role === "agent").at(-1);
-                const hasChips = (isLastAgentMsg && pendingChipsLabel && LABEL_CHIPS[pendingChipsLabel])
-                  || detectOptionSet(msg.text);
-                const displayText = hasChips ? cleanTextForChips(msg.text) : msg.text;
-                return renderAgentText(displayText);
-              })() : (
-                <span className="italic text-muted-foreground">Processing...</span>
+              ) : msg.text ? (
+                (() => {
+                  const isLastAgentMsg =
+                    msg.role === "agent" &&
+                    msg ===
+                      agentMessages.filter((m) => m.role === "agent").at(-1);
+                  const hasChips =
+                    (isLastAgentMsg &&
+                      pendingChipsLabel &&
+                      LABEL_CHIPS[pendingChipsLabel]) ||
+                    detectOptionSet(msg.text);
+                  const displayText = hasChips
+                    ? cleanTextForChips(msg.text)
+                    : msg.text;
+                  return renderAgentText(displayText);
+                })()
+              ) : (
+                <span className="italic text-muted-foreground">
+                  Processing...
+                </span>
               )}
 
               {/* Option chips — shown when agent asks user to pick a preset/style/position */}
-              {msg.role === "agent" && !msg.isThinking && !msg.proposal && (() => {
-                const isLastAgentMsg = msg === agentMessages.filter((m) => m.role === "agent").at(-1);
-                const detected: DetectResult | null =
-                  (isLastAgentMsg && pendingChipsLabel ? { options: LABEL_CHIPS[pendingChipsLabel] ?? [] } : null)
-                  ?? (msg.text ? detectOptionSet(msg.text) : null);
-                const chips = detected?.options ?? null;
-                if (!chips || chips.length === 0) return null;
-                return (
-                  <div className="mt-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      {chips.map((chip) => (
-                        <button
-                          key={chip.instruction}
-                          type="button"
-                          onClick={() => handleSend(chip.instruction, chip.label)}
-                          disabled={agentLoading}
-                          className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-foreground/80 transition-colors hover:bg-primary/25 disabled:opacity-40"
-                        >
-                          {chip.label}
-                        </button>
-                      ))}
-                    </div>
-                    {detected?.volumeInput && (
-                      <div className="mt-1.5 flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          placeholder="0.0 – 1.0"
-                          value={volumeDraft}
-                          onChange={(e) => setVolumeDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && volumeDraft) {
-                              handleSend(volumeDraft, volumeDraft);
-                              setVolumeDraft("");
+              {msg.role === "agent" &&
+                !msg.isThinking &&
+                !msg.proposal &&
+                (() => {
+                  const isLastAgentMsg =
+                    msg ===
+                    agentMessages.filter((m) => m.role === "agent").at(-1);
+                  const detected: DetectResult | null =
+                    (isLastAgentMsg && pendingChipsLabel
+                      ? { options: LABEL_CHIPS[pendingChipsLabel] ?? [] }
+                      : null) ?? (msg.text ? detectOptionSet(msg.text) : null);
+                  const chips = detected?.options ?? null;
+                  if (!chips || chips.length === 0) return null;
+                  return (
+                    <div className="mt-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {chips.map((chip) => (
+                          <button
+                            key={chip.instruction}
+                            type="button"
+                            onClick={() =>
+                              handleSend(chip.instruction, chip.label)
                             }
-                          }}
-                          className="w-full rounded-lg border border-editor-border bg-editor-surface px-2 py-1 text-xs text-foreground focus:border-primary/50 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => { if (volumeDraft) { handleSend(volumeDraft, volumeDraft); setVolumeDraft(""); } }}
-                          disabled={!volumeDraft || agentLoading}
-                          className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
-                        >
-                          Set
-                        </button>
+                            disabled={agentLoading}
+                            className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary-foreground/80 transition-colors hover:bg-primary/25 disabled:opacity-40"
+                          >
+                            {chip.label}
+                          </button>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                );
-              })()}
+                      {detected?.volumeInput && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            placeholder="0.0 – 1.0"
+                            value={volumeDraft}
+                            onChange={(e) => setVolumeDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && volumeDraft) {
+                                handleSend(volumeDraft, volumeDraft);
+                                setVolumeDraft("");
+                              }
+                            }}
+                            className="w-full rounded-lg border border-editor-border bg-editor-surface px-2 py-1 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (volumeDraft) {
+                                handleSend(volumeDraft, volumeDraft);
+                                setVolumeDraft("");
+                              }
+                            }}
+                            disabled={!volumeDraft || agentLoading}
+                            className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+                          >
+                            Set
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
-              {msg.lyriaPreviewUrl && <LyriaAudioPlayer src={msg.lyriaPreviewUrl} />}
+              {msg.lyriaPreviewUrl && (
+                <LyriaAudioPlayer src={msg.lyriaPreviewUrl} />
+              )}
 
               {msg.previewOptions && msg.previewOptions.length > 0 && (
                 <div className="mt-2">
@@ -521,9 +760,7 @@ export function AgentPanel({
                         <button
                           type="button"
                           onClick={() =>
-                            handleSend(
-                              `Apply the style from preview ${i + 1}`,
-                            )
+                            handleSend(`Apply the style from preview ${i + 1}`)
                           }
                           className="absolute inset-x-0 bottom-0 bg-black/70 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
                         >
@@ -531,6 +768,41 @@ export function AgentPanel({
                         </button>
                       </div>
                     ))}
+                </div>
+              )}
+
+              {msg.thumbnailOptions && msg.thumbnailOptions.length > 0 && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
+                    Thumbnail options — pick one to apply
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {msg.thumbnailOptions.map((opt: ThumbnailOption) => (
+                      <div
+                        key={opt.index}
+                        className="group overflow-hidden rounded-lg border border-editor-border"
+                      >
+                        <img
+                          src={`data:${opt.mime_type};base64,${opt.image_b64}`}
+                          alt={`Thumbnail option ${opt.index + 1}`}
+                          className="w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSend(
+                              `Apply thumbnail option ${opt.index + 1}`,
+                              `Apply thumbnail ${opt.index + 1}`,
+                            )
+                          }
+                          disabled={agentLoading}
+                          className="w-full border-t border-editor-border bg-editor-surface-raised py-1.5 text-xs font-medium text-foreground/70 transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-40"
+                        >
+                          Use option {opt.index + 1} as thumbnail →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -620,7 +892,7 @@ export function AgentPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-t border-editor-border px-3 py-2">
-        {QUICK_ACTIONS.map(({ label, instruction }) => (
+        {MODE_QUICK_ACTIONS[agentMode].map(({ label, instruction }) => (
           <button
             key={label}
             type="button"
@@ -677,7 +949,9 @@ export function AgentPanel({
           <textarea
             ref={textareaRef}
             value={agentInput}
-            onChange={(e) => { void handleInputChange(e); }}
+            onChange={(e) => {
+              void handleInputChange(e);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 setMentionState(null);
@@ -688,14 +962,67 @@ export function AgentPanel({
                 handleSend(agentInput);
               }
             }}
-            placeholder="Describe your edit... (type @ to tag an asset)"
+            placeholder={`${activeMode.placeholder} (type @ to tag an asset)`}
             rows={2}
             className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder-muted-foreground focus:outline-none"
           />
           <div className="mt-2 flex items-center justify-between">
-            <p className="text-[11px] text-editor-text-dim">
-              Live edits update the timeline immediately.
-            </p>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowModeMenu((v) => !v)}
+                className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-editor-text-dim transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <activeMode.Icon className="h-3 w-3" />
+                {activeMode.label}
+                <ChevronUp className="h-2.5 w-2.5" />
+              </button>
+
+              {showModeMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowModeMenu(false)}
+                  />
+                  <div className="absolute bottom-full left-0 z-50 mb-1.5 w-52 overflow-hidden rounded-xl border border-editor-border bg-editor-surface shadow-xl">
+                    {MODES.map((mode) => {
+                      const Icon = mode.Icon;
+                      const isActive = agentMode === mode.key;
+                      return (
+                        <button
+                          key={mode.key}
+                          type="button"
+                          onClick={() => {
+                            setAgentMode(mode.key);
+                            setShowModeMenu(false);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-editor-surface-raised",
+                            isActive ? "text-foreground" : "text-foreground/60",
+                          )}
+                        >
+                          <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+                            {isActive ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Icon className="h-3.5 w-3.5" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-[12px] font-medium leading-tight">
+                              {mode.label}
+                            </p>
+                            <p className="text-[10px] text-editor-text-dim">
+                              {mode.description}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -746,6 +1073,7 @@ export function AgentPanel({
                   <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
                 )}
               </button>
+
               <button
                 type="button"
                 onClick={() => handleSend(agentInput)}

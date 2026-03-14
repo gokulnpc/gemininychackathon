@@ -128,12 +128,102 @@ def _invoke_interleaved(prompt: str) -> list[dict]:
     return blocks
 
 
+def _invoke_interleaved_with_image(prompt: str, reference_image_b64: str | None = None) -> list[dict]:
+    """Like `_invoke_interleaved` but accepts an optional reference image as input."""
+    from google.genai import types
+    from services.gemini.client import get_client
+
+    client = get_client(force_api_key=True)
+    parts: list = []
+    if reference_image_b64:
+        image_bytes = base64.b64decode(reference_image_b64)
+        parts.append(types.Part(inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")))
+    parts.append(types.Part(text=prompt))
+
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=types.Content(parts=parts),
+        config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+    )
+
+    blocks: list[dict] = []
+    for part in response.candidates[0].content.parts:
+        text = getattr(part, "text", None)
+        blob = getattr(part, "inline_data", None)
+        if text and text.strip():
+            blocks.append({"type": "text", "content": text.strip()})
+        elif blob is not None:
+            raw = getattr(blob, "data", None)
+            mime = getattr(blob, "mime_type", "image/jpeg")
+            if raw:
+                if isinstance(raw, bytes):
+                    raw = base64.b64encode(raw).decode()
+                blocks.append({"type": "image", "content": raw, "mime_type": mime})
+    return blocks
+
+
+_THUMBNAIL_PROMPT_TEMPLATE = (
+    "You are a viral YouTube thumbnail designer. "
+    "Generate {count} DIFFERENT ultra-clickbait thumbnail images for a short-form video titled: \"{hook}\".\n"
+    "{brief_clause}"
+    "{art_clause}"
+    "\nRequirements for EACH thumbnail:\n"
+    "- Bold, high-contrast colours that pop on mobile screens\n"
+    "- Expressive faces or dramatic, eye-catching visuals that trigger curiosity\n"
+    "- Optional short bold text overlay (3–5 words max) that teases without spoiling\n"
+    "- Landscape 16:9 composition — YouTube/Shorts thumbnail format\n"
+    "- Each option must look DISTINCTLY DIFFERENT (vary style, colour palette, and composition)\n\n"
+    "Generate exactly {count} complete thumbnail images back-to-back. No commentary, just images."
+)
+
+
+async def generate_thumbnail_options(
+    hook: str,
+    brief: str = "",
+    reference_image_b64: str | None = None,
+    art_style: str = "realism",
+    count: int = 2,
+) -> list[dict]:
+    """Generate N clickbait thumbnail images for a short-form video.
+
+    Args:
+        hook:                 The video's hook/title text (used in the thumbnail).
+        brief:                Optional extra context about the video content.
+        reference_image_b64:  Optional JPEG b64 of the current screen to reference.
+        art_style:            Art style for generation.
+        count:                How many thumbnail options to generate (default 2).
+
+    Returns:
+        List of {"image_b64": str, "mime_type": str} dicts (up to `count` items).
+    """
+    count = min(3, max(1, count))
+    brief_clause = f"Video context: {brief}\n" if brief else ""
+    art_clause = f"Art style: {art_style}. Apply this style consistently.\n" if art_style else ""
+    prompt = _THUMBNAIL_PROMPT_TEMPLATE.format(
+        count=count,
+        hook=hook,
+        brief_clause=brief_clause,
+        art_clause=art_clause,
+    )
+
+    logger.info("Thumbnail generation starting (hook=%.40s, count=%d)", hook, count)
+    blocks = await asyncio.to_thread(_invoke_interleaved_with_image, prompt, reference_image_b64)
+    image_blocks = [
+        {"image_b64": b["content"], "mime_type": b.get("mime_type", "image/jpeg")}
+        for b in blocks if b.get("type") == "image"
+    ]
+    result = image_blocks[:count]
+    logger.info("Thumbnail generation done — %d images returned", len(result))
+    return result
+
+
 async def generate_creative_package(
     brief: str,
     mode: str = "social_content",
     art_style: str | None = None,
     include_narration: bool = False,
     voice_id: str = "Aoede",
+    reference_image_b64: str | None = None,
 ) -> tuple[list[dict], str | None]:
     """Generate a rich mixed-media creative package using Gemini interleaved output.
 
@@ -154,8 +244,11 @@ async def generate_creative_package(
     """
     prompt = _build_prompt(mode, brief, art_style)
 
-    logger.info("Creative Director starting (mode=%s, art_style=%s)", mode, art_style)
-    blocks = await asyncio.to_thread(_invoke_interleaved, prompt)
+    logger.info("Creative Director starting (mode=%s, art_style=%s, has_ref=%s)", mode, art_style, bool(reference_image_b64))
+    if reference_image_b64:
+        blocks = await asyncio.to_thread(_invoke_interleaved_with_image, prompt, reference_image_b64)
+    else:
+        blocks = await asyncio.to_thread(_invoke_interleaved, prompt)
 
     n_text = sum(1 for b in blocks if b["type"] == "text")
     n_img = sum(1 for b in blocks if b["type"] == "image")

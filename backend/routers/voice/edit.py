@@ -247,6 +247,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
                     elif data.get("type") == "screen_share_start":
                         screen_share_state["active"] = True
                         logger.info("Scout edit voice screen share started: project=%s", project_id)
+                        await _enqueue_realtime_event({"kind": "screen_share_started"})
                     elif data.get("type") == "screen_share_end":
                         screen_share_state["active"] = False
                         logger.info("Scout edit voice screen share ended: project=%s", project_id)
@@ -254,9 +255,21 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
                         while not frame_queue.empty():
                             with contextlib.suppress(asyncio.QueueEmpty):
                                 frame_queue.get_nowait()
+                    elif data.get("type") == "inspect_screen":
+                        if screen_share_state["active"]:
+                            await _enqueue_realtime_event({
+                                "kind": "send_text",
+                                "text": (
+                                    "Please analyze my screen carefully. "
+                                    "What do you see? Note any visual improvements I could make to the video — "
+                                    "things like text positioning, caption style, music fit, contrast, pacing, "
+                                    "or anything that looks off. Be specific. Maximum 3 sentences."
+                                ),
+                            })
                     elif data.get("type") == "screen_frame" and screen_share_state["active"]:
                         b64 = data.get("data")
                         if b64 and isinstance(b64, str):
+                            live_state["latest_screen_frame_b64"] = b64
                             try:
                                 raw = base64.b64decode(b64)
                                 if frame_queue.full():

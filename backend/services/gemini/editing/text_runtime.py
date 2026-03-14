@@ -81,6 +81,65 @@ def _get_tool_declarations():
             parameters=types.Schema(type="object", properties={}),
         ),
         types.FunctionDeclaration(
+            name="generate_creative_direction",
+            description=(
+                "Generate a rich creative direction package with mixed text and generated images. "
+                "Call when the user wants creative ideas, storyboard concepts, visual direction, "
+                "hook suggestions, caption themes, or mood recommendations."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "brief": types.Schema(type="string", description="Creative brief."),
+                    "mode": types.Schema(type="string", description="social_content | marketing | storybook | educational"),
+                    "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney | painting | creepy_comic"),
+                },
+                required=["brief"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="generate_thumbnail_options",
+            description=(
+                "Generate 2–3 clickbait AI thumbnail image options for this video. "
+                "Call when the user wants a new thumbnail or more eye-catching thumbnail ideas. "
+                "Streams each option as a thumbnail_option event."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "brief": types.Schema(type="string", description="Extra context about the video (optional)."),
+                    "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney (default: realism)"),
+                    "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 2)."),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="set_thumbnail",
+            description="Apply one of the generated thumbnail options as the project's permanent thumbnail.",
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "option_index": types.Schema(type="integer", description="0-based index of the chosen option."),
+                },
+                required=["option_index"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="generate_image_for_scene",
+            description=(
+                "Generate a brand-new AI image for the currently selected scene element using Gemini image generation. "
+                "Returns a src URL. After calling this, immediately draft replace_selected_media with the returned src and call apply_live_edits."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "prompt": types.Schema(type="string", description="Detailed visual description of the image to generate."),
+                    "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney | painting | creepy_comic (default: realism)"),
+                },
+                required=["prompt"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="generate_lyria_music",
             description=(
                 "Generate AI background music using Lyria for this video. "
@@ -180,6 +239,10 @@ async def run_edit_text_agent(
         "apply_live_edits": "Building proposal...",
         "generate_style_preview": "Generating style preview...",
         "generate_lyria_music": "Generating AI music with Lyria...",
+        "generate_creative_direction": "Generating creative direction...",
+        "generate_thumbnail_options": "Generating thumbnail options...",
+        "set_thumbnail": "Applying thumbnail...",
+        "generate_image_for_scene": "Generating AI image...",
     }
 
     client = get_client()

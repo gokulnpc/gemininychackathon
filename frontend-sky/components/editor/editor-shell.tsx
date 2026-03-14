@@ -109,6 +109,7 @@ interface EditorShellProps {
   stopVoiceEdit: () => void;
   startScreenShare: () => void | Promise<void>;
   stopScreenShare: () => void;
+  inspectScreen?: () => void;
   onProjectJsonChange: (projectJson: ProjectJSON) => void;
   serializeProjectJson: (projectJson: ProjectJSON) => ProjectJSON;
   exportPortalRef?: RefObject<HTMLDivElement | null>;
@@ -135,6 +136,7 @@ export function EditorShell({
   stopVoiceEdit,
   startScreenShare,
   stopScreenShare,
+  inspectScreen,
   onProjectJsonChange,
   serializeProjectJson,
   exportPortalRef,
@@ -442,6 +444,7 @@ export function EditorShell({
         stopVoiceEdit={stopVoiceEdit}
         startScreenShare={startScreenShare}
         stopScreenShare={stopScreenShare}
+        inspectScreen={inspectScreen}
         confirmProposal={confirmProposal}
         rejectProposal={rejectProposal}
         revertLastEdit={revertLastEdit}

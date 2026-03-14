@@ -116,7 +116,8 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
         f"  Background music: {background_music}\n\n"
         "Screen sharing: The user may share their screen during this session. "
         "When screen frames are being sent, you can SEE the user's screen in real time — "
-        "reference what you see visually when helping with edits."
+        "reference what you see visually when helping with edits. "
+        "When screen sharing is active and the user gives a spatially vague instruction ('that text', 'the element on the left', 'that thing at the top'), look at the screen frames you are receiving and resolve the reference visually — do NOT ask which element."
     )
 
     realtime_input_config = types.RealtimeInputConfig(
@@ -177,8 +178,8 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 parameters=types.Schema(
                     type="object",
                     properties={
-                        "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
-                        "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}'),
+                        "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | delete_element_by_id | add_hook_title | move_element_by_id | apply_effect"),
+                        "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}. move_element_by_id: {"element_id": "e-xxx", "dy": pixels_delta (positive=down, negative=up, small=30 medium=80 large=150)}. delete_element_by_id: {"element_id": "e-xxx"}. apply_effect: {"effect_key": "glitch|sepia|vignette|pixelate|warp|rgbShift|halftone|hueShift|waveDistort|tvScanlines|hdr|retro70s|bubbleSparkles|heartSparkles", "intensity": 0.0-1.0 (default 1.0)}'),
                         "element_id": types.Schema(type="string", description="Target element ID, if applicable."),
                         "track_id": types.Schema(type="string", description="Target track ID, if applicable."),
                     },
@@ -189,6 +190,67 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 name="apply_live_edits",
                 description="Apply all queued edits to the live timeline and save them. Call ONCE after confirming with the user.",
                 parameters=types.Schema(type="object", properties={}),
+            ),
+            types.FunctionDeclaration(
+                name="generate_creative_direction",
+                description=(
+                    "Generate a rich creative direction package with mixed text and generated images. "
+                    "Call when the user wants creative ideas, storyboard concepts, visual direction, "
+                    "hook suggestions, caption themes, or mood/music recommendations. "
+                    "Streams each creative block as it's generated."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "brief": types.Schema(type="string", description="Creative brief — what the user wants to explore."),
+                        "mode": types.Schema(type="string", description="social_content | marketing | storybook | educational (default: social_content)"),
+                        "art_style": types.Schema(type="string", description="Optional art style for generated images: realism | ghibli | comic | polaroid | disney | painting | creepy_comic"),
+                    },
+                    required=["brief"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="generate_thumbnail_options",
+                description=(
+                    "Generate 2–3 clickbait AI thumbnail image options for this video. "
+                    "Call when the user wants a new thumbnail, thumbnail ideas, or a more eye-catching thumbnail. "
+                    "If screen sharing is active, the current screen is used as a visual reference. "
+                    "Streams each option as a thumbnail_option event."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "brief": types.Schema(type="string", description="Extra context about the video (optional)."),
+                        "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney (default: realism)"),
+                        "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 2)."),
+                    },
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="set_thumbnail",
+                description="Apply one of the generated thumbnail options as the project's permanent thumbnail. Call after generate_thumbnail_options and the user picks one.",
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "option_index": types.Schema(type="integer", description="0-based index of the chosen option."),
+                    },
+                    required=["option_index"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="generate_image_for_scene",
+                description=(
+                    "Generate a brand-new AI image for the currently selected scene element using Gemini image generation. "
+                    "Returns a src URL. After calling this, immediately draft replace_selected_media with the returned src and call apply_live_edits."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "prompt": types.Schema(type="string", description="Detailed visual description of the image to generate."),
+                        "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney | painting | creepy_comic (default: realism)"),
+                    },
+                    required=["prompt"],
+                ),
             ),
         ])],
     }
@@ -224,6 +286,7 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
             "selected_element_ids": result.get("selected_element_ids", []),
             "selected_track_ids": result.get("selected_track_ids", []),
             "selected_element_types": result.get("selected_element_types", []),
+            "timeline_elements": result.get("timeline_elements", []),
         }
 
     if name == "get_user_assets":
@@ -254,6 +317,31 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
             "status": "applied",
             "summary": result.get("message", "Live edits applied."),
             "requires_export": result.get("requires_export", True),
+        }
+
+    if name == "generate_creative_direction":
+        return {
+            "status": result.get("status", "ok"),
+            "block_count": result.get("block_count", 0),
+        }
+
+    if name == "generate_thumbnail_options":
+        return {
+            "status": result.get("status", "ok"),
+            "option_count": result.get("option_count", 0),
+            "options": result.get("options", []),
+        }
+
+    if name == "set_thumbnail":
+        return {
+            "status": result.get("status", "ok"),
+            "thumbnail_url": result.get("thumbnail_url", ""),
+        }
+
+    if name == "generate_image_for_scene":
+        return {
+            "status": result.get("status", "ok"),
+            "src": result.get("src", ""),
         }
 
     compact: dict = {}
@@ -432,6 +520,160 @@ async def _dispatch_voice_tool(
             pass
         return result
 
+    if name == "generate_creative_direction":
+        brief = args.get("brief", "creative video concept")
+        mode = args.get("mode", "social_content")
+        art_style = args.get("art_style")
+        _live = get_live_state() if get_live_state else {}
+        _ec = editor_context or {}
+        reference_b64 = (
+            _live.get("latest_screen_frame_b64")
+            or (_ec.get("screenshot") or {}).get("image_b64")
+        )
+        try:
+            from services.gemini.interleaved import generate_creative_package
+            blocks, _ = await generate_creative_package(
+                brief=brief, mode=mode, art_style=art_style,
+                reference_image_b64=reference_b64,
+            )
+            for block in blocks:
+                with contextlib.suppress(Exception):
+                    await on_event({"type": "creative_block", "block": block})
+            return {"status": "ok", "block_count": len(blocks)}
+        except Exception as exc:
+            logger.warning("generate_creative_direction failed: %s", exc)
+            return {"error": str(exc)}
+
+    if name == "generate_image_for_scene":
+        import os as _os_gen
+        import tempfile as _tmp_gen
+        from uuid import uuid4 as _uuid4_gen
+
+        prompt = args.get("prompt", "")
+        art_style = args.get("art_style", "realism")
+        if not prompt:
+            return {"error": "prompt is required"}
+
+        _live_gen = get_live_state() if get_live_state else {}
+        _ec_gen = editor_context or {}
+        reference_b64 = (
+            _live_gen.get("latest_screen_frame_b64")
+            or (_ec_gen.get("screenshot") or {}).get("image_b64")
+        )
+
+        full_prompt = (
+            f"Generate a single high-quality scene image: {prompt}. "
+            f"Art style: {art_style}. "
+            "Optimised for a short-form video scene. "
+            "No text overlays. Output exactly one image."
+        )
+
+        try:
+            from services.gemini.interleaved import _invoke_interleaved_with_image as _gen_img
+            from services.storage import gcs as _gcs_gen
+            import base64 as _b64_gen
+
+            blocks = await asyncio.to_thread(_gen_img, full_prompt, reference_b64)
+            image_blocks = [b for b in blocks if b.get("type") == "image"]
+            if not image_blocks:
+                return {"error": "Image generation returned no images — try rephrasing the prompt."}
+
+            chosen = image_blocks[0]
+            image_bytes = _b64_gen.b64decode(chosen["content"])
+            mime = chosen.get("mime_type", "image/jpeg")
+            suffix = ".jpg" if "jpeg" in mime else ".png"
+            fd, tmp_path = _tmp_gen.mkstemp(suffix=suffix, prefix="scene_gen_")
+            try:
+                _os_gen.write(fd, image_bytes)
+            finally:
+                _os_gen.close(fd)
+
+            gcs_key = f"projects/{project_id}/generated/{_uuid4_gen()}{suffix}"
+            src_url = await _gcs_gen.upload_file(tmp_path, gcs_key, mime)
+            _os_gen.unlink(tmp_path)
+
+            with contextlib.suppress(Exception):
+                await on_event({"type": "creative_block", "block": {"type": "image", "content": chosen["content"], "mime_type": mime}})
+
+            return {"status": "ok", "src": src_url}
+        except Exception as exc:
+            logger.warning("generate_image_for_scene failed: %s", exc)
+            return {"error": str(exc)}
+
+    if name == "generate_thumbnail_options":
+        from services.gemini.interleaved import generate_thumbnail_options as _gen_thumbs
+
+        live_state = get_live_state() if get_live_state else {}
+        hook = project_data.get("hook", "")
+        brief = args.get("brief", "")
+        art_style = args.get("art_style", "realism")
+        count = min(3, max(1, int(args.get("count", 2))))
+        reference_b64 = live_state.get("latest_screen_frame_b64")
+
+        try:
+            options = await _gen_thumbs(
+                hook=hook,
+                brief=brief,
+                reference_image_b64=reference_b64,
+                art_style=art_style,
+                count=count,
+            )
+            result_options = []
+            for i, opt in enumerate(options):
+                with contextlib.suppress(Exception):
+                    await on_event({
+                        "type": "thumbnail_option",
+                        "index": i,
+                        "image_b64": opt["image_b64"],
+                        "mime_type": opt.get("mime_type", "image/jpeg"),
+                    })
+                result_options.append({"index": i, "mime_type": opt.get("mime_type", "image/jpeg")})
+            # Store drafts in project_data for set_thumbnail to reference by index
+            project_data["_thumbnail_drafts"] = [opt["image_b64"] for opt in options]
+            return {"status": "ok", "option_count": len(options), "options": result_options}
+        except Exception as exc:
+            logger.warning("generate_thumbnail_options failed: %s", exc)
+            return {"error": str(exc)}
+
+    if name == "set_thumbnail":
+        import os as _os
+        import tempfile as _tmp
+        import base64 as _b64
+
+        option_index = int(args.get("option_index", 0))
+        drafts = project_data.get("_thumbnail_drafts", [])
+        if not drafts or option_index >= len(drafts):
+            return {"error": "No thumbnail options available — call generate_thumbnail_options first."}
+
+        image_b64_data = drafts[option_index]
+        try:
+            from services.storage import gcs as _gcs
+            from services.storage import firestore_db as _fdb
+
+            image_bytes = _b64.b64decode(image_b64_data)
+            fd, tmp_path = _tmp.mkstemp(suffix=".jpg", prefix="thumb_set_")
+            try:
+                _os.write(fd, image_bytes)
+            finally:
+                _os.close(fd)
+
+            gcs_key = f"projects/{project_id}/thumbnail.jpg"
+            thumbnail_url = await _gcs.upload_file(tmp_path, gcs_key, "image/jpeg")
+            with contextlib.suppress(OSError):
+                _os.unlink(tmp_path)
+
+            await _fdb.save_project(project_id, {"thumbnail_url": thumbnail_url})
+            project_data["thumbnail_url"] = thumbnail_url
+            project_data.pop("_thumbnail_drafts", None)
+
+            with contextlib.suppress(Exception):
+                await on_event({"type": "thumbnail_applied", "thumbnail_url": thumbnail_url})
+
+            return {"status": "ok", "thumbnail_url": thumbnail_url}
+        except Exception as exc:
+            logger.warning("set_thumbnail failed: %s", exc)
+            return {"error": str(exc)}
+
     return {"error": f"Unknown tool: {name}"}
 
 
@@ -543,6 +785,33 @@ async def run_edit_voice_agent(
                             if turn_id:
                                 pending_turn_ids.append(turn_id)
                             _arm_stall_watch(turn_id)
+                        elif event["kind"] == "screen_share_started":
+                            # Wait for ~2 frames to arrive at 1 FPS before triggering analysis
+                            await asyncio.sleep(2.0)
+                            await session.send_client_content(
+                                turns=[{
+                                    "role": "user",
+                                    "parts": [{
+                                        "text": (
+                                            "The user just enabled screen sharing. "
+                                            "Look at what you can see on their screen and describe 1\u20132 specific things you notice "
+                                            "about their video project \u2014 visual issues, layout, caption positioning, "
+                                            "music fit, or anything that could be improved. "
+                                            "Be specific and concise. Maximum 2 sentences."
+                                        ),
+                                    }],
+                                }],
+                                turn_complete=True,
+                            )
+                            await on_event({"type": "screen_analysis_started"})
+                        elif event["kind"] == "send_text":
+                            text = event.get("text", "")
+                            if text:
+                                await session.send_client_content(
+                                    turns=[{"role": "user", "parts": [{"text": text}]}],
+                                    turn_complete=True,
+                                )
+                                await on_event({"type": "screen_analysis_started"})
                         elif event["kind"] == "done":
                             session_turn["input_turn_id"] = None
 

@@ -15,6 +15,7 @@ interface UseEditorAgentArgs {
   editorBridgeRef: MutableRefObject<EditorBridgeHandle | null>;
   applyLiveProjectJson: (json: ProjectJSON | null, changes?: Record<string, unknown>) => void;
   focusedAssetRef?: MutableRefObject<{ id: string; category: string } | null>;
+  onThumbnailApplied?: (thumbnailUrl: string) => void;
 }
 
 const INITIAL_MESSAGES: AgentMessage[] = [
@@ -34,6 +35,7 @@ export function useEditorAgent({
   editorBridgeRef,
   applyLiveProjectJson,
   focusedAssetRef,
+  onThumbnailApplied,
 }: UseEditorAgentArgs) {
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>(INITIAL_MESSAGES);
   const [agentInput, setAgentInput] = useState("");
@@ -118,6 +120,17 @@ export function useEditorAgent({
                     : message,
                 ),
               );
+            } else if (event.type === "thumbnail_option" && event.image_b64) {
+              const opt = { index: event.index as number, image_b64: event.image_b64 as string, mime_type: (event.mime_type as string) ?? "image/jpeg" };
+              setAgentMessages((prev) =>
+                prev.map((message) =>
+                  message.id === thinkingId
+                    ? { ...message, thumbnailOptions: [...(message.thumbnailOptions ?? []), opt] }
+                    : message,
+                ),
+              );
+            } else if (event.type === "thumbnail_applied" && event.thumbnail_url) {
+              onThumbnailApplied?.(event.thumbnail_url as string);
             } else if (event.type === "creative_preview_start") {
               setAgentMessages((prev) =>
                 prev.map((message) =>

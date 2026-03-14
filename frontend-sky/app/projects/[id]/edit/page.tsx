@@ -36,6 +36,8 @@ export default function EditorPage() {
 
   const agentBottomRef = useRef<HTMLDivElement>(null);
   const editorBridgeRef = useRef<EditorBridgeHandle | null>(null);
+  const undoStackRef = useRef<ProjectJSON[]>([]);
+  const [hasAgentUndo, setHasAgentUndo] = useState(false);
   const editorRootRef = useRef<HTMLDivElement>(null);
   const exportPortalRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -79,6 +81,13 @@ export default function EditorPage() {
   const applyLiveProjectJson = useCallback((json: ProjectJSON | null, changes?: Record<string, unknown>) => {
     if (!json) return;
 
+    // Capture snapshot before applying for undo
+    const currentSnapshot = editorBridgeRef.current?.getProject();
+    if (currentSnapshot) {
+      undoStackRef.current = [...undoStackRef.current.slice(-4), currentSnapshot];
+      setHasAgentUndo(true);
+    }
+
     const editorJson = applyEditorSession(json, "live_update");
     editorBridgeRef.current?.loadProject(editorJson ?? INITIAL_TIMELINE_DATA);
     saveTimelineDebounced(json);
@@ -104,6 +113,17 @@ export default function EditorPage() {
     }
   }, [agentPanelOpen, applyEditorSession, saveTimelineDebounced]);
 
+  const undoAgentEdit = useCallback(() => {
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const previous = stack[stack.length - 1];
+    undoStackRef.current = stack.slice(0, -1);
+    setHasAgentUndo(undoStackRef.current.length > 0);
+    editorBridgeRef.current?.loadProject(previous);
+    saveTimelineDebounced(previous);
+    setProject((prev) => prev ? { ...prev, project_json: previous } : prev);
+  }, [saveTimelineDebounced]);
+
   const {
     agentMessages,
     agentInput,
@@ -124,6 +144,7 @@ export default function EditorPage() {
     editorBridgeRef,
     applyLiveProjectJson,
     focusedAssetRef,
+    onThumbnailApplied: (url) => setProject((prev) => prev ? { ...prev, thumbnail_url: url } : prev),
   });
 
   const voiceSession = useVoiceEditSession({
@@ -136,6 +157,7 @@ export default function EditorPage() {
     applyLiveProjectJson,
     setAgentMessages,
     focusedAssetRef,
+    onThumbnailApplied: (url) => setProject((prev) => prev ? { ...prev, thumbnail_url: url } : prev),
   });
 
   const INSPECT_KEYWORDS = /\b(what('s| is) wrong|look at|analyze|inspect|critique|feedback on|what do you (see|think)|how does this (look|feel)|what's weak|what is weak)\b/i;
@@ -277,13 +299,14 @@ export default function EditorPage() {
                   stopVoiceEdit={voiceSession.stopVoiceEdit}
                   startScreenShare={voiceSession.startScreenShare}
                   stopScreenShare={voiceSession.stopScreenShare}
+                  inspectScreen={voiceSession.inspectScreen}
                   onProjectJsonChange={syncProjectJson}
                   serializeProjectJson={(json) => serializeProjectJson(json) ?? json}
                   exportPortalRef={exportPortalRef}
                   confirmProposal={confirmProposal}
                   rejectProposal={rejectProposal}
-                  revertLastEdit={revertLastEdit}
-                  hasUndo={hasUndo}
+                  revertLastEdit={undoAgentEdit}
+                  hasUndo={hasAgentUndo}
                 />
               </TimelineProvider>
             </LivePlayerProvider>
