@@ -49,7 +49,7 @@ async def create_empty_project(current_user: dict = Depends(get_current_user)):
         await firestore_db.save_project(pid, {
             "project_id": pid,
             "uid": current_user["uid"],
-            "status": "draft",
+            "status": "editing",
             "created_at": now,
             "project_json": None,
         })
