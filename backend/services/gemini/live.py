@@ -84,29 +84,35 @@ async def transcribe_live(
         completed_text = ""
         current_turn_parts: list[str] = []
 
-        async for response in session.receive():
-            server_content = getattr(response, "server_content", None)
-            
-            it = getattr(server_content, "input_transcription", None) if server_content else None
-            if it and getattr(it, "text", None):
-                t = it.text.strip()
-                if t:
-                    current_turn_parts.append(t)
-                    combined = f"{completed_text} {' '.join(current_turn_parts)}".strip()
-                    logger.info("LIVE_TRANSCRIPT: input chunk='%s', combined='%s'", t, combined)
-                    await on_transcript_chunk(combined)
-            
-            await asyncio.sleep(0)
-            
-            turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
-            if turn_complete:
-                if current_turn_parts:
-                    completed_text = f"{completed_text} {' '.join(current_turn_parts)}".strip()
-                    logger.info("LIVE_TRANSCRIPT: turn_complete. completed_text='%s'", completed_text)
-                    current_turn_parts = []
-                
-                if send_task.done():
-                    break
+        while True:  # re-enter receive() after each turn; session.receive() is turn-level
+            async for response in session.receive():
+                server_content = getattr(response, "server_content", None)
+
+                it = getattr(server_content, "input_transcription", None) if server_content else None
+                if it and getattr(it, "text", None):
+                    t = it.text.strip()
+                    if t:
+                        current_turn_parts.append(t)
+                        combined = f"{completed_text} {' '.join(current_turn_parts)}".strip()
+                        logger.info("LIVE_TRANSCRIPT: input chunk='%s', combined='%s'", t, combined)
+                        await on_transcript_chunk(combined)
+
+                await asyncio.sleep(0)
+
+                turn_complete = getattr(server_content, "turn_complete", False) if server_content else False
+                if turn_complete:
+                    if current_turn_parts:
+                        completed_text = f"{completed_text} {' '.join(current_turn_parts)}".strip()
+                        logger.info("LIVE_TRANSCRIPT: turn_complete. completed_text='%s'", completed_text)
+                        current_turn_parts = []
+
+                    if send_task.done():
+                        break  # break inner async for
+
+            # inner async for exhausted (turn complete) or broke early
+            if send_task.done():
+                break  # all audio sent — done receiving
+            # more audio still incoming: loop back and re-enter session.receive()
 
         await send_task
         if current_turn_parts:
