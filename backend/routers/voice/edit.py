@@ -53,12 +53,12 @@ async def _load_project(project_id: str) -> dict:
     data = await firestore_db.get_project(project_id)
     if not data:
         raise HTTPException(status_code=404, detail="Project not found")
-    if data.get("status") != "completed":
+    if data.get("status") not in ("completed", "editing", "draft"):
         raise HTTPException(
             status_code=409,
-            detail=f"Project must be completed before editing (current status: {data.get('status')})",
+            detail=f"Project must be completed or in editing mode (current status: {data.get('status')})",
         )
-    if not data.get("voiceover_full_script"):
+    if data.get("status") == "completed" and not data.get("voiceover_full_script"):
         raise HTTPException(
             status_code=422,
             detail="voiceover_full_script is missing — re-run generate-video for this project",
@@ -89,12 +89,12 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
     # ── Ownership + project validation ────────────────────────────────────────
     try:
         project_data = await firestore_db.get_project_for_user(project_id, uid)
-        if project_data.get("status") != "completed":
+        if project_data.get("status") not in ("completed", "editing", "draft"):
             raise HTTPException(
                 status_code=409,
-                detail=f"Project must be completed before editing (current status: {project_data.get('status')})",
+                detail=f"Project must be completed or in editing mode (current status: {project_data.get('status')})",
             )
-        if not project_data.get("voiceover_full_script"):
+        if project_data.get("status") == "completed" and not project_data.get("voiceover_full_script"):
             raise HTTPException(
                 status_code=422,
                 detail="voiceover_full_script is missing — re-run generate-video for this project",
@@ -372,9 +372,9 @@ async def edit_agent_sse(project_id: str, req: EditAgentRequest, current_user: d
       {"instruction": "switch to karaoke captions and quiet_before_storm music"}
     """
     project_data = await firestore_db.get_project_for_user(project_id, current_user["uid"])
-    if project_data.get("status") != "completed":
-        raise HTTPException(status_code=409, detail="Project must be completed to edit")
-    if not project_data.get("voiceover_full_script"):
+    if project_data.get("status") not in ("completed", "editing", "draft"):
+        raise HTTPException(status_code=409, detail="Project must be completed or in editing mode")
+    if project_data.get("status") == "completed" and not project_data.get("voiceover_full_script"):
         raise HTTPException(status_code=422, detail="voiceover_full_script missing — re-run generate-video first")
 
     async def event_gen():

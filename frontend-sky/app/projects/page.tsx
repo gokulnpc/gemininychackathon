@@ -36,6 +36,8 @@ import apiClient from "@/lib/apiClient";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type ProjectStatus =
+  | "draft"
+  | "editing"
   | "queued"
   | "generating_script"
   | "script_ready"
@@ -82,6 +84,7 @@ const ACTIVE_STATUSES: ProjectStatus[] = ["queued", "generating_script", "genera
 
 const STATUS_FILTERS: { key: ProjectStatus | "all"; label: string }[] = [
   { key: "all",               label: "All" },
+  { key: "editing",           label: "Editing" },
   { key: "queued",            label: "Queued" },
   { key: "generating_script", label: "Scripting" },
   { key: "script_ready",      label: "Script Ready" },
@@ -104,6 +107,8 @@ function timeAgo(iso?: string): string {
 
 export function StatusPill({ status }: { status: ProjectStatus }) {
   const config: Record<ProjectStatus, { label: string; className: string }> = {
+    draft:   { label: "Draft",   className: "bg-zinc-500/20 text-zinc-300 border-zinc-500/30" },
+    editing: { label: "Editing", className: "bg-sky-500/20 text-sky-300 border-sky-500/30" },
     queued: { label: "Queued", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
     generating_script: { label: "Scripting", className: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
     script_ready: { label: "Script Ready", className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" },
