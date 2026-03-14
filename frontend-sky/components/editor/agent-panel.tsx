@@ -2,7 +2,7 @@
 
 import type { RefObject } from "react";
 import { useCallback, useRef, useState } from "react";
-import { Loader2, Mic, MicOff, Pause, Play, Send, Sparkles, X } from "lucide-react";
+import { Loader2, Mic, MicOff, Monitor, MonitorOff, Pause, Play, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -239,6 +239,9 @@ interface AgentPanelProps {
   sendAgentInstruction: (instruction: string, displayText?: string) => void;
   startVoiceEdit: () => void | Promise<void>;
   stopVoiceEdit: () => void;
+  isScreenShareActive: boolean;
+  startScreenShare: () => void | Promise<void>;
+  stopScreenShare: () => void;
   confirmProposal: (proposal: EditProposal) => void;
   rejectProposal: (proposal: EditProposal) => void;
   revertLastEdit: () => void;
@@ -257,6 +260,9 @@ export function AgentPanel({
   sendAgentInstruction,
   startVoiceEdit,
   stopVoiceEdit,
+  isScreenShareActive,
+  startScreenShare,
+  stopScreenShare,
   confirmProposal,
   rejectProposal,
   revertLastEdit,
@@ -708,6 +714,36 @@ export function AgentPanel({
                   <MicOff className="h-4 w-4" />
                 ) : (
                   <Mic className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                disabled={!isVoiceActive}
+                onClick={() => {
+                  if (isScreenShareActive) stopScreenShare();
+                  else void startScreenShare();
+                }}
+                title={
+                  !isVoiceActive
+                    ? "Start voice edit to enable screen sharing"
+                    : isScreenShareActive
+                      ? "Stop screen sharing"
+                      : "Share screen with agent"
+                }
+                className={cn(
+                  "relative rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-30",
+                  isScreenShareActive
+                    ? "bg-blue-500/20 text-blue-400"
+                    : "text-editor-text-dim hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {isScreenShareActive ? (
+                  <MonitorOff className="h-4 w-4" />
+                ) : (
+                  <Monitor className="h-4 w-4" />
+                )}
+                {isScreenShareActive && (
+                  <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
                 )}
               </button>
               <button

@@ -108,6 +108,8 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
 
     audio_queue: asyncio.Queue["VoiceRealtimeEvent"] = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
     decision_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=5)
+    frame_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=10)
+    screen_share_state: dict[str, bool] = {"active": False}
     live_state: dict = {
         "project_json": project_data.get("project_json"),
         "editor_context": None,
@@ -242,6 +244,27 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
                             "kind": "activity_end",
                             **({"turn_id": turn_id} if turn_id else {}),
                         })
+                    elif data.get("type") == "screen_share_start":
+                        screen_share_state["active"] = True
+                        logger.info("Scout edit voice screen share started: project=%s", project_id)
+                    elif data.get("type") == "screen_share_end":
+                        screen_share_state["active"] = False
+                        logger.info("Scout edit voice screen share ended: project=%s", project_id)
+                        # Drain any buffered frames
+                        while not frame_queue.empty():
+                            with contextlib.suppress(asyncio.QueueEmpty):
+                                frame_queue.get_nowait()
+                    elif data.get("type") == "screen_frame" and screen_share_state["active"]:
+                        b64 = data.get("data")
+                        if b64 and isinstance(b64, str):
+                            try:
+                                raw = base64.b64decode(b64)
+                                if frame_queue.full():
+                                    with contextlib.suppress(asyncio.QueueEmpty):
+                                        frame_queue.get_nowait()
+                                frame_queue.put_nowait(raw)
+                            except Exception:
+                                pass
                     elif data.get("type") == "editor_state":
                         live_state["project_json"] = data.get("project_json")
                         live_state["editor_context"] = data.get("editor_context")
@@ -253,6 +276,10 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
         except Exception as exc:
             logger.warning("Edit voice receive loop error: %s", exc)
             await _enqueue_realtime_event({"kind": "done"})
+        finally:
+            # Unblock frame_queue consumer
+            with contextlib.suppress(Exception):
+                frame_queue.put_nowait(None)
 
     try:
         from services.gemini import edit_voice as svc
@@ -268,6 +295,7 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
                 on_ready=_on_ready,
                 decision_queue=decision_queue,
                 uid=uid,
+                frame_queue=frame_queue,
             )
         )
         receive_task = asyncio.create_task(_receive_loop())

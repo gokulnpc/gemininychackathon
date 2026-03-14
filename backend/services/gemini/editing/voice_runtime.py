@@ -113,7 +113,10 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
         f"Current project state:\n"
         f"  Hook: \"{hook}\"\n"
         f"  Caption style: {caption_style}\n"
-        f"  Background music: {background_music}"
+        f"  Background music: {background_music}\n\n"
+        "Screen sharing: The user may share their screen during this session. "
+        "When screen frames are being sent, you can SEE the user's screen in real time — "
+        "reference what you see visually when helping with edits."
     )
 
     realtime_input_config = types.RealtimeInputConfig(
@@ -461,6 +464,7 @@ async def run_edit_voice_agent(
     on_ready: Callable[[VoiceLiveTransport], Coroutine] | None = None,
     decision_queue: asyncio.Queue | None = None,
     uid: str = "",
+    frame_queue: asyncio.Queue | None = None,
 ) -> None:
     """Run the Scout edit voice session with reconnect recovery for Gemini API stalls."""
     from google.genai import types
@@ -753,15 +757,35 @@ async def run_edit_voice_agent(
                         with contextlib.suppress(asyncio.CancelledError):
                             await tool_task
 
+                async def _send_frames() -> None:
+                    """Forward screen frames from frame_queue to Gemini Live as video blobs."""
+                    if frame_queue is None:
+                        return
+                    try:
+                        while True:
+                            frame_bytes = await frame_queue.get()
+                            if frame_bytes is None:
+                                return
+                            await session.send_realtime_input(
+                                video=types.Blob(data=frame_bytes, mime_type="image/jpeg")
+                            )
+                    except Exception as exc:
+                        logger.warning("Scout edit frame send task aborted: %s", exc)
+
                 client_task = asyncio.create_task(_client_to_gemini())
                 gemini_task = asyncio.create_task(_gemini_to_client())
                 stall_task = asyncio.create_task(_stall_monitor()) if transport == "gemini_api" else None
+                frames_task = asyncio.create_task(_send_frames()) if frame_queue is not None else None
 
                 tasks = {client_task, gemini_task}
                 if stall_task is not None:
                     tasks.add(stall_task)
 
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                # frames_task is a support task — cancel it alongside any pending tasks
+                if frames_task is not None and not frames_task.done():
+                    pending = set(pending) | {frames_task}
 
                 for task in pending:
                     task.cancel()

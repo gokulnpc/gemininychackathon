@@ -99,6 +99,7 @@ interface EditorShellProps {
   agentInput: string;
   agentLoading: boolean;
   isVoiceActive: boolean;
+  isScreenShareActive: boolean;
   focusedAssetRef?: React.MutableRefObject<{ id: string; category: string } | null>;
   agentBottomRef: RefObject<HTMLDivElement | null>;
   setAgentPanelOpen: (open: boolean) => void;
@@ -106,6 +107,8 @@ interface EditorShellProps {
   sendAgentInstruction: (instruction: string) => void;
   startVoiceEdit: () => void | Promise<void>;
   stopVoiceEdit: () => void;
+  startScreenShare: () => void | Promise<void>;
+  stopScreenShare: () => void;
   onProjectJsonChange: (projectJson: ProjectJSON) => void;
   serializeProjectJson: (projectJson: ProjectJSON) => ProjectJSON;
   exportPortalRef?: RefObject<HTMLDivElement | null>;
@@ -122,6 +125,7 @@ export function EditorShell({
   agentInput,
   agentLoading,
   isVoiceActive,
+  isScreenShareActive,
   focusedAssetRef,
   agentBottomRef,
   setAgentPanelOpen,
@@ -129,6 +133,8 @@ export function EditorShell({
   sendAgentInstruction,
   startVoiceEdit,
   stopVoiceEdit,
+  startScreenShare,
+  stopScreenShare,
   onProjectJsonChange,
   serializeProjectJson,
   exportPortalRef,
@@ -427,12 +433,15 @@ export function EditorShell({
         agentInput={agentInput}
         agentLoading={agentLoading}
         isVoiceActive={isVoiceActive}
+        isScreenShareActive={isScreenShareActive}
         agentBottomRef={agentBottomRef}
         setAgentPanelOpen={setAgentPanelOpen}
         setAgentInput={setAgentInput}
         sendAgentInstruction={sendAgentInstruction}
         startVoiceEdit={startVoiceEdit}
         stopVoiceEdit={stopVoiceEdit}
+        startScreenShare={startScreenShare}
+        stopScreenShare={stopScreenShare}
         confirmProposal={confirmProposal}
         rejectProposal={rejectProposal}
         revertLastEdit={revertLastEdit}
