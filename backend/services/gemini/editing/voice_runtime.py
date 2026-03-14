@@ -252,6 +252,19 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                     required=["prompt"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="generate_storyboard",
+                description="Generate a visual storyboard from a brief using the interleaved AI model. Streams scene images to the chat.",
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "brief": types.Schema(type="string", description="What the video is about"),
+                        "art_style": types.Schema(type="string", description="Art style. Default: cinematic"),
+                        "num_scenes": types.Schema(type="integer", description="Number of scenes (3–6). Default: 4"),
+                    },
+                    required=["brief"],
+                ),
+            ),
         ])],
     }
     if transport == "vertex":
@@ -342,6 +355,13 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
         return {
             "status": result.get("status", "ok"),
             "src": result.get("src", ""),
+        }
+
+    if name == "generate_storyboard":
+        return {
+            "status": result.get("status", "ok"),
+            "count": result.get("count", 0),
+            "descriptions": result.get("descriptions", []),
         }
 
     compact: dict = {}
@@ -600,6 +620,45 @@ async def _dispatch_voice_tool(
             logger.warning("generate_image_for_scene failed: %s", exc)
             return {"error": str(exc)}
 
+    if name == "generate_storyboard":
+        brief_gsb = args.get("brief", "")
+        art_style_gsb = args.get("art_style", "cinematic")
+        num_scenes_gsb = min(max(int(args.get("num_scenes", 4)), 3), 6)
+
+        prompt_gsb = (
+            f"Create a {num_scenes_gsb}-scene visual storyboard for: {brief_gsb}. "
+            f"Art style: {art_style_gsb}."
+        )
+        try:
+            from services.gemini.interleaved import generate_creative_package as _gen_sb_v
+            blocks_gsb, _ = await _gen_sb_v(prompt_gsb, mode="storyboard", art_style=art_style_gsb)
+
+            drafts_gsb: list[dict] = []
+            descriptions_gsb: list[str] = []
+            for block_gsb in blocks_gsb:
+                if block_gsb.get("type") == "image":
+                    with contextlib.suppress(Exception):
+                        await on_event({"type": "creative_block", "block": block_gsb})
+                    drafts_gsb.append({
+                        "image_b64": block_gsb["content"],
+                        "mime_type": block_gsb.get("mime_type", "image/png"),
+                    })
+                elif block_gsb.get("type") == "text":
+                    descriptions_gsb.append(block_gsb["content"])
+
+            for i_gsb, d_gsb in enumerate(drafts_gsb):
+                d_gsb["description"] = descriptions_gsb[i_gsb] if i_gsb < len(descriptions_gsb) else f"Scene {i_gsb + 1}"
+
+            project_data["_storyboard_drafts"] = drafts_gsb
+            return {
+                "status": "ok",
+                "count": len(drafts_gsb),
+                "descriptions": [d_gsb["description"] for d_gsb in drafts_gsb],
+            }
+        except Exception as _gsb_exc:
+            logger.warning("generate_storyboard (voice) failed: %s", _gsb_exc)
+            return {"error": str(_gsb_exc)}
+
     if name == "generate_thumbnail_options":
         from services.gemini.interleaved import generate_thumbnail_options as _gen_thumbs
 
@@ -628,8 +687,13 @@ async def _dispatch_voice_tool(
                         "mime_type": opt.get("mime_type", "image/jpeg"),
                     })
                 result_options.append({"index": i, "mime_type": opt.get("mime_type", "image/jpeg")})
-            # Store drafts in project_data for set_thumbnail to reference by index
-            project_data["_thumbnail_drafts"] = [opt["image_b64"] for opt in options]
+            # Store drafts — persist to Firestore so next request can access them
+            project_data["_thumbnail_drafts"] = [
+                {"image_b64": opt["image_b64"], "mime_type": opt.get("mime_type", "image/jpeg")}
+                for opt in options
+            ]
+            from services.storage import firestore_db as _fdb_thumb
+            await _fdb_thumb.save_project(project_id, {"_thumbnail_drafts": project_data["_thumbnail_drafts"]})
             return {"status": "ok", "option_count": len(options), "options": result_options}
         except Exception as exc:
             logger.warning("generate_thumbnail_options failed: %s", exc)
@@ -645,7 +709,9 @@ async def _dispatch_voice_tool(
         if not drafts or option_index >= len(drafts):
             return {"error": "No thumbnail options available — call generate_thumbnail_options first."}
 
-        image_b64_data = drafts[option_index]
+        draft = drafts[option_index]
+        image_b64_data = draft["image_b64"] if isinstance(draft, dict) else draft
+        mime = draft.get("mime_type", "image/jpeg") if isinstance(draft, dict) else "image/jpeg"
         try:
             from services.storage import gcs as _gcs
             from services.storage import firestore_db as _fdb
@@ -658,13 +724,13 @@ async def _dispatch_voice_tool(
                 _os.close(fd)
 
             gcs_key = f"projects/{project_id}/thumbnail.jpg"
-            thumbnail_url = await _gcs.upload_file(tmp_path, gcs_key, "image/jpeg")
+            thumbnail_url = await _gcs.upload_file(tmp_path, gcs_key, mime)
             with contextlib.suppress(OSError):
                 _os.unlink(tmp_path)
 
-            await _fdb.save_project(project_id, {"thumbnail_url": thumbnail_url})
             project_data["thumbnail_url"] = thumbnail_url
             project_data.pop("_thumbnail_drafts", None)
+            await _fdb.save_project(project_id, {"thumbnail_url": thumbnail_url, "_thumbnail_drafts": None})
 
             with contextlib.suppress(Exception):
                 await on_event({"type": "thumbnail_applied", "thumbnail_url": thumbnail_url})

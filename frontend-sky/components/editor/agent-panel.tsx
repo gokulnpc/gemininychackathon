@@ -254,6 +254,10 @@ const MODE_QUICK_ACTIONS: Record<
   ],
   creative: [
     {
+      label: "Create from scratch ✦",
+      instruction: "I want to create a new video from scratch. Ask me what it's about, then generate a storyboard for me.",
+    },
+    {
       label: "Creative direction ✦",
       instruction:
         "Generate creative direction for this video — visual concepts, hook ideas, caption themes, and mood suggestions with generated preview images. Use mode=social_content.",
@@ -267,11 +271,6 @@ const MODE_QUICK_ACTIONS: Record<
       label: "Generate image ✦",
       instruction:
         "Generate an AI image for the currently selected scene and replace it. First check what is selected, then generate a fitting image based on the video's theme.",
-    },
-    {
-      label: "Style preview ✦",
-      instruction:
-        "Show me a style preview — generate a visual concept image that captures the overall mood and aesthetic direction for this video.",
     },
   ],
   screen_aware: [

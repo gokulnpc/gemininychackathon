@@ -40,6 +40,24 @@ def _project_editor_export_response(project_id: UUID, data: dict) -> EditorExpor
     return EditorExportStatusResponse(project_id=str(project_id), **editor_export)
 
 
+@router.post("/projects/create-empty", status_code=201)
+async def create_empty_project(current_user: dict = Depends(get_current_user)):
+    """Create a blank editor-only project with no pipeline or script."""
+    pid = str(uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        await firestore_db.save_project(pid, {
+            "project_id": pid,
+            "uid": current_user["uid"],
+            "status": "draft",
+            "created_at": now,
+            "project_json": None,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create project: {e}")
+    return {"project_id": pid}
+
+
 @router.get("/projects")
 async def list_projects(current_user: dict = Depends(get_current_user)):
     """List projects belonging to the current user, newest first."""
