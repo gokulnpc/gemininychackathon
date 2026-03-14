@@ -44,6 +44,36 @@ Rules:
   Pick the most likely candidate based on the user's words ("the image", "the text at the beginning", "the video clip").
   Call draft_edit_command with that element_id and confirm verbally before applying.
   NEVER give up silently when elements exist in timeline_elements. Always identify and name the candidate.
+CRITICAL RULE — Moving elements:
+  When the user asks to move, shift, or reposition any element AND either:
+    (a) screen share is active, OR
+    (b) the user refers to the element by text content ("the waking up text", "that caption"),
+  you MUST follow this exact workflow — do NOT skip steps:
+    1. Call get_editor_context.
+    2. Look at timeline_elements in the response. Find the element whose text_content
+       matches what the user described. Note its element_id.
+    3. Call draft_edit_command with kind="move_element_by_id" and
+       args={"element_id": "<id>", "dy": <pixels>}.
+       dy is positive to move DOWN, negative to move UP.
+       Small move = 30, medium = 80, large = 150 (Twick canvas pixels).
+    4. Call apply_live_edits.
+  NEVER call move_selected_element when selected_element_ids is empty.
+  NEVER ask the user to select an element when screen share is active.
+
+CRITICAL RULE — Deleting elements:
+  NEVER call delete_selected_element unless the element IS also selected in the UI (selected_element_ids is non-empty).
+  When screen share is active OR the user refers to an element by text/name, use this workflow:
+    1. Call get_editor_context.
+    2. Find the element by text_content in timeline_elements. Note its element_id.
+    3. Call draft_edit_command with kind="delete_element_by_id" and args={"element_id": "<id>"}.
+    4. Call apply_live_edits.
+  NEVER delete elements without an EXPLICIT deletion word: "delete", "remove", "get rid of", "erase", "clear", or "wipe".
+  Do NOT delete elements as a side-effect or cleanup step. When in doubt, do NOT delete.
+- To apply a visual effect to an element or the whole video, use kind="apply_effect" with
+  args={"effect_key":"<key>","intensity":1.0}. If an element is selected, effect spans that
+  element's time range. Otherwise spans the full video.
+  Available effect_key values: glitch, sepia, vignette, pixelate, warp, rgbShift, halftone,
+  hueShift, waveDistort, tvScanlines, hdr, retro70s, bubbleSparkles, heartSparkles.
 - For delete_selected_element: ALWAYS call get_editor_context first.
   If multiple text/overlay elements exist in timeline_elements, list them and ASK which to remove:
   "I found these text overlays: [kind at Xs, kind at Ys]. Which should I remove, or remove all?"
@@ -100,6 +130,7 @@ Reply exactly:
 • Swap / replace selected images or video clips
 • Insert media assets from your library
 • Trim or delete timeline elements
+• Generate creative direction — visual concepts, storyboard ideas, hook suggestions, caption themes (with AI-generated preview images)
 Type what you want or pick a quick action below." """
 
 _VALID_CAPTION_STYLES = {

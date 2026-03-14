@@ -178,8 +178,8 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 parameters=types.Schema(
                     type="object",
                     properties={
-                        "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | add_hook_title"),
-                        "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}'),
+                        "kind": types.Schema(type="string", description="set_caption_style | set_background_music | set_music_volume | set_voiceover_volume | add_text_overlay | update_selected_text | move_selected_element | replace_selected_media | insert_media_asset | trim_selected_element | delete_selected_element | delete_element_by_id | add_hook_title | move_element_by_id | apply_effect"),
+                        "args": types.Schema(type="string", description='JSON-encoded command arguments, e.g. {"preset": "breathing_shadows"} or {"volume": 0.3}. move_element_by_id: {"element_id": "e-xxx", "dy": pixels_delta (positive=down, negative=up, small=30 medium=80 large=150)}. delete_element_by_id: {"element_id": "e-xxx"}. apply_effect: {"effect_key": "glitch|sepia|vignette|pixelate|warp|rgbShift|halftone|hueShift|waveDistort|tvScanlines|hdr|retro70s|bubbleSparkles|heartSparkles", "intensity": 0.0-1.0 (default 1.0)}'),
                         "element_id": types.Schema(type="string", description="Target element ID, if applicable."),
                         "track_id": types.Schema(type="string", description="Target track ID, if applicable."),
                     },
@@ -190,6 +190,24 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 name="apply_live_edits",
                 description="Apply all queued edits to the live timeline and save them. Call ONCE after confirming with the user.",
                 parameters=types.Schema(type="object", properties={}),
+            ),
+            types.FunctionDeclaration(
+                name="generate_creative_direction",
+                description=(
+                    "Generate a rich creative direction package with mixed text and generated images. "
+                    "Call when the user wants creative ideas, storyboard concepts, visual direction, "
+                    "hook suggestions, caption themes, or mood/music recommendations. "
+                    "Streams each creative block as it's generated."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "brief": types.Schema(type="string", description="Creative brief — what the user wants to explore."),
+                        "mode": types.Schema(type="string", description="social_content | marketing | storybook | educational (default: social_content)"),
+                        "art_style": types.Schema(type="string", description="Optional art style for generated images: realism | ghibli | comic | polaroid | disney | painting | creepy_comic"),
+                    },
+                    required=["brief"],
+                ),
             ),
         ])],
     }
@@ -225,6 +243,7 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
             "selected_element_ids": result.get("selected_element_ids", []),
             "selected_track_ids": result.get("selected_track_ids", []),
             "selected_element_types": result.get("selected_element_types", []),
+            "timeline_elements": result.get("timeline_elements", []),
         }
 
     if name == "get_user_assets":
@@ -255,6 +274,12 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
             "status": "applied",
             "summary": result.get("message", "Live edits applied."),
             "requires_export": result.get("requires_export", True),
+        }
+
+    if name == "generate_creative_direction":
+        return {
+            "status": result.get("status", "ok"),
+            "block_count": result.get("block_count", 0),
         }
 
     compact: dict = {}
@@ -432,6 +457,21 @@ async def _dispatch_voice_tool(
         except Exception:
             pass
         return result
+
+    if name == "generate_creative_direction":
+        brief = args.get("brief", "creative video concept")
+        mode = args.get("mode", "social_content")
+        art_style = args.get("art_style")
+        try:
+            from services.gemini.interleaved import generate_creative_package
+            blocks, _ = await generate_creative_package(brief=brief, mode=mode, art_style=art_style)
+            for block in blocks:
+                with contextlib.suppress(Exception):
+                    await on_event({"type": "creative_block", "block": block})
+            return {"status": "ok", "block_count": len(blocks)}
+        except Exception as exc:
+            logger.warning("generate_creative_direction failed: %s", exc)
+            return {"error": str(exc)}
 
     return {"error": f"Unknown tool: {name}"}
 

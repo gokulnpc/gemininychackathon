@@ -81,6 +81,23 @@ def _get_tool_declarations():
             parameters=types.Schema(type="object", properties={}),
         ),
         types.FunctionDeclaration(
+            name="generate_creative_direction",
+            description=(
+                "Generate a rich creative direction package with mixed text and generated images. "
+                "Call when the user wants creative ideas, storyboard concepts, visual direction, "
+                "hook suggestions, caption themes, or mood recommendations."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "brief": types.Schema(type="string", description="Creative brief."),
+                    "mode": types.Schema(type="string", description="social_content | marketing | storybook | educational"),
+                    "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney | painting | creepy_comic"),
+                },
+                required=["brief"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="generate_lyria_music",
             description=(
                 "Generate AI background music using Lyria for this video. "
@@ -180,6 +197,7 @@ async def run_edit_text_agent(
         "apply_live_edits": "Building proposal...",
         "generate_style_preview": "Generating style preview...",
         "generate_lyria_music": "Generating AI music with Lyria...",
+        "generate_creative_direction": "Generating creative direction...",
     }
 
     client = get_client()

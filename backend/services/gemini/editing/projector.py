@@ -32,6 +32,20 @@ def _ensure_overlay_track(project_json: dict) -> dict:
     return track
 
 
+def _ensure_effect_track(project_json: dict) -> dict:
+    for track in project_json.get("tracks", []):
+        if track.get("name") == "Effect Styles":
+            return track
+    new_track: dict = {
+        "id": _make_id("track"),
+        "name": "Effect Styles",
+        "type": "element",
+        "elements": [],
+    }
+    project_json.setdefault("tracks", []).append(new_track)
+    return new_track
+
+
 def _find_music_track(project_json: dict) -> tuple[dict, dict] | tuple[None, None]:
     for track in project_json.get("tracks", []):
         if track.get("name") != "Background Music":
@@ -153,14 +167,82 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
     if "move_selected_text_y_delta" in changes:
         delta = float(changes["move_selected_text_y_delta"])
         for _, elem in _find_selected_elements(patched, editor_context):
-            if elem.get("type") != "text":
-                continue
             frame = elem.get("frame")
             if isinstance(frame, dict):
                 frame["y"] = float(frame.get("y", 0.0)) + delta
             else:
                 props = elem.setdefault("props", {})
                 props["y"] = float(props.get("y", 0.0)) + delta
+
+    if "move_element_by_id" in changes:
+        cmd = changes["move_element_by_id"]
+        target_id = str(cmd.get("element_id", ""))
+        dy = float(cmd.get("dy", 0.0))
+        if not target_id:
+            raise ValueError("move_element_by_id: element_id is required")
+        found = False
+        for track in patched.get("tracks", []):
+            for elem in track.get("elements", []):
+                if elem.get("id") == target_id:
+                    found = True
+                    frame = elem.get("frame")
+                    if isinstance(frame, dict) and "y" in frame:
+                        frame["y"] = float(frame.get("y", 0.0)) + dy
+                    else:
+                        props = elem.setdefault("props", {})
+                        props["y"] = float(props.get("y", 0.0)) + dy
+                    break
+            if found:
+                break
+        if not found:
+            raise ValueError(f"move_element_by_id: element {target_id!r} not found")
+
+    if "delete_element_by_id" in changes:
+        cmd = changes["delete_element_by_id"]
+        target_id = str(cmd.get("element_id", ""))
+        if not target_id:
+            raise ValueError("delete_element_by_id: element_id is required")
+        found = False
+        for track in patched.get("tracks", []):
+            before = len(track.get("elements", []))
+            track["elements"] = [el for el in track.get("elements", []) if el.get("id") != target_id]
+            if len(track.get("elements", [])) < before:
+                found = True
+        if not found:
+            raise ValueError(f"delete_element_by_id: element {target_id!r} not found")
+
+    if "apply_effect" in changes:
+        cmd = changes["apply_effect"]
+        effect_key = str(cmd.get("effect_key", ""))
+        intensity = float(cmd.get("intensity", 1.0))
+        if not effect_key:
+            raise ValueError("apply_effect: effect_key is required")
+        else:
+            start_s = 0.0
+            end_s = float(patched.get("duration", 30.0))
+            selected = _find_selected_elements(patched, editor_context)
+            if selected:
+                _, sel_elem = selected[0]
+                start_s = float(sel_elem.get("s", 0.0))
+                end_s = float(sel_elem.get("e", end_s))
+            effect_track = _ensure_effect_track(patched)
+            updated = False
+            for existing in effect_track.get("elements", []):
+                if existing.get("type") == "effect" and abs(float(existing.get("s", -999)) - start_s) < 0.1:
+                    existing["props"] = {"effectKey": effect_key, "intensity": intensity}
+                    existing["name"] = effect_key.replace("_", " ").title()
+                    updated = True
+                    break
+            if not updated:
+                effect_track.setdefault("elements", []).append({
+                    "id": _make_id("effect"),
+                    "trackId": effect_track["id"],
+                    "type": "effect",
+                    "s": start_s,
+                    "e": end_s,
+                    "props": {"effectKey": effect_key, "intensity": intensity},
+                    "name": effect_key.replace("_", " ").title(),
+                })
 
     if "replace_selected_media_url" in changes:
         src = _normalize_editor_media_url(str(changes["replace_selected_media_url"])) or str(changes["replace_selected_media_url"])
@@ -337,6 +419,9 @@ async def _project_commands(
         "trim_selected_element": "trim_selected_element",
         "delete_selected_element": "delete_selected_element",
         "add_hook_title": None,
+        "move_element_by_id": "move_element_by_id",
+        "delete_element_by_id": "delete_element_by_id",
+        "apply_effect": "apply_effect",
     }
 
     patched = copy.deepcopy(project_json)
@@ -440,6 +525,15 @@ async def _project_commands(
 
         elif kind == "delete_selected_element":
             changes["delete_selected_element"] = True
+
+        elif kind == "move_element_by_id":
+            changes["move_element_by_id"] = args
+
+        elif kind == "delete_element_by_id":
+            changes["delete_element_by_id"] = args
+
+        elif kind == "apply_effect":
+            changes["apply_effect"] = args
 
         elif kind == "insert_media_asset":
             ins_args = dict(args)
