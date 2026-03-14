@@ -531,6 +531,12 @@ export function useVoiceEditSession({
     setIsScreenShareActive(false);
   }, [wsRef]);
 
+  const inspectScreen = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !isScreenShareActive) return;
+    ws.send(JSON.stringify({ type: "inspect_screen" }));
+  }, [wsRef, isScreenShareActive]);
+
   const startScreenShare = useCallback(async () => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN || !sessionReadyRef.current) return;
@@ -772,6 +778,17 @@ export function useVoiceEditSession({
             setVoiceTurnState("idle");
             clearActiveTurnRefs();
           }
+        } else if (data.type === "screen_analysis_started") {
+          const msgId = `${Date.now()}-screen-analysis`;
+          appendAgentMessage({
+            id: msgId,
+            role: "agent",
+            text: "",
+            isThinking: true,
+            isInspection: true,
+          });
+          currentAgentMessageIdRef.current = msgId;
+          setVoiceTurnState("agent_speaking");
         } else if (data.type === "error") {
           sessionFailedRef.current = true;
           clearReadyTimeout();
@@ -873,5 +890,6 @@ export function useVoiceEditSession({
     isScreenShareActive,
     startScreenShare,
     stopScreenShare,
+    inspectScreen,
   };
 }

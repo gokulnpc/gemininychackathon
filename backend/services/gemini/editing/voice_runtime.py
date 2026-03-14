@@ -116,7 +116,8 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
         f"  Background music: {background_music}\n\n"
         "Screen sharing: The user may share their screen during this session. "
         "When screen frames are being sent, you can SEE the user's screen in real time — "
-        "reference what you see visually when helping with edits."
+        "reference what you see visually when helping with edits. "
+        "When screen sharing is active and the user gives a spatially vague instruction ('that text', 'the element on the left', 'that thing at the top'), look at the screen frames you are receiving and resolve the reference visually — do NOT ask which element."
     )
 
     realtime_input_config = types.RealtimeInputConfig(
@@ -543,6 +544,33 @@ async def run_edit_voice_agent(
                             if turn_id:
                                 pending_turn_ids.append(turn_id)
                             _arm_stall_watch(turn_id)
+                        elif event["kind"] == "screen_share_started":
+                            # Wait for ~2 frames to arrive at 1 FPS before triggering analysis
+                            await asyncio.sleep(2.0)
+                            await session.send_client_content(
+                                turns=[{
+                                    "role": "user",
+                                    "parts": [{
+                                        "text": (
+                                            "The user just enabled screen sharing. "
+                                            "Look at what you can see on their screen and describe 1\u20132 specific things you notice "
+                                            "about their video project \u2014 visual issues, layout, caption positioning, "
+                                            "music fit, or anything that could be improved. "
+                                            "Be specific and concise. Maximum 2 sentences."
+                                        ),
+                                    }],
+                                }],
+                                turn_complete=True,
+                            )
+                            await on_event({"type": "screen_analysis_started"})
+                        elif event["kind"] == "send_text":
+                            text = event.get("text", "")
+                            if text:
+                                await session.send_client_content(
+                                    turns=[{"role": "user", "parts": [{"text": text}]}],
+                                    turn_complete=True,
+                                )
+                                await on_event({"type": "screen_analysis_started"})
                         elif event["kind"] == "done":
                             session_turn["input_turn_id"] = None
 

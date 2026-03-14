@@ -277,6 +277,7 @@ export default function EditorPage() {
                   stopVoiceEdit={voiceSession.stopVoiceEdit}
                   startScreenShare={voiceSession.startScreenShare}
                   stopScreenShare={voiceSession.stopScreenShare}
+                  inspectScreen={voiceSession.inspectScreen}
                   onProjectJsonChange={syncProjectJson}
                   serializeProjectJson={(json) => serializeProjectJson(json) ?? json}
                   exportPortalRef={exportPortalRef}

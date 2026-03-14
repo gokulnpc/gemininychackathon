@@ -2,7 +2,7 @@
 
 import type { RefObject } from "react";
 import { useCallback, useRef, useState } from "react";
-import { Loader2, Mic, MicOff, Monitor, MonitorOff, Pause, Play, Send, Sparkles, X } from "lucide-react";
+import { Loader2, Mic, MicOff, Monitor, MonitorOff, Pause, Play, Search, Send, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import type {
@@ -242,6 +242,7 @@ interface AgentPanelProps {
   isScreenShareActive: boolean;
   startScreenShare: () => void | Promise<void>;
   stopScreenShare: () => void;
+  inspectScreen?: () => void;
   confirmProposal: (proposal: EditProposal) => void;
   rejectProposal: (proposal: EditProposal) => void;
   revertLastEdit: () => void;
@@ -263,6 +264,7 @@ export function AgentPanel({
   isScreenShareActive,
   startScreenShare,
   stopScreenShare,
+  inspectScreen,
   confirmProposal,
   rejectProposal,
   revertLastEdit,
@@ -746,6 +748,17 @@ export function AgentPanel({
                   <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
                 )}
               </button>
+              {isScreenShareActive && (
+                <button
+                  type="button"
+                  onClick={() => inspectScreen?.()}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-400 transition-colors hover:bg-amber-500/20"
+                  title="Ask agent to analyze your screen"
+                >
+                  <Search className="h-3 w-3" />
+                  Analyze screen
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => handleSend(agentInput)}
