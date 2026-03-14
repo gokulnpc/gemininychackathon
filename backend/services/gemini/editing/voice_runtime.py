@@ -253,6 +253,29 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 ),
             ),
             types.FunctionDeclaration(
+                name="edit_selected_image",
+                description=(
+                    "Edit the currently selected scene image using AI — modify its style, mood, lighting, weather, "
+                    "colours, or content based on a natural-language instruction. "
+                    "Unlike generate_image_for_scene (generates a new image), this EDITS the existing image. "
+                    "After this returns a src URL, draft replace_selected_media with it and call apply_live_edits."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "instruction": types.Schema(
+                            type="string",
+                            description="Edit instruction, e.g. 'make it darker', 'add snow', 'change sky to orange'",
+                        ),
+                        "element_id": types.Schema(
+                            type="string",
+                            description="Optional element_id of the image to edit.",
+                        ),
+                    },
+                    required=["instruction"],
+                ),
+            ),
+            types.FunctionDeclaration(
                 name="generate_storyboard",
                 description="Generate a manga/manhwa visual story from a brief using the interleaved AI model. Streams panel images to the chat.",
                 parameters=types.Schema(
@@ -689,6 +712,66 @@ async def _dispatch_voice_tool(
         except Exception as _gsb_exc:
             logger.warning("generate_storyboard (voice) failed: %s", _gsb_exc)
             return {"error": str(_gsb_exc)}
+
+    if name == "edit_selected_image":
+        instruction_ei = args.get("instruction", "")
+        element_id_ei = args.get("element_id", "")
+        try:
+            import base64 as _b64_ei
+            import os as _os_ei
+            from uuid import uuid4 as _uuid4_ei
+            from services.gemini.interleaved import _invoke_interleaved_with_image as _gen_ei
+            from services.storage import gcs as _gcs_ei
+
+            live_ei = get_live_state() if get_live_state else {}
+            source_b64_ei: str | None = (
+                live_ei.get("latest_screen_frame_b64")
+                or (editor_context or {}).get("screenshot", {}).get("image_b64")
+            )
+
+            # Fallback: download element src from project JSON
+            if not source_b64_ei and current_project_json and element_id_ei:
+                for _track_ei in (current_project_json.get("tracks") or []):
+                    for _el_ei in (_track_ei.get("elements") or []):
+                        if _el_ei.get("id") == element_id_ei or _el_ei.get("element_id") == element_id_ei:
+                            _src_ei = (_el_ei.get("props") or {}).get("src") or _el_ei.get("src")
+                            if _src_ei:
+                                import httpx as _httpx_ei
+                                async with _httpx_ei.AsyncClient(timeout=10) as _c_ei:
+                                    _r_ei = await _c_ei.get(_src_ei)
+                                    source_b64_ei = _b64_ei.b64encode(_r_ei.content).decode()
+                            break
+
+            if not source_b64_ei:
+                return {"error": "Could not get the current image — enable screen share or select the element."}
+
+            edit_prompt_ei = (
+                f"Edit this image as instructed: {instruction_ei}. "
+                "Preserve the overall composition and subject. Apply only the requested changes. "
+                "Output exactly one edited image. 9:16 vertical format."
+            )
+            blocks_ei = await asyncio.to_thread(_gen_ei, edit_prompt_ei, source_b64_ei)
+            image_blocks_ei = [b for b in blocks_ei if b.get("type") == "image"]
+            if not image_blocks_ei:
+                return {"error": "Model returned no edited image — try rephrasing the instruction."}
+
+            chosen_ei = image_blocks_ei[0]
+            img_bytes_ei = _b64_ei.b64decode(chosen_ei["content"])
+            mime_ei = chosen_ei.get("mime_type", "image/jpeg")
+            suffix_ei = ".jpg" if "jpeg" in mime_ei else ".png"
+            tmp_ei = f"/tmp/edit_{_uuid4_ei().hex}{suffix_ei}"
+            with open(tmp_ei, "wb") as f_ei:
+                f_ei.write(img_bytes_ei)
+            gcs_key_ei = f"projects/{project_id}/edited/{_uuid4_ei().hex}{suffix_ei}"
+            src_url_ei = await _gcs_ei.upload_file(tmp_ei, gcs_key_ei, mime_ei)
+            with contextlib.suppress(OSError):
+                _os_ei.unlink(tmp_ei)
+            with contextlib.suppress(Exception):
+                await on_event({"type": "creative_block", "block": {"type": "image", "content": chosen_ei["content"], "mime_type": mime_ei}})
+            return {"status": "ok", "src": src_url_ei}
+        except Exception as exc:
+            logger.warning("edit_selected_image failed: %s", exc)
+            return {"error": str(exc)}
 
     if name == "propose_scripts":
         proposals_gsb = args.get("proposals", [])
