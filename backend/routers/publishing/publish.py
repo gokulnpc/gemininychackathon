@@ -42,6 +42,7 @@ async def publish_project(project_id: UUID, request: PublishRequest, current_use
 
     results = await social_publish.publish_to_platforms(
         project_id=str(project_id),
+        uid=current_user["uid"],
         platforms=platform_names,
         social_copy=social_copy,
         schedule=request.schedule,

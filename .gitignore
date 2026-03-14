@@ -6,6 +6,7 @@ __pycache__/
 /backend/input/
 /backend/.venv/
 /backend/client_secrets.json
+/backend/.local_state/
 /backend/mlruns/
 /backend/mlflow.db
 PROJECT_STRUCTURE.md

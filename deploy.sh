@@ -105,6 +105,13 @@ gcloud tasks queues describe "$TASKS_QUEUE" \
        --max-retry-duration=1800s \
        --max-concurrent-dispatches=5
 
+# ── Ensure runtime service account can mint its own Cloud Tasks OIDC token ───
+echo "▶ Ensuring $WORKER_SA can act as itself for Cloud Tasks OIDC..."
+gcloud iam service-accounts add-iam-policy-binding "$WORKER_SA" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:$WORKER_SA" \
+  --role="roles/iam.serviceAccountUser" >/dev/null
+
 # ── Ensure secrets exist in Secret Manager ────────────────────────────────────
 echo "▶ Checking Secret Manager secrets..."
 for SECRET in gemini-api-key sendgrid-api-key; do
@@ -328,7 +335,8 @@ gcloud run deploy "$API_SERVICE" \
   --concurrency=80 \
   --min-instances=0 \
   --max-instances=10 \
-  --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION,WORKER_URL=$WORKER_URL,YOUTUBE_CLIENT_SECRETS_FILE=/secrets/youtube_client_secrets.json" \
+  --service-account="$WORKER_SA" \
+  --set-env-vars="GCS_BUCKET=storylab-assets,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,USE_VERTEX_AI=true,VERTEX_AI_LOCATION=$REGION,CLOUD_TASKS_QUEUE=$TASKS_QUEUE,CLOUD_TASKS_LOCATION=$REGION,WORKER_URL=$WORKER_URL,TIMELINE_RENDER_WORKER_URL=$RENDER_URL,YOUTUBE_CLIENT_SECRETS_FILE=/secrets/youtube_client_secrets.json" \
   --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,/secrets/youtube_client_secrets.json=youtube-client-secrets:latest" \
   --no-cpu-throttling
 

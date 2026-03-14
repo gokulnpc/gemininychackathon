@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { UserMenu } from "@/components/shared/UserMenu";
@@ -11,19 +11,41 @@ import { Label } from "@/components/ui/label";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useSidebar } from "@/context/SidebarContext";
 import { cn } from "@/lib/utils";
-import { Bell, Key, User, MonitorSmartphone } from "lucide-react";
+import { Bell, CheckCircle2, Key, Link2, Loader2, MonitorSmartphone, Unplug, User } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import apiClient from "@/lib/apiClient";
+import { useYoutubeAccount } from "@/hooks/use-youtube-account";
+
+function YouTubeIcon() {
+  return (
+    <div className="w-11 h-11 bg-[#FF0000] rounded-xl flex items-center justify-center shrink-0">
+      <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
+        <path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.54 3.5 12 3.5 12 3.5s-7.54 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.46 20.5 12 20.5 12 20.5s7.54 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.75 15.02V8.98L15.5 12l-5.75 3.02z" />
+      </svg>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const router = useRouter();
   const { isCollapsed } = useSidebar();
   const { userProfile, refreshProfile } = useAuth();
+  const {
+    youtubeConnected,
+    youtubeConnecting,
+    youtubeDisconnecting,
+    connectYouTube,
+    disconnectYouTube,
+  } = useYoutubeAccount();
 
   const [activeTab, setActiveTab] = useState("profile");
   const [displayName, setDisplayName] = useState(userProfile?.display_name ?? "");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(userProfile?.display_name ?? "");
+  }, [userProfile?.display_name]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -35,6 +57,26 @@ export default function SettingsPage() {
       toast.error("Failed to save settings.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleConnectYouTube = async () => {
+    try {
+      const connected = await connectYouTube();
+      if (connected) {
+        toast.success("YouTube account connected.");
+      }
+    } catch {
+      toast.error("Failed to connect YouTube.");
+    }
+  };
+
+  const handleDisconnectYouTube = async () => {
+    try {
+      await disconnectYouTube();
+      toast.success("YouTube account disconnected.");
+    } catch {
+      toast.error("Failed to disconnect YouTube.");
     }
   };
 
@@ -75,6 +117,7 @@ export default function SettingsPage() {
           >
             {[
               { id: "profile", label: "Profile", icon: User },
+              { id: "accounts", label: "Accounts", icon: Link2 },
               { id: "preferences", label: "Preferences", icon: MonitorSmartphone },
               { id: "notifications", label: "Notifications", icon: Bell },
               { id: "api-keys", label: "API Keys", icon: Key },
@@ -137,6 +180,80 @@ export default function SettingsPage() {
                       <Button onClick={handleSave} disabled={saving} className="bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white px-6 rounded-xl">
                         {saving ? "Saving..." : "Save Changes"}
                       </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === "accounts" && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-xl font-medium text-white mb-1">Connected Accounts</h2>
+                    <p className="text-sm text-white/50 mb-6">
+                      Connect the accounts you want to use when publishing from StoryLab.
+                    </p>
+                  </div>
+
+                  <div className="max-w-2xl rounded-2xl border border-white/10 bg-[#2B2B2B] p-6">
+                    <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex items-start gap-4">
+                        <YouTubeIcon />
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-lg font-medium text-white">YouTube</h3>
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium",
+                                youtubeConnected
+                                  ? "bg-green-500/15 text-green-300"
+                                  : "bg-white/10 text-white/60"
+                              )}
+                            >
+                              {youtubeConnected ? (
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              ) : null}
+                              {youtubeConnected ? "Connected" : "Not connected"}
+                            </span>
+                          </div>
+                          <p className="text-sm text-white/60">
+                            The connected YouTube account will be used whenever you publish a video from Share.
+                          </p>
+                          <p className="text-xs text-white/40">
+                            Each user manages their own YouTube connection. You can disconnect it here at any time.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 flex-col gap-3 sm:items-end">
+                        {youtubeConnected ? (
+                          <Button
+                            onClick={handleDisconnectYouTube}
+                            disabled={youtubeDisconnecting}
+                            variant="outline"
+                            className="rounded-xl border-white/15 bg-transparent text-white hover:bg-white/10"
+                          >
+                            {youtubeDisconnecting ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Unplug className="w-4 h-4" />
+                            )}
+                            {youtubeDisconnecting ? "Disconnecting..." : "Disconnect"}
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleConnectYouTube}
+                            disabled={youtubeConnecting}
+                            className="rounded-xl bg-[#5a9ab5] text-white hover:bg-[#7ab0c8]"
+                          >
+                            {youtubeConnecting ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Link2 className="w-4 h-4" />
+                            )}
+                            {youtubeConnecting ? "Connecting..." : "Connect YouTube"}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -36,6 +36,7 @@ async def recompose_video(
     background_music: str,
     target_platforms: list[Platform],
     music_volume: float = 0.15,
+    project_json: dict | None = None,
 ) -> tuple[list[PipelineStageStatus], dict[str, str]]:
     """Recompose a video from its preserved with_audio.mp4 artifact.
 
@@ -183,6 +184,39 @@ async def recompose_video(
         else:
             stages[-1].status = "failed"
             stages[-1].detail = "Music source not available — video produced without music"
+
+    # ── Optional: renderer path — render from updated timeline JSON ────────────
+    # When project_json is provided and TIMELINE_RENDER_WORKER_URL is set, use the
+    # Twick renderer to produce the final video instead of FFmpeg caption-burning.
+    # This ensures recomposed videos match the editor preview exactly.
+
+    from config import get_settings as _get_settings
+    _cfg = _get_settings()
+    if project_json and _cfg.timeline_render_worker_url:
+        stages.append(PipelineStageStatus(
+            stage="renderer_render",
+            status="running",
+            detail="Rendering via Twick renderer",
+        ))
+        try:
+            import copy as _copy
+            updated_json = _copy.deepcopy(project_json)
+            # Patch caption_style and music in the timeline metadata so renderer picks them up
+            if "metadata" in updated_json:
+                updated_json["metadata"]["caption_style"] = caption_style
+                updated_json["metadata"]["music_preset"] = background_music
+                updated_json["metadata"]["music_volume"] = music_volume
+
+            from services.infra.editor_export import render_timeline_to_file
+            renderer_output = os.path.join(work_dir, "renderer_recompose.mp4")
+            await render_timeline_to_file(updated_json, renderer_output)
+            composed_path = renderer_output
+            stages[-1].status = "completed"
+            stages[-1].detail = "Rendered via Twick renderer"
+        except Exception as _rend_exc:
+            logger.warning("Renderer failed during recompose — falling back to FFmpeg result: %s", _rend_exc)
+            stages[-1].status = "failed"
+            stages[-1].detail = f"Renderer failed: {_rend_exc} — using FFmpeg-composed video"
 
     # ── Stage 5: Platform export + upload ─────────────────────────────────────
 

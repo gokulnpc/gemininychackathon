@@ -198,12 +198,13 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
         amount=100,
     )
 
-    from models.schemas import GenerateVideoRequest, ScriptGenerationResponse, Platform, CaptionStyleEnum
+    from models.schemas import GenerateVideoRequest, ScriptGenerationResponse, Platform, CaptionStyleEnum, UserCharacterRole
     try:
         script = ScriptGenerationResponse(**script_data)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Stored script is malformed: {e}")
 
+    raw_role = cfg.get("user_character_role")
     try:
         gen_request = GenerateVideoRequest(
             script=script,
@@ -214,6 +215,7 @@ async def approve_script(project_id: UUID, current_user: dict = Depends(get_curr
             caption_style=cfg.get("caption_style", "bold_stroke"),
             video_duration=cfg.get("video_duration", 30),
             user_reference_image_b64=cfg.get("user_reference_image_b64"),
+            user_character_role=UserCharacterRole(raw_role) if raw_role else None,
         )
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not build video request: {e}")

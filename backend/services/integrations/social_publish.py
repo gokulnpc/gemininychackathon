@@ -12,12 +12,14 @@ Setup:
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
 import httpx
 
 from config import get_settings
+from services.storage import youtube_auth_store
 from services.storage import gcs as gcs_service
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ PLATFORM_TO_GCS_PREFIX: dict[str, str] = {
 
 async def _publish_youtube(
     project_id: str,
+    uid: str,
     title: str,
     description: str,
     tags: list[str],
@@ -63,29 +66,29 @@ async def _publish_youtube(
             "error": "GCS download failed: no video found (tried youtube_shorts and instagram_reels)",
         }
 
-    def _blocking_upload() -> dict:
-        from pathlib import Path as _Path
+    credentials_json = await youtube_auth_store.get_youtube_credentials_json(uid)
+    if not credentials_json:
+        Path(local_path).unlink(missing_ok=True)
+        return {
+            "platform": "youtube",
+            "status": "failed",
+            "error": "YouTube account not connected for this user. Connect YouTube and try again.",
+        }
 
+    def _blocking_upload(raw_credentials_json: str) -> tuple[dict, str | None]:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
 
-        settings = get_settings()
-        token_file = settings.youtube_token_file
-
-        if not token_file or not _Path(token_file).exists():
-            raise RuntimeError(
-                "YouTube token not found. Run: python3 setup_social_auth.py youtube"
-            )
-
-        creds = Credentials.from_authorized_user_file(
-            token_file,
+        creds = Credentials.from_authorized_user_info(
+            json.loads(raw_credentials_json),
             scopes=["https://www.googleapis.com/auth/youtube.upload"],
         )
+        refreshed_credentials_json = None
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            _Path(token_file).write_text(creds.to_json())
+            refreshed_credentials_json = creds.to_json()
 
         youtube = build("youtube", "v3", credentials=creds)
 
@@ -106,14 +109,23 @@ async def _publish_youtube(
         while response is None:
             _, response = req.next_chunk()
 
-        return {
-            "platform": "youtube",
-            "status": "published",
-            "post_url": f"https://www.youtube.com/watch?v={response['id']}",
-        }
+        return (
+            {
+                "platform": "youtube",
+                "status": "published",
+                "post_url": f"https://www.youtube.com/watch?v={response['id']}",
+            },
+            refreshed_credentials_json,
+        )
 
     try:
-        return await asyncio.to_thread(_blocking_upload)
+        result, refreshed_credentials_json = await asyncio.to_thread(_blocking_upload, credentials_json)
+        if refreshed_credentials_json:
+            await youtube_auth_store.save_youtube_credentials(
+                uid=uid,
+                credentials_json=refreshed_credentials_json,
+            )
+        return result
     except Exception as exc:
         logger.exception("YouTube upload failed")
         return {"platform": "youtube", "status": "failed", "error": str(exc)}
@@ -327,6 +339,7 @@ async def _unknown_platform(platform: str) -> dict:
 
 async def publish_to_platforms(
     project_id: str,
+    uid: str,
     platforms: list[str],
     social_copy: dict[str, dict],
     schedule=None,  # reserved — scheduled posting not yet implemented
@@ -374,7 +387,7 @@ async def publish_to_platforms(
             # Append #Shorts so YouTube classifies the video as a Short
             yt_title = f"{title} #Shorts" if title and "#Shorts" not in title else (title or "New Video #Shorts")
             yt_description = f"{full_caption}\n\n#Shorts".strip() if "#Shorts" not in full_caption else full_caption
-            tasks.append(_publish_youtube(project_id, title=yt_title[:100], description=yt_description[:5000], tags=hashtags))
+            tasks.append(_publish_youtube(project_id, uid=uid, title=yt_title[:100], description=yt_description[:5000], tags=hashtags))
         elif platform == "instagram":
             tasks.append(_publish_instagram(project_id, caption=full_caption))
         elif platform == "tiktok":

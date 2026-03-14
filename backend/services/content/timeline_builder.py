@@ -364,7 +364,7 @@ def _build_from_spec(
                 props={
                     "words": [
                         {
-                            "text": word.word,
+                            "t": word.word,
                             "s": _safe_round(word.start),
                             "e": _safe_round(word.end),
                         }
