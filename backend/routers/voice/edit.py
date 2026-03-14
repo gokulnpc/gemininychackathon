@@ -20,8 +20,12 @@ Guard conditions (both endpoints):
 from __future__ import annotations
 
 import asyncio
+import base64
+from collections import deque
+import contextlib
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -31,6 +35,9 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from deps.auth import get_current_user
 from models.schemas import EditAgentRequest
 from services.storage import firestore_db
+
+if TYPE_CHECKING:
+    from services.gemini.editing.voice_runtime import VoiceRealtimeEvent
 
 logger = logging.getLogger(__name__)
 
@@ -99,23 +106,96 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
 
     logger.info("Scout edit voice WebSocket connected: project=%s", project_id)
 
-    audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
+    audio_queue: asyncio.Queue["VoiceRealtimeEvent"] = asyncio.Queue(maxsize=_AUDIO_QUEUE_MAX)
     decision_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=5)
     live_state: dict = {
         "project_json": project_data.get("project_json"),
         "editor_context": None,
     }
+    event_counts: dict[str, int] = {}
+    session_failed = False
 
-    async def _audio_stream():
-        while True:
-            chunk = await audio_queue.get()
-            if chunk is None:
+    def _record_event(kind: str) -> None:
+        event_counts[kind] = event_counts.get(kind, 0) + 1
+
+    def _drop_oldest_audio_event() -> bool:
+        queue_storage = getattr(audio_queue, "_queue", None)
+        if not isinstance(queue_storage, deque):
+            return False
+
+        for index, queued_event in enumerate(queue_storage):
+            if queued_event["kind"] != "audio":
+                continue
+            queue_storage.rotate(-index)
+            dropped = queue_storage.popleft()
+            queue_storage.rotate(index)
+            logger.warning(
+                "Scout edit voice queue full: dropped queued kind=%s project=%s depth=%d",
+                dropped["kind"],
+                project_id,
+                audio_queue.qsize(),
+            )
+            return True
+
+        return False
+
+    async def _enqueue_realtime_event(event: "VoiceRealtimeEvent") -> None:
+        nonlocal session_failed
+        kind = event["kind"]
+        if session_failed and kind != "done":
+            logger.debug(
+                "Scout edit voice ignoring event after failure: kind=%s turn=%s project=%s",
+                kind,
+                event.get("turn_id"),
+                project_id,
+            )
+            return
+
+        _record_event(kind)
+        if audio_queue.full():
+            if kind == "audio":
+                logger.warning(
+                    "Scout edit voice queue full: dropped incoming audio project=%s depth=%d",
+                    project_id,
+                    audio_queue.qsize(),
+                )
                 return
-            yield chunk
+            if not _drop_oldest_audio_event():
+                await audio_queue.put(event)
+                logger.debug(
+                    "Scout edit voice queued control kind=%s turn=%s count=%d depth=%d project=%s",
+                    kind,
+                    event.get("turn_id"),
+                    event_counts[kind],
+                    audio_queue.qsize(),
+                    project_id,
+                )
+                return
+
+        audio_queue.put_nowait(event)
+        logger.debug(
+            "Scout edit voice queued kind=%s turn=%s count=%d depth=%d project=%s",
+            kind,
+            event.get("turn_id"),
+            event_counts[kind],
+            audio_queue.qsize(),
+            project_id,
+        )
 
     async def _on_event(event: dict) -> None:
         try:
             await websocket.send_text(json.dumps(event))
+        except Exception:
+            pass
+
+    async def _on_ready(transport: str) -> None:
+        await _on_event({"type": "ready", "transport": transport})
+
+    async def _on_audio(chunk: bytes) -> None:
+        """Forward Gemini audio to client as base64 JSON text frame (Livewire protocol)."""
+        b64 = base64.b64encode(chunk).decode()
+        try:
+            await websocket.send_text(json.dumps({"type": "audio", "data": b64}))
         except Exception:
             pass
 
@@ -124,60 +204,111 @@ async def edit_voice_ws(project_id: str, websocket: WebSocket, token: str | None
             while True:
                 msg = await websocket.receive()
                 if "bytes" in msg and msg["bytes"]:
-                    if audio_queue.full():
-                        try:
-                            audio_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            pass
-                    audio_queue.put_nowait(msg["bytes"])
+                    # Legacy binary audio frames — still supported
+                    logger.debug("Scout edit voice legacy audio frame project=%s bytes=%d", project_id, len(msg["bytes"]))
+                    await _enqueue_realtime_event({
+                        "kind": "audio",
+                        "audio_b64": base64.b64encode(msg["bytes"]).decode(),
+                    })
                 elif "text" in msg and msg["text"]:
                     try:
                         data = json.loads(msg["text"])
                     except json.JSONDecodeError:
                         continue
                     if data.get("type") == "done":
-                        await audio_queue.put(None)
+                        logger.info("Scout edit voice client done project=%s", project_id)
+                        await _enqueue_realtime_event({"kind": "done"})
                         return
-                    if data.get("type") == "editor_state":
+                    elif data.get("type") == "audio":
+                        turn_id = str(data.get("turn_id")) if data.get("turn_id") else None
+                        b64_str = data.get("data")
+                        if b64_str and isinstance(b64_str, str):
+                            await _enqueue_realtime_event({
+                                "kind": "audio",
+                                "audio_b64": b64_str,
+                                **({"turn_id": turn_id} if turn_id else {}),
+                            })
+                    elif data.get("type") == "activity_start":
+                        turn_id = str(data.get("turn_id")) if data.get("turn_id") else None
+                        logger.info("Scout edit voice client activity_start project=%s turn=%s", project_id, turn_id)
+                        await _enqueue_realtime_event({
+                            "kind": "activity_start",
+                            **({"turn_id": turn_id} if turn_id else {}),
+                        })
+                    elif data.get("type") == "activity_end":
+                        turn_id = str(data.get("turn_id")) if data.get("turn_id") else None
+                        logger.info("Scout edit voice client activity_end project=%s turn=%s", project_id, turn_id)
+                        await _enqueue_realtime_event({
+                            "kind": "activity_end",
+                            **({"turn_id": turn_id} if turn_id else {}),
+                        })
+                    elif data.get("type") == "editor_state":
                         live_state["project_json"] = data.get("project_json")
                         live_state["editor_context"] = data.get("editor_context")
                     elif data.get("type") == "agent_decision":
                         if not decision_queue.full():
                             decision_queue.put_nowait(data)
         except WebSocketDisconnect:
-            await audio_queue.put(None)
+            await _enqueue_realtime_event({"kind": "done"})
         except Exception as exc:
             logger.warning("Edit voice receive loop error: %s", exc)
-            await audio_queue.put(None)
-
-    receive_task = asyncio.create_task(_receive_loop())
+            await _enqueue_realtime_event({"kind": "done"})
 
     try:
         from services.gemini import edit_voice as svc
 
-        async for audio_chunk in svc.run_edit_voice_agent(
-            project_id=project_id,
-            project_data=project_data,
-            audio_chunks=_audio_stream(),
-            get_live_state=lambda: dict(live_state),
-            on_event=_on_event,
-            decision_queue=decision_queue,
-            uid=uid,
-        ):
-            await websocket.send_bytes(audio_chunk)
+        agent_task = asyncio.create_task(
+            svc.run_edit_voice_agent(
+                project_id=project_id,
+                project_data=project_data,
+                audio_queue=audio_queue,
+                get_live_state=lambda: dict(live_state),
+                on_event=_on_event,
+                on_audio=_on_audio,
+                on_ready=_on_ready,
+                decision_queue=decision_queue,
+                uid=uid,
+            )
+        )
+        receive_task = asyncio.create_task(_receive_loop())
 
-        await receive_task
+        done, pending = await asyncio.wait(
+            {agent_task, receive_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        if agent_task in done:
+            exc = agent_task.exception()
+            if exc is not None:
+                session_failed = True
+                receive_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await receive_task
+                raise exc
+
+            receive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await receive_task
+
+        if receive_task in done:
+            await agent_task
 
     except WebSocketDisconnect:
         logger.info("Edit voice WebSocket disconnected: project=%s", project_id)
     except Exception as exc:
+        session_failed = True
         logger.exception("Edit voice agent error: project=%s error=%s", project_id, exc)
         try:
             await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
         except Exception:
             pass
+        with contextlib.suppress(Exception):
+            await websocket.close()
     finally:
-        receive_task.cancel()
+        session_failed = True
+        # Unblock the receive loop if agent exited first
+        with contextlib.suppress(Exception):
+            await _enqueue_realtime_event({"kind": "done"})
         try:
             await websocket.close()
         except Exception:
