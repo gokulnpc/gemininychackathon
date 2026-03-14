@@ -112,6 +112,14 @@ export function useEditorAgent({
               actions.push(event.tool);
             } else if (event.type === "tool_event" && event.name) {
               actions.push(event.name);
+            } else if (event.type === "script_proposals" && event.proposals) {
+              setAgentMessages((prev) =>
+                prev.map((message) =>
+                  message.id === thinkingId
+                    ? { ...message, scriptProposals: event.proposals as import("@/components/editor/types").ScriptProposal[], isThinking: false }
+                    : message,
+                ),
+              );
             } else if (event.type === "creative_block" && event.block) {
               setAgentMessages((prev) =>
                 prev.map((message) =>

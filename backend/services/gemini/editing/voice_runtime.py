@@ -254,15 +254,41 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
             ),
             types.FunctionDeclaration(
                 name="generate_storyboard",
-                description="Generate a visual storyboard from a brief using the interleaved AI model. Streams scene images to the chat.",
+                description="Generate a manga/manhwa visual story from a brief using the interleaved AI model. Streams panel images to the chat.",
                 parameters=types.Schema(
                     type="object",
                     properties={
-                        "brief": types.Schema(type="string", description="What the video is about"),
-                        "art_style": types.Schema(type="string", description="Art style. Default: cinematic"),
-                        "num_scenes": types.Schema(type="integer", description="Number of scenes (3–6). Default: 4"),
+                        "brief": types.Schema(type="string", description="What the story is about"),
+                        "art_style": types.Schema(type="string", description="Art style. Default: manga"),
+                        "num_scenes": types.Schema(type="integer", description="Number of panels (3–6). Default: 4"),
                     },
                     required=["brief"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="propose_scripts",
+                description=(
+                    "Present 2-3 short script concept cards to the user so they can pick a story direction. "
+                    "Call this FIRST when the user wants to create a video, story, comic, or manga from scratch."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "proposals": types.Schema(
+                            type="array",
+                            description="2-3 script concept options",
+                            items=types.Schema(
+                                type="object",
+                                properties={
+                                    "title": types.Schema(type="string", description="Short catchy concept title"),
+                                    "hook":  types.Schema(type="string", description="Opening hook — 1 punchy sentence"),
+                                    "arc":   types.Schema(type="string", description="Story arc summary — 2 sentences"),
+                                },
+                                required=["title", "hook", "arc"],
+                            ),
+                        ),
+                    },
+                    required=["proposals"],
                 ),
             ),
         ])],
@@ -622,32 +648,37 @@ async def _dispatch_voice_tool(
 
     if name == "generate_storyboard":
         brief_gsb = args.get("brief", "")
-        art_style_gsb = args.get("art_style", "cinematic")
+        art_style_gsb = args.get("art_style", "manga")
         num_scenes_gsb = min(max(int(args.get("num_scenes", 4)), 3), 6)
 
         prompt_gsb = (
-            f"Create a {num_scenes_gsb}-scene visual storyboard for: {brief_gsb}. "
+            f"Create a {num_scenes_gsb}-panel manga story for: {brief_gsb}. "
             f"Art style: {art_style_gsb}."
         )
         try:
             from services.gemini.interleaved import generate_creative_package as _gen_sb_v
-            blocks_gsb, _ = await _gen_sb_v(prompt_gsb, mode="storyboard", art_style=art_style_gsb)
+            blocks_gsb, _ = await _gen_sb_v(prompt_gsb, mode="manga", art_style=art_style_gsb)
 
             drafts_gsb: list[dict] = []
-            descriptions_gsb: list[str] = []
+            pending_caption_gsb = ""
             for block_gsb in blocks_gsb:
-                if block_gsb.get("type") == "image":
+                if block_gsb.get("type") == "text":
+                    pending_caption_gsb = block_gsb["content"]
+                elif block_gsb.get("type") == "image":
+                    panel_block_gsb = {
+                        "type": "panel",
+                        "content": block_gsb["content"],
+                        "mime_type": block_gsb.get("mime_type", "image/jpeg"),
+                        "caption": pending_caption_gsb,
+                    }
                     with contextlib.suppress(Exception):
-                        await on_event({"type": "creative_block", "block": block_gsb})
+                        await on_event({"type": "creative_block", "block": panel_block_gsb})
                     drafts_gsb.append({
                         "image_b64": block_gsb["content"],
-                        "mime_type": block_gsb.get("mime_type", "image/png"),
+                        "mime_type": block_gsb.get("mime_type", "image/jpeg"),
+                        "description": pending_caption_gsb or f"Panel {len(drafts_gsb) + 1}",
                     })
-                elif block_gsb.get("type") == "text":
-                    descriptions_gsb.append(block_gsb["content"])
-
-            for i_gsb, d_gsb in enumerate(drafts_gsb):
-                d_gsb["description"] = descriptions_gsb[i_gsb] if i_gsb < len(descriptions_gsb) else f"Scene {i_gsb + 1}"
+                    pending_caption_gsb = ""
 
             project_data["_storyboard_drafts"] = drafts_gsb
             return {
@@ -658,6 +689,12 @@ async def _dispatch_voice_tool(
         except Exception as _gsb_exc:
             logger.warning("generate_storyboard (voice) failed: %s", _gsb_exc)
             return {"error": str(_gsb_exc)}
+
+    if name == "propose_scripts":
+        proposals_gsb = args.get("proposals", [])
+        with contextlib.suppress(Exception):
+            await on_event({"type": "script_proposals", "proposals": proposals_gsb})
+        return {"status": "ok", "count": len(proposals_gsb)}
 
     if name == "generate_thumbnail_options":
         from services.gemini.interleaved import generate_thumbnail_options as _gen_thumbs

@@ -696,6 +696,13 @@ export function useVoiceEditSession({
         } else if (data.type === "generation_complete") {
           appendAgentAction("generation_complete", turnId);
           finishAgentMessage(turnId);
+        } else if (data.type === "script_proposals" && data.proposals) {
+          const resolvedTurnId = ensureTurn(turnId, !turnId || currentTurnIdRef.current === turnId);
+          patchMessage(turnMessageIdsRef.current[resolvedTurnId]?.agentId ?? null, (message) => ({
+            ...message,
+            scriptProposals: data.proposals as import("@/components/editor/types").ScriptProposal[],
+            isThinking: false,
+          }));
         } else if (data.type === "creative_block" && data.block) {
           const resolvedTurnId = ensureTurn(turnId, !turnId || currentTurnIdRef.current === turnId);
           patchMessage(turnMessageIdsRef.current[resolvedTurnId]?.agentId ?? null, (message) => ({

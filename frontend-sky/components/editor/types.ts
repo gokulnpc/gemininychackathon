@@ -131,9 +131,16 @@ export interface EditProposal {
 }
 
 export interface CreativeBlock {
-  type: "image" | "text";
-  content: string;          // base64 for images, plain text for text blocks
+  type: "image" | "text" | "panel";
+  content: string;          // base64 for images/panels, plain text for text blocks
   mime_type?: string;
+  caption?: string;         // for "panel" type — narrative caption paired with the image
+}
+
+export interface ScriptProposal {
+  title: string;
+  hook: string;
+  arc: string;
 }
 
 export interface CreativePreviewOption {
@@ -165,6 +172,7 @@ export interface AgentMessage {
   isLyriaGenerating?: boolean;
   lyriaPreviewUrl?: string;
   thumbnailOptions?: ThumbnailOption[];
+  scriptProposals?: ScriptProposal[];
 }
 
 export interface Asset {
