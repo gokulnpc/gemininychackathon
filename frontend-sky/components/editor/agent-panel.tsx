@@ -27,6 +27,7 @@ import type {
   CreativeBlock,
   CreativePreviewOption,
   EditProposal,
+  ScriptProposal,
   ThumbnailOption,
 } from "@/components/editor/types";
 
@@ -742,29 +743,62 @@ export function AgentPanel({
                   </div>
                 </div>
               )}
+              {msg.scriptProposals && msg.scriptProposals.length > 0 && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-[10px] font-medium uppercase tracking-widest text-editor-text-dim">
+                    Choose a story direction
+                  </p>
+                  {msg.scriptProposals.map((p: ScriptProposal, i: number) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() =>
+                        handleSend(
+                          `Use script option ${i + 1}: "${p.title}". Brief: ${p.hook} ${p.arc}`,
+                          p.title,
+                        )
+                      }
+                      className="group flex flex-col gap-1 rounded-xl border border-editor-border bg-editor-surface-raised p-3 text-left transition-colors hover:border-violet-500/50 hover:bg-violet-500/10"
+                    >
+                      <span className="text-[12px] font-semibold text-foreground">{p.title}</span>
+                      <span className="text-[11px] italic text-sky-300">"{p.hook}"</span>
+                      <span className="text-[10px] text-editor-text-dim leading-relaxed">{p.arc}</span>
+                      <span className="mt-1 text-[10px] font-medium text-violet-400 opacity-0 transition-opacity group-hover:opacity-100">
+                        Use this story →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {msg.creativeBlocks && msg.creativeBlocks.length > 0 && (
                 <div className="mt-2 flex flex-col gap-2">
                   {msg.creativeBlocks
-                    .filter((b: CreativeBlock) => b.type === "image")
+                    .filter((b: CreativeBlock) => b.type === "image" || b.type === "panel")
                     .map((block: CreativeBlock, i: number) => (
                       <div
                         key={i}
-                        className="group relative overflow-hidden rounded-lg border border-editor-border"
+                        className="overflow-hidden rounded-xl border border-editor-border"
                       >
                         <img
-                          src={`data:${block.mime_type ?? "image/png"};base64,${block.content}`}
-                          alt={`Preview ${i + 1}`}
+                          src={`data:${block.mime_type ?? "image/jpeg"};base64,${block.content}`}
+                          alt={`Panel ${i + 1}`}
                           className="w-full object-cover"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleSend(`Apply the style from preview ${i + 1}`)
-                          }
-                          className="absolute inset-x-0 bottom-0 bg-black/70 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
-                        >
-                          Use this style →
-                        </button>
+                        {block.caption ? (
+                          <p className="border-t border-editor-border bg-editor-surface px-3 py-2 text-[11px] leading-relaxed text-foreground/80">
+                            {block.caption}
+                          </p>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSend(`Apply the style from preview ${i + 1}`)
+                            }
+                            className="w-full border-t border-editor-border bg-editor-surface-raised py-1.5 text-center text-xs font-medium text-foreground/60 transition-colors hover:bg-editor-surface hover:text-foreground"
+                          >
+                            Use this style →
+                          </button>
+                        )}
                       </div>
                     ))}
                 </div>

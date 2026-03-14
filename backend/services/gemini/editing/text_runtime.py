@@ -172,6 +172,33 @@ def _get_tool_declarations():
                 },
             ),
         ),
+        types.FunctionDeclaration(
+            name="propose_scripts",
+            description=(
+                "Present 2-3 short script concept cards to the user so they can pick a story direction. "
+                "Call this FIRST when the user wants to create a video, story, comic, or manga from scratch. "
+                "Each proposal has a title, hook line, and 2-sentence story arc."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "proposals": types.Schema(
+                        type=types.Type.ARRAY,
+                        description="2-3 script concept options",
+                        items=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "title": types.Schema(type=types.Type.STRING, description="Short catchy concept title"),
+                                "hook":  types.Schema(type=types.Type.STRING, description="Opening hook — 1 punchy sentence"),
+                                "arc":   types.Schema(type=types.Type.STRING, description="Story arc summary — 2 sentences"),
+                            },
+                            required=["title", "hook", "arc"],
+                        ),
+                    ),
+                },
+                required=["proposals"],
+            ),
+        ),
     ]
     return _TOOL_DECLARATIONS
 
@@ -399,25 +426,30 @@ async def run_edit_text_agent(
                         num_scenes_sb = min(max(int((fc.args or {}).get("num_scenes", 4)), 3), 6)
 
                         prompt_sb = (
-                            f"Create a {num_scenes_sb}-scene visual storyboard for: {brief_sb}. "
-                            f"Art style: {art_style_sb}. Each scene should have a distinct visual moment."
+                            f"Create a {num_scenes_sb}-panel manga story for: {brief_sb}. "
+                            f"Art style: {art_style_sb}."
                         )
-                        blocks_sb, _ = await _gen_sb(prompt_sb, mode="storyboard", art_style=art_style_sb)
+                        blocks_sb, _ = await _gen_sb(prompt_sb, mode="manga", art_style=art_style_sb)
 
                         drafts_sb: list[dict] = []
-                        descriptions_sb: list[str] = []
+                        pending_caption_sb = ""
                         for block_sb in blocks_sb:
-                            if block_sb.get("type") == "image":
-                                yield {"type": "creative_block", "block": block_sb}
+                            if block_sb.get("type") == "text":
+                                pending_caption_sb = block_sb["content"]
+                            elif block_sb.get("type") == "image":
+                                panel_block_sb = {
+                                    "type": "panel",
+                                    "content": block_sb["content"],
+                                    "mime_type": block_sb.get("mime_type", "image/jpeg"),
+                                    "caption": pending_caption_sb,
+                                }
+                                yield {"type": "creative_block", "block": panel_block_sb}
                                 drafts_sb.append({
                                     "image_b64": block_sb["content"],
-                                    "mime_type": block_sb.get("mime_type", "image/png"),
+                                    "mime_type": block_sb.get("mime_type", "image/jpeg"),
+                                    "description": pending_caption_sb or f"Scene {len(drafts_sb) + 1}",
                                 })
-                            elif block_sb.get("type") == "text":
-                                descriptions_sb.append(block_sb["content"])
-
-                        for i_sb, d_sb in enumerate(drafts_sb):
-                            d_sb["description"] = descriptions_sb[i_sb] if i_sb < len(descriptions_sb) else f"Scene {i_sb + 1}"
+                                pending_caption_sb = ""
 
                         project_data["_storyboard_drafts"] = drafts_sb
                         storyboard_result = {
@@ -506,6 +538,18 @@ async def run_edit_text_agent(
                         function_response=types.FunctionResponse(
                             name=fc.name,
                             response={"result": timeline_result},
+                        )
+                    ))
+                    continue
+
+                # propose_scripts: emit story concept cards to the user
+                if fc.name == "propose_scripts":
+                    proposals_ps = (fc.args or {}).get("proposals", [])
+                    yield {"type": "script_proposals", "proposals": proposals_ps}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": {"status": "ok", "count": len(proposals_ps)}},
                         )
                     ))
                     continue
