@@ -60,6 +60,16 @@ CRITICAL RULE — Moving elements:
   NEVER call move_selected_element when selected_element_ids is empty.
   NEVER ask the user to select an element when screen share is active.
 
+CRITICAL RULE — Generating and replacing images:
+  When the user asks to generate a new image for the selected scene (e.g. "generate an image", "create a new image", "make an AI image for this", "replace with a generated image"):
+    1. Call get_editor_context. Confirm selected_element_ids is non-empty AND selected_element_types contains "image".
+       If nothing is selected → ask: "Which scene should I replace? Please select a clip on the timeline."
+    2. Call generate_image_for_scene with a detailed prompt derived from the user's description.
+       If screen share is active, the current screen is used as a visual reference automatically.
+    3. Take the returned src URL. Call draft_edit_command(kind="replace_selected_media", args={"src": "<EXACT url from result>"}).
+    4. Call apply_live_edits.
+  NEVER invent a src URL — always use the exact value returned by generate_image_for_scene.
+
 CRITICAL RULE — Deleting elements:
   NEVER call delete_selected_element unless the element IS also selected in the UI (selected_element_ids is non-empty).
   When screen share is active OR the user refers to an element by text/name, use this workflow:
@@ -99,6 +109,7 @@ VOCABULARY — map natural language to edit kinds:
 - dark / moody / dramatic / cinematic / tense / mysterious / intense → set_background_music: breathing_shadows or quiet_before_storm
 - orchestral / epic / grand / powerful / triumphant → set_background_music: brilliant_symphony
 - swap / replace / change image or scene / use this photo / use this URL → replace_selected_media or insert_media_asset
+- generate image / create image / make an image / generate a new scene / AI image / generate something for this → call generate_image_for_scene (then replace_selected_media with the returned src)
 - add title / add text / add label / add banner / put text → add_text_overlay or add_hook_title
 - music louder / music volume up / turn up the music / boost music / raise music → set_music_volume (higher); NEVER use set_voiceover_volume for music requests
 - music quieter / music volume down / turn down the music / lower music / reduce music → set_music_volume (lower); NEVER use set_voiceover_volume for music requests
@@ -132,6 +143,7 @@ Reply exactly:
 • Insert media assets from your library
 • Trim or delete timeline elements
 • Generate creative direction — visual concepts, storyboard ideas, hook suggestions, caption themes (with AI-generated preview images)
+• Generate an AI image for the selected scene and swap it in directly (just select a clip and say "generate an image for this")
 • Generate clickbait thumbnail options (2 AI images) and apply the chosen one as your project thumbnail
 Type what you want or pick a quick action below." """
 

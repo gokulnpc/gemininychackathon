@@ -125,6 +125,21 @@ def _get_tool_declarations():
             ),
         ),
         types.FunctionDeclaration(
+            name="generate_image_for_scene",
+            description=(
+                "Generate a brand-new AI image for the currently selected scene element using Gemini image generation. "
+                "Returns a src URL. After calling this, immediately draft replace_selected_media with the returned src and call apply_live_edits."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "prompt": types.Schema(type="string", description="Detailed visual description of the image to generate."),
+                    "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney | painting | creepy_comic (default: realism)"),
+                },
+                required=["prompt"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="generate_lyria_music",
             description=(
                 "Generate AI background music using Lyria for this video. "
@@ -227,6 +242,7 @@ async def run_edit_text_agent(
         "generate_creative_direction": "Generating creative direction...",
         "generate_thumbnail_options": "Generating thumbnail options...",
         "set_thumbnail": "Applying thumbnail...",
+        "generate_image_for_scene": "Generating AI image...",
     }
 
     client = get_client()

@@ -237,6 +237,21 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                     required=["option_index"],
                 ),
             ),
+            types.FunctionDeclaration(
+                name="generate_image_for_scene",
+                description=(
+                    "Generate a brand-new AI image for the currently selected scene element using Gemini image generation. "
+                    "Returns a src URL. After calling this, immediately draft replace_selected_media with the returned src and call apply_live_edits."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "prompt": types.Schema(type="string", description="Detailed visual description of the image to generate."),
+                        "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney | painting | creepy_comic (default: realism)"),
+                    },
+                    required=["prompt"],
+                ),
+            ),
         ])],
     }
     if transport == "vertex":
@@ -321,6 +336,12 @@ def _compact_tool_result_for_gemini(name: str, result: dict) -> dict:
         return {
             "status": result.get("status", "ok"),
             "thumbnail_url": result.get("thumbnail_url", ""),
+        }
+
+    if name == "generate_image_for_scene":
+        return {
+            "status": result.get("status", "ok"),
+            "src": result.get("src", ""),
         }
 
     compact: dict = {}
@@ -521,6 +542,62 @@ async def _dispatch_voice_tool(
             return {"status": "ok", "block_count": len(blocks)}
         except Exception as exc:
             logger.warning("generate_creative_direction failed: %s", exc)
+            return {"error": str(exc)}
+
+    if name == "generate_image_for_scene":
+        import os as _os_gen
+        import tempfile as _tmp_gen
+        from uuid import uuid4 as _uuid4_gen
+
+        prompt = args.get("prompt", "")
+        art_style = args.get("art_style", "realism")
+        if not prompt:
+            return {"error": "prompt is required"}
+
+        _live_gen = get_live_state() if get_live_state else {}
+        _ec_gen = editor_context or {}
+        reference_b64 = (
+            _live_gen.get("latest_screen_frame_b64")
+            or (_ec_gen.get("screenshot") or {}).get("image_b64")
+        )
+
+        full_prompt = (
+            f"Generate a single high-quality scene image: {prompt}. "
+            f"Art style: {art_style}. "
+            "Optimised for a short-form video scene. "
+            "No text overlays. Output exactly one image."
+        )
+
+        try:
+            from services.gemini.interleaved import _invoke_interleaved_with_image as _gen_img
+            from services.storage import gcs as _gcs_gen
+            import base64 as _b64_gen
+
+            blocks = await asyncio.to_thread(_gen_img, full_prompt, reference_b64)
+            image_blocks = [b for b in blocks if b.get("type") == "image"]
+            if not image_blocks:
+                return {"error": "Image generation returned no images — try rephrasing the prompt."}
+
+            chosen = image_blocks[0]
+            image_bytes = _b64_gen.b64decode(chosen["content"])
+            mime = chosen.get("mime_type", "image/jpeg")
+            suffix = ".jpg" if "jpeg" in mime else ".png"
+            fd, tmp_path = _tmp_gen.mkstemp(suffix=suffix, prefix="scene_gen_")
+            try:
+                _os_gen.write(fd, image_bytes)
+            finally:
+                _os_gen.close(fd)
+
+            gcs_key = f"projects/{project_id}/generated/{_uuid4_gen()}{suffix}"
+            src_url = await _gcs_gen.upload_file(tmp_path, gcs_key, mime)
+            _os_gen.unlink(tmp_path)
+
+            with contextlib.suppress(Exception):
+                await on_event({"type": "creative_block", "block": {"type": "image", "content": chosen["content"], "mime_type": mime}})
+
+            return {"status": "ok", "src": src_url}
+        except Exception as exc:
+            logger.warning("generate_image_for_scene failed: %s", exc)
             return {"error": str(exc)}
 
     if name == "generate_thumbnail_options":
