@@ -27,14 +27,20 @@ export function FooterNav() {
   // Step 10 (Launch): queue async script generation and redirect to Projects tab
   const handleLaunch = async () => {
     setLaunchError(null);
-    setLoading(true);
-
-    const projectId = crypto.randomUUID();
 
     // Determine source
     let source = "text";
     if (state.messageTab === "speech") source = "voice";
     else if (state.messageTab === "preset") source = "preset";
+
+    if (source === "preset" && !state.selectedPreset) {
+      setLaunchError("Select a preset before launching.");
+      return;
+    }
+
+    setLoading(true);
+
+    const projectId = crypto.randomUUID();
 
     const body: Record<string, unknown> = {
       source,
@@ -114,7 +120,8 @@ export function FooterNav() {
 
   const cannotProceed =
     loading ||
-    (state.currentStep === 3 && !state.selectedPlotOption);
+    (state.currentStep === 3 && !state.selectedPlotOption) ||
+    (isLastStep && state.messageTab === "preset" && !state.selectedPreset);
 
   return (
     <motion.div

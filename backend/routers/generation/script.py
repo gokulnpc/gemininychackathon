@@ -510,6 +510,13 @@ async def queue_script(project_id: UUID, request: QueueScriptRequest, current_us
     pid = str(project_id)
     now = datetime.now(timezone.utc).isoformat()
 
+    if request.source == ScriptSource.voice and not request.audio_base64:
+        raise HTTPException(status_code=422, detail="audio_base64 is required when source=voice")
+    if request.source == ScriptSource.text and not (request.transcript or "").strip():
+        raise HTTPException(status_code=422, detail="transcript is required when source=text")
+    if request.source == ScriptSource.preset and not request.preset:
+        raise HTTPException(status_code=422, detail="preset is required when source=preset")
+
     # ── Offload audio to GCS so the worker can download it ──────────────────
     audio_gcs_key: str | None = None
     if request.source == ScriptSource.voice and request.audio_base64:
@@ -529,6 +536,8 @@ async def queue_script(project_id: UUID, request: QueueScriptRequest, current_us
 
     # ── Save config to Firestore (excluding raw audio) ───────────────────────
     config = request.model_dump(exclude={"audio_base64"})
+    if request.preset:
+        config["preset"] = request.preset.value
     doc: dict = {
         "project_id": pid,
         "uid": current_user["uid"],

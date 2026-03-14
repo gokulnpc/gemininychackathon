@@ -193,6 +193,75 @@ async def test_run_script_generation_persists_failure_metadata(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_run_script_generation_fails_cleanly_for_missing_preset(monkeypatch):
+    saved_docs: list[dict] = []
+    doc = {
+        "project_id": "proj-1",
+        "uid": "user-1",
+        "status": "queued",
+        "pipeline_config": {
+            "source": "preset",
+            "preset": None,
+            "target_platforms": ["instagram_reels"],
+            "video_duration": 20,
+        },
+    }
+
+    async def _get_project(project_id: str):
+        return doc
+
+    async def _save_project(project_id: str, payload: dict):
+        saved_docs.append(payload.copy())
+
+    monkeypatch.setattr("services.storage.firestore_db.get_project", _get_project)
+    monkeypatch.setattr("services.storage.firestore_db.save_project", _save_project)
+
+    with pytest.raises(agent_mod.ScriptAgentFailure) as exc_info:
+        await _run_script_generation("proj-1")
+
+    assert str(exc_info.value) == "Preset source requires a preset key"
+    final_doc = saved_docs[-1]
+    assert final_doc["status"] == "failed"
+    assert final_doc["error"] == "Preset source requires a preset key"
+    assert final_doc["error_code"] == "unexpected_agent_error"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_script_generation_fails_cleanly_for_unknown_source(monkeypatch):
+    saved_docs: list[dict] = []
+    doc = {
+        "project_id": "proj-1",
+        "uid": "user-1",
+        "status": "queued",
+        "pipeline_config": {
+            "source": "bogus",
+            "target_platforms": ["instagram_reels"],
+            "video_duration": 20,
+        },
+    }
+
+    async def _get_project(project_id: str):
+        return doc
+
+    async def _save_project(project_id: str, payload: dict):
+        saved_docs.append(payload.copy())
+
+    monkeypatch.setattr("services.storage.firestore_db.get_project", _get_project)
+    monkeypatch.setattr("services.storage.firestore_db.save_project", _save_project)
+
+    with pytest.raises(agent_mod.ScriptAgentFailure) as exc_info:
+        await _run_script_generation("proj-1")
+
+    assert str(exc_info.value) == "Unsupported script source: bogus"
+    final_doc = saved_docs[-1]
+    assert final_doc["status"] == "failed"
+    assert final_doc["error"] == "Unsupported script source: bogus"
+    assert final_doc["error_code"] == "unexpected_agent_error"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_retry_script_requeues_failed_project(monkeypatch):
     project_id = uuid4()
     saved_payloads: list[dict] = []
