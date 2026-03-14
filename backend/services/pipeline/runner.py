@@ -234,4 +234,44 @@ async def run_pipeline_stages(
             char_sheet_path=char_sheet_path,
         )
 
+    # Optional: re-render master video via Twick renderer for consistency with editor preview.
+    # When TIMELINE_RENDER_WORKER_URL is configured, the rendered output replaces the
+    # FFmpeg-composed master so the initial video matches AI-agent-edited exports exactly.
+    from config import get_settings as _get_settings
+    _cfg = _get_settings()
+    if _cfg.timeline_render_worker_url and project_json:
+        try:
+            from services.infra.editor_export import render_timeline_to_file
+            from services.storage import gcs as _gcs
+            renderer_output = os.path.join(work_dir, "renderer_master.mp4")
+            await render_timeline_to_file(project_json, renderer_output)
+            renderer_master_url = await _gcs.upload_file(
+                renderer_output,
+                f"projects/{project_id}/master/composed.mp4",
+                content_type="video/mp4",
+            )
+            artifacts.video_urls["master"] = renderer_master_url
+            logger.info("Twick renderer master uploaded: project=%s url=%s", project_id, renderer_master_url)
+            # Re-export per-platform from renderer output for consistency
+            for platform in target_platforms:
+                platform_val = platform.value if hasattr(platform, "value") else str(platform)
+                try:
+                    from services.media import ffmpeg as _ffmpeg
+                    platform_path = os.path.join(work_dir, f"renderer_final_{platform_val}.mp4")
+                    platform_path = await _ffmpeg.export_for_platform(
+                        video_path=renderer_output,
+                        platform=platform_val,
+                        output_path=platform_path,
+                    )
+                    platform_url = await _gcs.upload_file(
+                        platform_path,
+                        f"projects/{project_id}/{platform_val}/final.mp4",
+                        content_type="video/mp4",
+                    )
+                    artifacts.video_urls[platform_val] = platform_url
+                except Exception as _plat_exc:
+                    logger.warning("Renderer platform export failed for %s: %s", platform_val, _plat_exc)
+        except Exception as _rend_exc:
+            logger.warning("Twick renderer failed — keeping FFmpeg-composed master: %s", _rend_exc)
+
     return stages, artifacts.video_urls, generated_script, thumbnail_url, qa_report, project_json

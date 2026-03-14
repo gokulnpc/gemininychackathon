@@ -87,6 +87,7 @@ async def recompose_project_video(project_id: UUID, request: RecomposeRequest, c
             background_music=request.background_music.value,
             target_platforms=target_platforms,
             music_volume=request.music_volume,
+            project_json=metadata.get("project_json"),
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

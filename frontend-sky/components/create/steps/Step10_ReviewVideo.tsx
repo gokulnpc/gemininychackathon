@@ -17,10 +17,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState } from "react";
 import { useWizard } from "@/context/WizardContext";
 import { voices, artStyles } from "@/data/staticData";
 import apiClient from "@/lib/apiClient";
+import { useYoutubeAccount } from "@/hooks/use-youtube-account";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -76,62 +77,29 @@ function ConnectAccountModal({
   onClose,
   connectedAccounts,
   onConnected,
+  onConnectYouTube,
+  youtubeConnecting,
 }: {
   onClose: () => void;
   connectedAccounts: string[];
   onConnected: (platformId: string) => void;
+  onConnectYouTube: () => Promise<boolean>;
+  youtubeConnecting: boolean;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const [connectingId, setConnectingId] = useState<string | null>(null);
-  const popupRef = useRef<Window | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const unconnectedPlatforms = PLATFORMS.filter(
-    (p) => !connectedAccounts.includes(p.id),
+  const connectablePlatforms = PLATFORMS.filter(
+    (p) => p.id === "youtube" && !connectedAccounts.includes(p.id),
   );
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
-    };
-  }, []);
-
   const handleToggle = async (platformId: string) => {
-    if (selected.includes(platformId)) {
-      setSelected(selected.filter((id) => id !== platformId));
-      return;
-    }
-
     if (platformId === "youtube") {
-      setConnectingId("youtube");
       try {
-        const { auth_url } = await apiClient.get("/api/v1/auth/youtube").then(r => r.data);
-
-        const popup = window.open(auth_url, "youtube-auth", "width=520,height=640,left=200,top=100");
-        popupRef.current = popup;
-
-        pollRef.current = setInterval(async () => {
-          if (popup?.closed) {
-            clearInterval(pollRef.current!);
-            setConnectingId(null);
-            return;
-          }
-          try {
-            const status = await apiClient.get("/api/v1/auth/status").then(r => r.data);
-            if (status.youtube) {
-              clearInterval(pollRef.current!);
-              popup?.close();
-              setConnectingId(null);
-              onConnected("youtube");
-            }
-          } catch {}
-        }, 2000);
+        const connected = await onConnectYouTube();
+        if (connected) {
+          onConnected("youtube");
+        }
       } catch {
-        setConnectingId(null);
+        // Keep the modal open so the user can retry after a popup/auth failure.
       }
-    } else {
-      setSelected([...selected, platformId]);
     }
   };
 
@@ -155,19 +123,22 @@ function ConnectAccountModal({
         </div>
 
         <div className="space-y-3 mt-6 mb-6">
-          {unconnectedPlatforms.length === 0 ? (
-            <p className="text-sm text-white/50 text-center py-4">All platforms are connected</p>
+          {connectablePlatforms.length === 0 ? (
+            <p className="text-sm text-white/50 text-center py-4">
+              YouTube is already connected. More platform account links coming soon.
+            </p>
           ) : (
-            unconnectedPlatforms.map((platform) => {
-              const isSelected = selected.includes(platform.id);
-              const isConnecting = connectingId === platform.id;
+            connectablePlatforms.map((platform) => {
+              const isConnecting = youtubeConnecting && platform.id === "youtube";
               return (
                 <button
                   key={platform.id}
                   onClick={() => handleToggle(platform.id)}
                   className={cn(
                     "w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-200",
-                    isSelected ? "border-[#5a9ab5] bg-white/5" : "border-white/10 hover:border-white/20 hover:bg-white/5"
+                    isConnecting
+                      ? "border-[#5a9ab5] bg-white/5"
+                      : "border-white/10 hover:border-white/20 hover:bg-white/5"
                   )}
                 >
                   <div className="flex items-center gap-4">
@@ -182,9 +153,9 @@ function ConnectAccountModal({
                   </div>
                   <div className={cn(
                     "w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-colors",
-                    isSelected ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
+                    isConnecting ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
                   )}>
-                    {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                    {isConnecting && <div className="w-2 h-2 bg-white rounded-full" />}
                   </div>
                 </button>
               );
@@ -204,35 +175,21 @@ function ConnectAccountModal({
 
 export function Step10_ReviewVideo() {
   const { state } = useWizard();
+  const { authStatus, connectYouTube, youtubeConnecting } = useYoutubeAccount();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [connectedAccounts, setConnectedAccounts] = useState<string[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [publishResults, setPublishResults] = useState<
     | { platform: string; status: string; post_url?: string; error?: string }[]
     | null
   >(null);
-
-  // Check which platforms are already authorized on mount
-  const refreshAuthStatus = useCallback(async () => {
-    try {
-      const status: Record<string, boolean> = await apiClient.get("/api/v1/auth/status").then(r => r.data);
-      const connected = Object.entries(status)
-        .filter(([, ok]) => ok)
-        .map(([id]) => id);
-      setConnectedAccounts(connected);
-    } catch {
-      // backend may not be available yet — ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshAuthStatus();
-  }, [refreshAuthStatus]);
+  const connectedAccounts = Object.entries(authStatus)
+    .filter(([, ok]) => ok)
+    .map(([id]) => id);
 
   const projectId = state.pipelineProjectId;
   const videoUrls = state.pipelineVideoUrls;
@@ -320,10 +277,7 @@ export function Step10_ReviewVideo() {
     }
   };
 
-  const handleConnected = (platformId: string) => {
-    if (!connectedAccounts.includes(platformId)) {
-      setConnectedAccounts((prev) => [...prev, platformId]);
-    }
+  const handleConnected = () => {
     setShowConnectModal(false);
   };
 
@@ -364,6 +318,8 @@ export function Step10_ReviewVideo() {
             onClose={() => setShowConnectModal(false)}
             connectedAccounts={connectedAccounts}
             onConnected={handleConnected}
+            onConnectYouTube={connectYouTube}
+            youtubeConnecting={youtubeConnecting}
           />
         )}
       </AnimatePresence>

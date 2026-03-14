@@ -46,11 +46,8 @@ class _VoiceSessionRestartRequired(Exception):
 
 
 def _resolve_live_transport() -> VoiceLiveTransport:
-    from config import get_settings
-
-    settings = get_settings()
-    if settings.use_vertex_ai and settings.google_cloud_project:
-        return "vertex"
+    # The native-audio preview model requires Gemini API key routing;
+    # it is not yet available via Vertex AI. GEMINI_API_KEY is set on Cloud Run.
     return "gemini_api"
 
 
