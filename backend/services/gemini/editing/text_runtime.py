@@ -486,6 +486,8 @@ async def run_edit_text_agent(
                         except Exception as _rn_exc:
                             logger.warning("rename_project failed: %s", _rn_exc)
                             rn_result = {"error": str(_rn_exc)}
+                    if rn_result.get("status") == "ok":
+                        yield {"type": "project_renamed", "hook": new_title_rn}
                     function_response_parts.append(types.Part(
                         function_response=types.FunctionResponse(
                             name=fc.name,

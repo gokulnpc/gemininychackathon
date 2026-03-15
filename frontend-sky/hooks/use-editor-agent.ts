@@ -16,6 +16,7 @@ interface UseEditorAgentArgs {
   applyLiveProjectJson: (json: ProjectJSON | null, changes?: Record<string, unknown>) => void;
   focusedAssetRef?: MutableRefObject<{ id: string; category: string } | null>;
   onThumbnailApplied?: (thumbnailUrl: string) => void;
+  onProjectRenamed?: (hook: string) => void;
 }
 
 const INITIAL_MESSAGES: AgentMessage[] = [
@@ -36,6 +37,7 @@ export function useEditorAgent({
   applyLiveProjectJson,
   focusedAssetRef,
   onThumbnailApplied,
+  onProjectRenamed,
 }: UseEditorAgentArgs) {
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>(INITIAL_MESSAGES);
   const [agentInput, setAgentInput] = useState("");
@@ -176,6 +178,8 @@ export function useEditorAgent({
                     : message,
                 ),
               );
+            } else if (event.type === "project_renamed" && event.hook) {
+              onProjectRenamed?.(event.hook as string);
             } else if (event.type === "complete") {
               if (event.message) agentText = event.message as string;
               if (event.project_json) {

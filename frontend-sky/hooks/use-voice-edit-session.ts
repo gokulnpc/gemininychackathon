@@ -41,6 +41,7 @@ interface UseVoiceEditSessionArgs {
   setAgentMessages: React.Dispatch<React.SetStateAction<AgentMessage[]>>;
   focusedAssetRef?: MutableRefObject<{ id: string; category: string } | null>;
   onThumbnailApplied?: (thumbnailUrl: string) => void;
+  onProjectRenamed?: (hook: string) => void;
 }
 
 function pcmBufferToBase64(buffer: ArrayBuffer): string {
@@ -77,6 +78,7 @@ export function useVoiceEditSession({
   setAgentMessages,
   focusedAssetRef,
   onThumbnailApplied,
+  onProjectRenamed,
 }: UseVoiceEditSessionArgs) {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [voiceTurnState, setVoiceTurnStateState] = useState<VoiceTurnState>("idle");
@@ -722,6 +724,8 @@ export function useVoiceEditSession({
           }));
         } else if (data.type === "thumbnail_applied" && data.thumbnail_url) {
           onThumbnailApplied?.(data.thumbnail_url as string);
+        } else if (data.type === "project_renamed" && data.hook) {
+          onProjectRenamed?.(data.hook as string);
         } else if (data.type === "creative_preview_start") {
           const resolvedTurnId = ensureTurn(turnId, !turnId || currentTurnIdRef.current === turnId);
           patchMessage(turnMessageIdsRef.current[resolvedTurnId]?.agentId ?? null, (message) => ({

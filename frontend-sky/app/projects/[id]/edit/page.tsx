@@ -145,6 +145,7 @@ export default function EditorPage() {
     applyLiveProjectJson,
     focusedAssetRef,
     onThumbnailApplied: (url) => setProject((prev) => prev ? { ...prev, thumbnail_url: url } : prev),
+    onProjectRenamed: (hook) => setProject((prev) => prev ? { ...prev, hook } : prev),
   });
 
   const voiceSession = useVoiceEditSession({
@@ -158,6 +159,7 @@ export default function EditorPage() {
     setAgentMessages,
     focusedAssetRef,
     onThumbnailApplied: (url) => setProject((prev) => prev ? { ...prev, thumbnail_url: url } : prev),
+    onProjectRenamed: (hook) => setProject((prev) => prev ? { ...prev, hook } : prev),
   });
 
   const INSPECT_KEYWORDS = /\b(what('s| is) wrong|look at|analyze|inspect|critique|feedback on|what do you (see|think)|how does this (look|feel)|what's weak|what is weak)\b/i;

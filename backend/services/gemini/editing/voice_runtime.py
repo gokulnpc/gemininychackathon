@@ -764,6 +764,8 @@ async def _dispatch_voice_tool(
             from services.storage import firestore_db as _fdb_rn
             project_data["hook"] = new_title_rn
             await _fdb_rn.save_project(project_id, project_data)
+            with contextlib.suppress(Exception):
+                await on_event({"type": "project_renamed", "hook": new_title_rn})
             return {"status": "ok", "title": new_title_rn}
         except Exception as _rn_exc:
             logger.warning("rename_project (voice) failed: %s", _rn_exc)
