@@ -2,7 +2,7 @@
 
 **Turn any idea into a publish-ready short-form video — guided by a live AI that sees, hears, and edits alongside you.**
 
-Story Factory is a multimodal AI video creation and editing platform powered by Gemini Live API. It transforms raw input (voice, text, or a trending preset topic) into a fully produced vertical video — voiceover, scene images, animated motion, captions, music, and multi-platform export — while an interactive voice agent (Scout) can edit the result in real-time, see your screen, and respond naturally to interruptions.
+Story Factory is a multimodal AI video creation and editing platform powered by Gemini Live API. Users can describe an idea by voice and Scout (the live AI agent) creates a full video from scratch — proposing scripts, generating storyboards, and building an editable timeline — or they can generate a video through the 7-stage automated pipeline and have Scout refine it in real-time. Scout sees the screen, applies 25+ targeted edits, and responds naturally to interruptions.
 
 ---
 
@@ -10,8 +10,8 @@ Story Factory is a multimodal AI video creation and editing platform powered by 
 
 | Track | How Story Factory covers it |
 |-------|-----------------------------|
-| **Live Agents (Primary)** | Scout — a Gemini Live voice agent that edits videos through natural conversation, handles interruptions, and maintains session state across tool calls |
-| **Creative Storyteller** | Creative Director mode uses `gemini-2.0-flash-preview-image-generation` to stream interleaved text + image blocks in one API call — storyboards, marketing packages, illustrated scripts |
+| **Live Agents (Primary)** | Scout — a Gemini Live voice agent that creates videos from scratch and edits them through natural conversation, handles interruptions, and maintains session state across tool calls |
+| **Creative Storyteller** | Creative Director uses `gemini-2.0-flash-preview-image-generation` to stream interleaved text + image in one API call — 5 modes: storybook, marketing, educational, social content, manga panels |
 | **UI Navigator** | Screen Sharing Agent — Scout captures the user's screen at 1 FPS, streams frames into the Live session, and references the visual editor state when making or explaining edits |
 
 **Mandatory tech:** Gemini Live API · Google GenAI SDK · Google Cloud (Cloud Run, Cloud Tasks, Firestore, GCS, Vertex AI)
@@ -20,32 +20,58 @@ Story Factory is a multimodal AI video creation and editing platform powered by 
 
 ## What We Built
 
-A real-time AI-assisted short-form video editor with three layers:
+A real-time AI-assisted short-form video creator and editor with three layers:
 
-1. **Generate** — voice/text/preset → full video in one automated 7-stage pipeline (TTS, images, animation, captions, music, export)
-2. **Edit** — talk to Scout (the live voice agent) to refine the result; Scout sees your screen and applies targeted edits without re-rendering from scratch
+1. **Create** — describe your idea by voice to Scout (scratch workflow: propose scripts → storyboard → build timeline), or use the wizard with a 7-stage automated pipeline (TTS, images, animation, captions, music, export)
+2. **Edit** — talk to Scout in the editor; Scout sees your screen and applies 25+ targeted edits without re-rendering from scratch
 3. **Publish** — direct upload to YouTube Shorts, Instagram Reels, or TikTok
 
 ---
 
 ## Features & Functionality
 
-### 1. Scout — Live Voice Edit Agent *(Live Agents track)*
+### 1. Scout — Live Voice Agent *(Live Agents track)*
 
-Scout is a Gemini Live-powered conversational agent that:
+Scout is a Gemini Live-powered conversational agent with two modes:
 
+- **Creation mode** (`WS /api/v1/voice-agent`) — start from nothing; Scout proposes scripts, generates storyboards, and builds a complete Twick timeline from voice input alone
+- **Edit mode** (`WS /api/v1/projects/{id}/edit-voice`) — Scout edits an existing project in the editor; requires a completed/draft project
+
+Shared capabilities across both modes:
 - Listens continuously via WebSocket (16 kHz PCM16 audio), responding with low-latency voice output (24 kHz)
-- Supports **natural interruptions** — Voice Activity Detection (VAD) lets the user cut Scout off mid-sentence and redirect
-- Has **20+ edit tools**: music changes, caption style updates, text overlay insertion/deletion, element trimming/repositioning, volume control, and AI music generation via Lyria
+- Supports **natural interruptions** — browser-side Voice Activity Detection (VAD) lets the user cut Scout off mid-sentence and redirect
+- Has **25+ edit tools** across music, captions, text overlays, images, effects, timing, and AI generation:
+  - `set_background_music`, `generate_lyria_music` — music changes + AI-generated tracks
+  - `update_caption_style`, `add_hook_title`, `add_text_overlay` — text and caption edits
+  - `apply_effect` — 14 visual effects: `glitch`, `sepia`, `vignette`, `pixelate`, `warp`, `rgbShift`, `halftone`, `hueShift`, `waveDistort`, `tvScanlines`, `hdr`, `retro70s`, `bubbleSparkles`, `heartSparkles`
+  - `edit_selected_image`, `generate_image_for_scene`, `replace_selected_media` — AI image editing on individual scenes
+  - `generate_thumbnail_options` — AI-generated thumbnail variants
+  - `trim_element`, `move_element`, `delete_element`, `adjust_volume`, `resize_element` — timeline edits
+  - `propose_scripts`, `generate_storyboard`, `build_timeline_from_storyboard` — creation workflow
 - Maintains **stateful session context** — Scout tracks the current project, selected elements, and timeline position across turns
 - Streams tool results back as both voice and structured JSON events, so the UI updates live while Scout narrates the change
 
-**Route:** `WS /api/v1/projects/{id}/edit-voice`
-**Key files:** [`backend/routers/voice/edit.py`](backend/routers/voice/edit.py) · [`backend/services/gemini/editing/voice_runtime.py`](backend/services/gemini/editing/voice_runtime.py)
+**Key files:** [`backend/routers/voice/agent.py`](backend/routers/voice/agent.py) · [`backend/routers/voice/edit.py`](backend/routers/voice/edit.py) · [`backend/services/gemini/editing/voice_runtime.py`](backend/services/gemini/editing/voice_runtime.py)
 
 ---
 
-### 2. Screen Sharing Agent *(UI Navigator track)*
+### 2. Create From Scratch — Voice-First Story Director *(Live Agents track)*
+
+Scout acts as a creative director for users who want to create a video from nothing:
+
+- User describes their idea by voice (topic, tone, audience, style)
+- Scout runs a 3-step workflow entirely through the Live API:
+  1. **`propose_scripts`** — presents 3 script options with different hooks and structures, reads them aloud for the user to pick from
+  2. **`generate_storyboard`** — generates AI images for each scene using the approved script, streams the storyboard back as a visual preview
+  3. **`build_timeline_from_storyboard`** — assembles the approved storyboard into a fully editable Twick JSON timeline with voiceover, captions, and music
+- All three steps happen in one continuous voice conversation — no clicking through a wizard
+
+**Route:** `WS /api/v1/voice-agent`
+**Key files:** [`backend/routers/voice/agent.py`](backend/routers/voice/agent.py) · [`backend/services/gemini/editing/constants.py`](backend/services/gemini/editing/constants.py)
+
+---
+
+### 3. Screen Sharing Agent *(UI Navigator track)*
 
 When the user clicks "Share Screen", Scout gains visual awareness:
 
@@ -58,7 +84,7 @@ When the user clicks "Share Screen", Scout gains visual awareness:
 
 ---
 
-### 3. Script Generation (AI Director)
+### 4. Script Generation (AI Director)
 
 A **Gemini 2.5 Pro ReAct agent** runs a multi-turn reasoning loop (up to 14 turns) to produce a structured script from any input:
 
@@ -74,7 +100,7 @@ Internal tools: `search_trending_hooks`, `analyze_brand_voice`, `optimize_for_pl
 
 ---
 
-### 4. 7-Stage Video Pipeline
+### 5. 7-Stage Video Pipeline
 
 Once a script is approved, a background worker (Cloud Tasks) runs:
 
@@ -104,16 +130,24 @@ Stage 7    Export                      Platform resize + GCS upload
 
 ---
 
-### 5. Creative Director — Interleaved Multimodal *(Creative Storyteller track)*
+### 6. Creative Director — Interleaved Multimodal *(Creative Storyteller track)*
 
-Uses `gemini-2.0-flash-preview-image-generation` with `response_modalities=["TEXT", "IMAGE"]` to stream a single interleaved output — alternating text narration and generated images in one coherent flow. Use cases: illustrated storybooks, marketing asset packages, educational explainers with inline diagrams.
+Uses `gemini-2.0-flash-preview-image-generation` with `response_modalities=["TEXT", "IMAGE"]` to stream a single interleaved output — alternating text narration and generated images in one coherent flow. Five distinct modes:
 
-**Route:** `POST /api/v1/creative-director/generate-stream`
+| Mode | Output |
+|------|--------|
+| `storybook` | Illustrated story chapters — narration interleaved with scene images |
+| `marketing` | Brand copy + visuals + social package in one stream |
+| `educational` | Narration woven with inline diagrams and explanatory imagery |
+| `social_content` | Caption + generated image + hashtags as a single cohesive output |
+| `manga` | Manga-style comic panels with dialogue and action sequences |
+
+**Routes:** `POST /api/v1/creative-director/generate` · `POST /api/v1/creative-director/generate-stream`
 **Key file:** [`backend/services/gemini/interleaved.py`](backend/services/gemini/interleaved.py)
 
 ---
 
-### 6. Timeline Render Worker
+### 7. Timeline Render Worker
 
 A standalone Node.js service (Cloud Run) that renders a Twick JSON timeline into an MP4 using Puppeteer (headless Chromium) + `@twick/renderer` + FFmpeg:
 
@@ -127,7 +161,7 @@ This allows non-destructive editor exports: the user tweaks the Twick timeline i
 
 ---
 
-### 7. Recompose — Non-destructive Edit
+### 8. Recompose — Non-destructive Edit
 
 Change caption style or background music on a completed video without re-running TTS or image generation. Downloads the preserved `with_audio.mp4` from GCS, re-burns captions, re-mixes music, re-uploads.
 
@@ -135,7 +169,7 @@ Change caption style or background music on a completed video without re-running
 
 ---
 
-### 8. Publish
+### 9. Publish
 
 Direct YouTube upload via OAuth2. Instagram / TikTok manual download with formatted captions and hashtags.
 
@@ -143,9 +177,49 @@ Direct YouTube upload via OAuth2. Instagram / TikTok manual download with format
 
 ---
 
+## API Endpoints
+
+```
+# Projects
+POST   /api/v1/projects/create-empty              Create empty project (for voice-agent scratch flow)
+GET    /api/v1/projects/                           List all user projects
+GET    /api/v1/projects/{id}/status               Poll pipeline status + stage progress
+
+# Generation
+POST   /api/v1/projects/{id}/generate-script      Script agent (voice / text / preset)
+POST   /api/v1/projects/{id}/generate-video       7-stage pipeline (async 202 or sync 200)
+POST   /api/v1/projects/{id}/recompose            Re-burn captions/music without re-generating TTS/images
+
+# Voice Agent
+WS     /api/v1/voice-agent                        Scout creation from scratch (no existing project needed)
+WS     /api/v1/projects/{id}/edit-voice           Scout editing existing project (requires completed/draft status)
+WS     /api/v1/projects/{id}/live-voice           Real-time Gemini Live transcription
+
+# Creative Director
+POST   /api/v1/creative-director/generate         Interleaved text+image (buffered)
+POST   /api/v1/creative-director/generate-stream  Interleaved text+image (SSE stream)
+
+# Media
+POST   /api/v1/transcribe                         Audio → text (Gemini)
+POST   /api/v1/ocr-pdf                            PDF → text (Gemini)
+
+# Publishing
+POST   /api/v1/auth/youtube                       YouTube OAuth initiation
+POST   /api/v1/publish/{id}                       Publish to YouTube / Instagram / TikTok
+
+GET    /health                                    Health check
+GET    /docs                                      Swagger UI
+```
+
+---
+
 ## Architecture
 
-![Architecture Diagram](docs/architecture.svg)
+### System Overview
+![System Architecture](docs/arch-system.svg)
+
+### Video Generation Pipeline
+![Pipeline](docs/arch-pipeline.svg)
 
 ---
 
