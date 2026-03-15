@@ -662,7 +662,29 @@ async def run_edit_text_agent(
                                             source_b64_ei = await _fetch_image_b64_from_url(_src_ei)
                                         break
 
-                        # Fallback: screenshot from screen share / editor context
+                        # Fallback 1: find the image/video element nearest to the playhead
+                        if not source_b64_ei and current_project_json:
+                            from services.gemini.editing.context import _coerce_playhead_seconds as _cps_ei
+                            _playhead_ei = _cps_ei(_ec_ei)
+                            _best_src_ei: str | None = None
+                            _best_dist_ei = float("inf")
+                            for _t_ei in (current_project_json.get("tracks") or []):
+                                for _e_ei in (_t_ei.get("elements") or []):
+                                    if _e_ei.get("type") not in ("image", "video"):
+                                        continue
+                                    _src_ei2 = (_e_ei.get("props") or {}).get("src") or _e_ei.get("src") or ""
+                                    if not _src_ei2 or _src_ei2.startswith("data:"):
+                                        continue
+                                    _s_ei = float(_e_ei.get("s", 0))
+                                    _en_ei = float(_e_ei.get("e", 0))
+                                    _dist_ei = 0.0 if _s_ei <= _playhead_ei <= _en_ei else min(abs(_s_ei - _playhead_ei), abs(_en_ei - _playhead_ei))
+                                    if _dist_ei < _best_dist_ei:
+                                        _best_dist_ei = _dist_ei
+                                        _best_src_ei = _src_ei2
+                            if _best_src_ei:
+                                source_b64_ei = await _fetch_image_b64_from_url(_best_src_ei)
+
+                        # Fallback 2: screenshot from screen share / editor context (last resort)
                         if not source_b64_ei:
                             source_b64_ei = (_ec_ei.get("screenshot") or {}).get("image_b64")
 

@@ -266,7 +266,7 @@ const MODE_QUICK_ACTIONS: Record<
     {
       label: "New thumbnail ✦",
       instruction:
-        "Generate 2 new clickbait thumbnail options for this video based on what you see on screen. Use the current screen as reference.",
+        "Generate a clickbait thumbnail for this video. Use the current screen as reference and generate exactly 1 option.",
     },
     {
       label: "Generate image ✦",

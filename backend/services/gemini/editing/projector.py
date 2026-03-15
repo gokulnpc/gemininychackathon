@@ -419,6 +419,83 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                 _new_elem["mediaDuration"] = dur
             media_track["elements"].append(_new_elem)
 
+    if "add_color_slide" in changes:
+        cs = changes["add_color_slide"]
+        text = str(cs.get("text", "")).strip()
+        duration = max(1.0, min(10.0, float(cs.get("duration_seconds", 3.0))))
+        position = str(cs.get("position", "end"))
+
+        total_dur = max(
+            (float(el.get("e", 0.0))
+             for track in patched.get("tracks", [])
+             for el in track.get("elements", [])),
+            default=0.0,
+        )
+        start_s = 0.0 if position == "start" else total_dur
+        end_s = start_s + duration
+
+        # 1×1 black PNG data URI — Twick objectFit:cover scales it to fill the canvas
+        _BLACK_1PX = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+            "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
+        slide_track_name = "Intro Slide" if position == "start" else "Outro Slide"
+        slide_track = next(
+            (t for t in patched.get("tracks", []) if t.get("name") == slide_track_name),
+            None,
+        )
+        if not slide_track:
+            slide_track = {
+                "id": _make_id("track"),
+                "name": slide_track_name,
+                "type": "element",
+                "props": {},
+                "elements": [],
+            }
+            patched.setdefault("tracks", []).append(slide_track)
+
+        slide_track["elements"].append({
+            "id": _make_id("img"),
+            "trackId": slide_track["id"],
+            "type": "image",
+            "name": slide_track_name,
+            "s": start_s,
+            "e": end_s,
+            "zIndex": 200,
+            "props": {"src": _BLACK_1PX, "objectFit": "cover"},
+            "frame": {"size": [576, 1024], "x": 0.0, "y": 0.0},
+            "objectFit": "cover",
+            "mediaDuration": duration,
+            "frameEffects": [],
+        })
+
+        if text:
+            overlay_track = _ensure_overlay_track(patched)
+            overlay_track["elements"].append({
+                "id": _make_id("text"),
+                "trackId": overlay_track["id"],
+                "type": "text",
+                "name": "Slide Title",
+                "s": start_s,
+                "e": end_s,
+                "zIndex": 210,
+                "t": text,
+                "props": {
+                    "text": text,
+                    "fontSize": 72,
+                    "fontFamily": "Inter",
+                    "fontWeight": 800,
+                    "color": "#FFFFFF",
+                    "textAlign": "center",
+                    "stroke": "#000000",
+                    "strokeWidth": 3,
+                    "shadowColor": "rgba(0,0,0,0.5)",
+                },
+                "frame": {"size": [860, 260], "x": 0, "y": 0, "rotation": 0},
+                "frameEffects": [],
+            })
+
     return patched
 
 
@@ -445,6 +522,7 @@ async def _project_commands(
         "move_element_by_id": "move_element_by_id",
         "delete_element_by_id": "delete_element_by_id",
         "apply_effect": "apply_effect",
+        "add_color_slide": "add_color_slide",
     }
 
     patched = copy.deepcopy(project_json)
@@ -557,6 +635,9 @@ async def _project_commands(
 
         elif kind == "apply_effect":
             changes["apply_effect"] = args
+
+        elif kind == "add_color_slide":
+            changes["add_color_slide"] = args
 
         elif kind == "insert_media_asset":
             ins_args = dict(args)
