@@ -299,6 +299,17 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 ),
             ),
             types.FunctionDeclaration(
+                name="rename_project",
+                description="Set the project title / hook shown in the editor header.",
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "title": types.Schema(type="string", description="New project title (≤120 chars)."),
+                    },
+                    required=["title"],
+                ),
+            ),
+            types.FunctionDeclaration(
                 name="propose_scripts",
                 description=(
                     "Present 2-3 short script concept cards to the user so they can pick a story direction. "
@@ -745,6 +756,19 @@ async def _dispatch_voice_tool(
             logger.warning("generate_storyboard (voice) failed: %s", _gsb_exc)
             return {"error": str(_gsb_exc)}
 
+    if name == "rename_project":
+        new_title_rn = str(args.get("title", "")).strip()[:120]
+        if not new_title_rn:
+            return {"error": "title is required"}
+        try:
+            from services.storage import firestore_db as _fdb_rn
+            project_data["hook"] = new_title_rn
+            await _fdb_rn.save_project(project_id, project_data)
+            return {"status": "ok", "title": new_title_rn}
+        except Exception as _rn_exc:
+            logger.warning("rename_project (voice) failed: %s", _rn_exc)
+            return {"error": str(_rn_exc)}
+
     if name == "build_timeline_from_storyboard":
         duration_tl_v = int(args.get("scene_duration_seconds", 4))
         draft_urls_tl = project_data.get("_storyboard_draft_urls", [])
@@ -760,6 +784,7 @@ async def _dispatch_voice_tool(
                         "duration_seconds": duration_tl_v,
                         "media_kind": "image",
                         "name": f"Scene {i_tl_v + 1}",
+                        "track_name": f"Scene {i_tl_v + 1}",
                     },
                 }
                 for i_tl_v, d_tl_v in enumerate(draft_urls_tl)
@@ -777,6 +802,13 @@ async def _dispatch_voice_tool(
                 applied_changes=applied_v,
                 editor_context=editor_context,
             )
+            # Emit project_json so the frontend player updates without requiring a page refresh
+            await on_event({
+                "type": "applied",
+                "project_json": patched_v,
+                "changes": applied_v,
+                "message": f"Built timeline with {len(commands_tl_v)} scenes.",
+            })
             return {"status": "ok", "scenes_added": len(commands_tl_v), "total_duration_seconds": len(commands_tl_v) * duration_tl_v}
         except Exception as _tl_v_exc:
             logger.warning("build_timeline_from_storyboard (voice) failed: %s", _tl_v_exc)

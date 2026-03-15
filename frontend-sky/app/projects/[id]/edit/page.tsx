@@ -233,7 +233,7 @@ export default function EditorPage() {
         <div className="flex items-center gap-3">
           <div className="h-2 w-2 rounded-full bg-editor-accent" />
           <span className="max-w-xs truncate text-sm text-editor-text-muted">
-            {project?.hook ?? "Loading..."}
+            {project?.hook ?? "Untitled Project"}
           </span>
           {playbackWarnings.length > 0 && (
             <div
