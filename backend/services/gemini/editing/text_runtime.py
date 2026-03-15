@@ -44,6 +44,22 @@ def _get_tool_declarations():
             ),
         ),
         types.FunctionDeclaration(
+            name="set_video_metadata",
+            description=(
+                "Set the YouTube/social media title, description, and hashtags for this video. "
+                "Saves them to the project so they are used automatically when publishing."
+            ),
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "title":       types.Schema(type="string", description="YouTube title (max 100 chars)"),
+                    "description": types.Schema(type="string", description="YouTube description / caption (max 5000 chars)"),
+                    "hashtags":    types.Schema(type="array", items=types.Schema(type="string"), description="Hashtags without #"),
+                },
+                required=["title"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="get_editor_context",
             description="Get the current editor selection and playhead context for live timeline edits.",
             parameters=types.Schema(type="object", properties={}),
@@ -339,6 +355,7 @@ async def run_edit_text_agent(
 
     labels: dict[str, str] = {
         "get_project_info": "Checking your current video settings...",
+        "set_video_metadata": "Saving YouTube metadata...",
         "get_editor_context": "Checking your current editor selection...",
         "get_user_assets": "Looking up your media assets...",
         "draft_edit_command": "Drafting edit command...",
@@ -496,6 +513,36 @@ async def run_edit_text_agent(
                     ))
                     continue
 
+                # set_video_metadata: save YouTube title, description, hashtags to project
+                if fc.name == "set_video_metadata":
+                    vm_title = str((fc.args or {}).get("title", "")).strip()[:100]
+                    vm_desc  = str((fc.args or {}).get("description", "")).strip()[:5000]
+                    vm_tags  = [str(t).strip().lstrip("#") for t in ((fc.args or {}).get("hashtags") or []) if t][:30]
+                    vm_result: dict
+                    try:
+                        from services.storage import firestore_db as _fdb_vm
+                        _script_vm = project_data.setdefault("script", {})
+                        _sc_vm = _script_vm.setdefault("social_copy", {})
+                        _meta_vm = {"title": vm_title, "caption": vm_desc, "hashtags": vm_tags}
+                        for _pl_vm in ("youtube", "youtube_shorts", "instagram", "instagram_reels", "tiktok"):
+                            _sc_vm[_pl_vm] = _meta_vm
+                        if vm_title:
+                            project_data["hook"] = vm_title
+                        await _fdb_vm.save_project(project_id, project_data)
+                        vm_result = {"status": "ok", "title": vm_title, "hashtags": vm_tags}
+                    except Exception as _vm_exc:
+                        logger.warning("set_video_metadata failed: %s", _vm_exc)
+                        vm_result = {"error": str(_vm_exc)}
+                    if vm_result.get("status") == "ok" and vm_title:
+                        yield {"type": "project_renamed", "hook": vm_title}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": vm_result},
+                        )
+                    ))
+                    continue
+
                 # generate_storyboard: generate interleaved storyboard images, cache in project_data
                 if fc.name == "generate_storyboard":
                     yield {"type": "agent_step", "tool": "generate_storyboard", "message": "Generating storyboard..."}
@@ -646,51 +693,50 @@ async def run_edit_text_agent(
 
                         _ec_ei = editor_context or {}
 
-                        # Resolve element_id: use passed arg or fall back to selected element
+                        # Resolve element_id: only use explicitly selected element (no fallbacks)
                         if not element_id_ei:
                             _sel_ei = (_ec_ei.get("selected_element_ids") or [])
                             element_id_ei = _sel_ei[0] if _sel_ei else ""
 
-                        # Primary: fetch actual image from element src in project JSON
+                        if not element_id_ei:
+                            edit_img_result = {
+                                "status": "error",
+                                "error": "No image selected. Please click a scene on the timeline first, then try again.",
+                            }
+                            function_response_parts.append(types.Part(
+                                function_response=types.FunctionResponse(
+                                    name=fc.name,
+                                    response={"result": edit_img_result},
+                                )
+                            ))
+                            continue
+
+                        # Fetch image from the selected element src only
                         source_b64_ei: str | None = None
-                        if current_project_json and element_id_ei:
-                            for _track_ei in (current_project_json.get("tracks") or []):
+                        _live_pj_ei = live_project_json or current_project_json
+                        if _live_pj_ei:
+                            for _track_ei in (_live_pj_ei.get("tracks") or []):
                                 for _el_ei in (_track_ei.get("elements") or []):
-                                    if _el_ei.get("id") == element_id_ei or _el_ei.get("element_id") == element_id_ei:
+                                    if _el_ei.get("id") == element_id_ei:
                                         _src_ei = (_el_ei.get("props") or {}).get("src") or _el_ei.get("src")
-                                        if _src_ei:
+                                        if _src_ei and not _src_ei.startswith("data:"):
                                             source_b64_ei = await _fetch_image_b64_from_url(_src_ei)
                                         break
 
-                        # Fallback 1: find the image/video element nearest to the playhead
-                        if not source_b64_ei and current_project_json:
-                            from services.gemini.editing.context import _coerce_playhead_seconds as _cps_ei
-                            _playhead_ei = _cps_ei(_ec_ei)
-                            _best_src_ei: str | None = None
-                            _best_dist_ei = float("inf")
-                            for _t_ei in (current_project_json.get("tracks") or []):
-                                for _e_ei in (_t_ei.get("elements") or []):
-                                    if _e_ei.get("type") not in ("image", "video"):
-                                        continue
-                                    _src_ei2 = (_e_ei.get("props") or {}).get("src") or _e_ei.get("src") or ""
-                                    if not _src_ei2 or _src_ei2.startswith("data:"):
-                                        continue
-                                    _s_ei = float(_e_ei.get("s", 0))
-                                    _en_ei = float(_e_ei.get("e", 0))
-                                    _dist_ei = 0.0 if _s_ei <= _playhead_ei <= _en_ei else min(abs(_s_ei - _playhead_ei), abs(_en_ei - _playhead_ei))
-                                    if _dist_ei < _best_dist_ei:
-                                        _best_dist_ei = _dist_ei
-                                        _best_src_ei = _src_ei2
-                            if _best_src_ei:
-                                source_b64_ei = await _fetch_image_b64_from_url(_best_src_ei)
-
-                        # Fallback 2: screenshot from screen share / editor context (last resort)
                         if not source_b64_ei:
-                            source_b64_ei = (_ec_ei.get("screenshot") or {}).get("image_b64")
+                            edit_img_result = {
+                                "status": "error",
+                                "error": "Could not load the selected image — make sure a scene with an image is selected.",
+                            }
+                            function_response_parts.append(types.Part(
+                                function_response=types.FunctionResponse(
+                                    name=fc.name,
+                                    response={"result": edit_img_result},
+                                )
+                            ))
+                            continue
 
-                        if not source_b64_ei:
-                            edit_img_result = {"status": "error", "error": "Could not get the current image — enable screen share or select the element."}
-                        else:
+                        if True:
                             edit_prompt_ei = (
                                 f"Edit this image as instructed: {instruction_ei}. "
                                 "Preserve the overall composition and subject. Apply only the requested changes. "
@@ -714,6 +760,28 @@ async def run_edit_text_agent(
                                     _os_ei.unlink(tmp_ei)
                                 yield {"type": "creative_block", "block": {"type": "image", "content": chosen_ei["content"], "mime_type": mime_ei}}
                                 edit_img_result = {"status": "ok", "src": src_url_ei}
+
+                                # Auto-replace the selected element without showing a confirmation card
+                                try:
+                                    _ar_pj = live_project_json or current_project_json or {}
+                                    _ar_patched, _ar_applied, _ar_errors = await _project_commands(
+                                        _ar_pj,
+                                        [{"kind": "replace_selected_media", "args": {"src": src_url_ei}}],
+                                        editor_context,
+                                        uid=uid,
+                                    )
+                                    if _ar_applied and not _ar_errors:
+                                        await _apply_live_edits(
+                                            project_id=project_id,
+                                            project_data=project_data,
+                                            patched_project_json=_ar_patched,
+                                            applied_changes=_ar_applied,
+                                            editor_context=editor_context,
+                                        )
+                                        live_project_json = _ar_patched
+                                        edit_img_result["replaced"] = True
+                                except Exception as _ar_exc:
+                                    logger.warning("edit_selected_image auto-replace failed: %s", _ar_exc)
                     except Exception as _ei_exc:
                         logger.warning("edit_selected_image failed: %s", _ei_exc)
                         edit_img_result = {"status": "error", "error": str(_ei_exc)}

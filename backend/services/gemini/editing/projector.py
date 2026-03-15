@@ -422,6 +422,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
     if "add_color_slide" in changes:
         cs = changes["add_color_slide"]
         text = str(cs.get("text", "")).strip()
+        custom_src = str(cs.get("src", "")).strip()
         duration = max(1.0, min(10.0, float(cs.get("duration_seconds", 3.0))))
         position = str(cs.get("position", "end"))
 
@@ -463,7 +464,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
             "s": start_s,
             "e": end_s,
             "zIndex": 200,
-            "props": {"src": _BLACK_1PX, "objectFit": "cover"},
+            "props": {"src": custom_src or _BLACK_1PX, "objectFit": "cover"},
             "frame": {"size": [576, 1024], "x": 0.0, "y": 0.0},
             "objectFit": "cover",
             "mediaDuration": duration,
