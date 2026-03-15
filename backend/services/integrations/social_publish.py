@@ -44,27 +44,40 @@ async def _publish_youtube(
     title: str,
     description: str,
     tags: list[str],
+    export_id: str | None = None,
 ) -> dict:
     """Download from GCS then upload to YouTube via Data API v3."""
     local_path = f"/tmp/voicevid_{project_id}_youtube.mp4"
 
-    # Try youtube_shorts first, fall back to instagram_reels (same 9:16 vertical format)
-    gcs_key = None
-    for prefix in ["youtube_shorts", "instagram_reels"]:
-        candidate = f"projects/{project_id}/{prefix}/final.mp4"
+    if export_id:
+        # Specific editor export version requested
+        gcs_key = f"projects/{project_id}/editor_exports/{export_id}/master.mp4"
         try:
-            await gcs_service.download_file(candidate, local_path)
-            gcs_key = candidate
-            break
-        except Exception:
-            continue
+            await gcs_service.download_file(gcs_key, local_path)
+        except Exception as exc:
+            return {
+                "platform": "youtube",
+                "status": "failed",
+                "error": f"GCS download failed for export {export_id}: {exc}",
+            }
+    else:
+        # Default: pipeline video (youtube_shorts → instagram_reels fallback)
+        gcs_key = None
+        for prefix in ["youtube_shorts", "instagram_reels"]:
+            candidate = f"projects/{project_id}/{prefix}/final.mp4"
+            try:
+                await gcs_service.download_file(candidate, local_path)
+                gcs_key = candidate
+                break
+            except Exception:
+                continue
 
-    if gcs_key is None:
-        return {
-            "platform": "youtube",
-            "status": "failed",
-            "error": "GCS download failed: no video found (tried youtube_shorts and instagram_reels)",
-        }
+        if gcs_key is None:
+            return {
+                "platform": "youtube",
+                "status": "failed",
+                "error": "GCS download failed: no video found (tried youtube_shorts and instagram_reels)",
+            }
 
     credentials_json = await youtube_auth_store.get_youtube_credentials_json(uid)
     if not credentials_json:
@@ -352,6 +365,7 @@ async def publish_to_platforms(
     platforms: list[str],
     social_copy: dict[str, dict],
     schedule=None,  # reserved — scheduled posting not yet implemented
+    export_id: str | None = None,
 ) -> list[dict]:
     """Publish project videos to the requested social media platforms concurrently.
 
@@ -396,7 +410,7 @@ async def publish_to_platforms(
             # Append #Shorts so YouTube classifies the video as a Short
             yt_title = f"{title} #Shorts" if title and "#Shorts" not in title else (title or "New Video #Shorts")
             yt_description = f"{full_caption}\n\n#Shorts".strip() if "#Shorts" not in full_caption else full_caption
-            tasks.append(_publish_youtube(project_id, uid=uid, title=yt_title[:100], description=yt_description[:5000], tags=hashtags))
+            tasks.append(_publish_youtube(project_id, uid=uid, title=yt_title[:100], description=yt_description[:5000], tags=hashtags, export_id=export_id))
         elif platform == "instagram":
             tasks.append(_publish_instagram(project_id, caption=full_caption))
         elif platform == "tiktok":

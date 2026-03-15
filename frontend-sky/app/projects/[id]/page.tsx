@@ -447,7 +447,7 @@ export default function ProjectDetailPage() {
   
   const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareExportId, setShareExportId] = useState<string | null>(null);
   
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -751,7 +751,7 @@ export default function ProjectDetailPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setShareDialogOpen(true)}
+                                onClick={() => setShareExportId(entry.export_id)}
                                 className="h-10 px-4 rounded-xl border-white/10 bg-white/5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
                               >
                                 <Share2 className="w-4 h-4 mr-2 text-white/50" />
@@ -791,9 +791,10 @@ export default function ProjectDetailPage() {
                 )}
 
                 <ShareDialog
-                  open={shareDialogOpen}
-                  onOpenChange={setShareDialogOpen}
+                  open={!!shareExportId}
+                  onOpenChange={(open) => { if (!open) setShareExportId(null); }}
                   projectId={projectId}
+                  exportId={shareExportId ?? undefined}
                 />
 
                 {project.status === "failed" && (

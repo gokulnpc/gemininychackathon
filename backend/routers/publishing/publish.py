@@ -78,6 +78,7 @@ async def publish_project(project_id: UUID, request: PublishRequest, current_use
         platforms=platform_names,
         social_copy=social_copy,
         schedule=request.schedule,
+        export_id=request.export_id,
     )
 
     posts = [

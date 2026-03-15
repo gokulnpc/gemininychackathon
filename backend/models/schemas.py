@@ -336,6 +336,10 @@ class PublishRequest(BaseModel):
         default=None,
         description="Override social copy per platform. Uses script defaults if omitted.",
     )
+    export_id: Optional[str] = Field(
+        default=None,
+        description="Editor export ID to publish. If set, uses the editor export video instead of the pipeline video.",
+    )
 
 
 class PlatformPostResult(BaseModel):

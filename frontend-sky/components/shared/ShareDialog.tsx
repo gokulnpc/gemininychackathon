@@ -17,6 +17,7 @@ interface ShareDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
+  exportId?: string;
 }
 
 type PublishResult = { platform: string; status: string; post_url?: string; error?: string };
@@ -62,7 +63,7 @@ const PLATFORMS = [
   },
 ];
 
-export function ShareDialog({ open, onOpenChange, projectId }: ShareDialogProps) {
+export function ShareDialog({ open, onOpenChange, projectId, exportId }: ShareDialogProps) {
   const { youtubeConnected, youtubeConnecting, connectYouTube } = useYoutubeAccount();
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [publishing, setPublishing] = useState(false);
@@ -81,6 +82,7 @@ export function ShareDialog({ open, onOpenChange, projectId }: ShareDialogProps)
     try {
       const resp = await apiClient.post(`/api/v1/projects/${projectId}/publish`, {
         platforms: selectedPlatforms,
+        ...(exportId ? { export_id: exportId } : {}),
       });
       setResults((resp.data as { posts?: PublishResult[] }).posts ?? []);
     } catch (e) {
