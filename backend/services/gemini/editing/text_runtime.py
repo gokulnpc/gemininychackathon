@@ -33,6 +33,17 @@ def _get_tool_declarations():
             parameters=types.Schema(type="object", properties={}),
         ),
         types.FunctionDeclaration(
+            name="rename_project",
+            description="Set the project title / hook shown in the editor header.",
+            parameters=types.Schema(
+                type="object",
+                properties={
+                    "title": types.Schema(type="string", description="New project title (≤120 chars)."),
+                },
+                required=["title"],
+            ),
+        ),
+        types.FunctionDeclaration(
             name="get_editor_context",
             description="Get the current editor selection and playhead context for live timeline edits.",
             parameters=types.Schema(type="object", properties={}),
@@ -255,7 +266,13 @@ async def run_edit_text_agent(
     """Yield SSE-ready dicts for the text-based quick-action editor."""
     if mode == "apply" and commands:
         yield {"type": "agent_step", "tool": "project_commands", "message": "Applying confirmed edits to timeline..."}
-        source_json = current_project_json or {}
+        # Refresh from Firestore so stale frontend state doesn't overwrite newer server state
+        try:
+            from services.storage import firestore_db as _fdb_apply
+            _fresh_apply_doc = await _fdb_apply.get_project(project_id) or {}
+            source_json = _fresh_apply_doc.get("project_json") or current_project_json or {}
+        except Exception:
+            source_json = current_project_json or {}
         try:
             patched, applied, errors = await _project_commands(source_json, commands, editor_context, uid=uid)
         except Exception as exc:
@@ -342,6 +359,7 @@ async def run_edit_text_agent(
     proposal_yielded = False
     proposal: dict = {}
     agent_last_text: str = ""
+    live_project_json: dict | None = None
 
     async def _on_event(event: dict) -> None:
         events_buffer.append(event)
@@ -453,6 +471,29 @@ async def run_edit_text_agent(
                     ))
                     continue
 
+                # rename_project: update the project title / hook
+                if fc.name == "rename_project":
+                    new_title_rn = str((fc.args or {}).get("title", "")).strip()[:120]
+                    rn_result: dict
+                    if not new_title_rn:
+                        rn_result = {"error": "title is required"}
+                    else:
+                        try:
+                            from services.storage import firestore_db as _fdb_rn
+                            project_data["hook"] = new_title_rn
+                            await _fdb_rn.save_project(project_id, project_data)
+                            rn_result = {"status": "ok", "title": new_title_rn}
+                        except Exception as _rn_exc:
+                            logger.warning("rename_project failed: %s", _rn_exc)
+                            rn_result = {"error": str(_rn_exc)}
+                    function_response_parts.append(types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": rn_result},
+                        )
+                    ))
+                    continue
+
                 # generate_storyboard: generate interleaved storyboard images, cache in project_data
                 if fc.name == "generate_storyboard":
                     yield {"type": "agent_step", "tool": "generate_storyboard", "message": "Generating storyboard..."}
@@ -548,6 +589,7 @@ async def run_edit_text_agent(
                                         "duration_seconds": duration_tl,
                                         "media_kind": "image",
                                         "name": f"Scene {i_tl + 1}",
+                                        "track_name": f"Scene {i_tl + 1}",
                                     },
                                 }
                                 for i_tl, draft_tl in enumerate(drafts_tl)
@@ -569,6 +611,7 @@ async def run_edit_text_agent(
                                     applied_changes=applied_tl,
                                     editor_context=editor_context,
                                 )
+                                live_project_json = patched_tl
                                 timeline_result = {
                                     "status": "ok",
                                     "scenes_added": len(commands_tl),
@@ -728,13 +771,13 @@ async def run_edit_text_agent(
             if not draft_commands:
                 # Agent gave a clarifying question or capabilities list — show the text, not an error
                 msg = agent_last_text or "Agent did not queue any changes - try rephrasing your request."
-                yield {"type": "complete", "message": msg, "project_json": None, "changes": {}}
+                yield {"type": "complete", "message": msg, "project_json": live_project_json, "changes": {}}
                 return
             proposal = _build_proposal_from_commands(draft_commands)
             yield {"type": "proposal", "proposal": proposal}
 
         logger.info("Text edit agent built proposal: project=%s commands=%d", project_id, len(proposal.get("commands", [])))
-        yield {"type": "complete", "message": proposal.get("summary", ""), "project_json": None, "changes": {}}
+        yield {"type": "complete", "message": proposal.get("summary", ""), "project_json": live_project_json, "changes": {}}
 
     except Exception as exc:
         logger.exception("Text edit agent failed: project=%s", project_id)

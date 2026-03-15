@@ -269,8 +269,8 @@ async def _run_editor_export(project_id: UUID, export_id: str) -> None:
         )
         return
 
-    if doc.get("status") != "completed":
-        raise ValueError("Project must be completed before editor export can run")
+    if doc.get("status") not in ("completed", "editing", "draft"):
+        raise ValueError("Project must be completed or in editing state before editor export can run")
 
     project_json = doc.get("project_json")
     if not isinstance(project_json, dict):

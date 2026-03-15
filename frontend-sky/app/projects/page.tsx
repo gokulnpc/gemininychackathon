@@ -144,6 +144,7 @@ function ProjectCard({
   const { idToken } = useAuth();
   const isActive = ACTIVE_STATUSES.includes(project.status);
   const isCompleted = project.status === "completed";
+  const [thumbOk, setThumbOk] = useState(false);
 
   return (
     <motion.div
@@ -155,19 +156,16 @@ function ProjectCard({
     >
       {/* Thumbnail */}
       <div className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#1a1a1a] border border-white/10 group-hover:border-[#5a9ab5]/50 transition-all duration-200">
-        {isCompleted && (
-          <img
-            src={`${API}/api/v1/projects/${project.project_id}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
-            alt={project.hook ?? "Video"}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
-          />
-        )}
+        <img
+          src={`${API}/api/v1/projects/${project.project_id}/thumbnail${idToken ? `?token=${idToken}` : ''}`}
+          alt={project.hook ?? "Video"}
+          className={cn("w-full h-full object-cover", !thumbOk && "invisible absolute")}
+          onLoad={() => setThumbOk(true)}
+          onError={() => setThumbOk(false)}
+        />
 
-        {/* Status placeholder for non-completed */}
-        {!isCompleted && (
+        {/* Status placeholder when no thumbnail loaded */}
+        {!thumbOk && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
             {isActive ? (
               <>
@@ -181,9 +179,9 @@ function ProjectCard({
                 <Video className="w-8 h-8 text-white/20" />
                 <p className="text-xs text-white/40">Script ready</p>
               </>
-            ) : (
+            ) : !isCompleted ? (
               <AlertCircle className="w-8 h-8 text-red-400/50" />
-            )}
+            ) : null}
           </div>
         )}
 

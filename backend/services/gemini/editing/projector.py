@@ -353,38 +353,55 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
             start = float(ins.get("start_seconds", _coerce_playhead_seconds(editor_context)))
             dur = max(0.1, float(ins.get("duration_seconds", 4.0)))
             new_end = start + dur
+            explicit_track_name = ins.get("track_name")
 
-            def _track_overlaps(track: dict) -> bool:
-                for element in track.get("elements", []):
-                    if float(element.get("s", 0)) < new_end and float(element.get("e", 0)) > start:
-                        return True
-                return False
+            if explicit_track_name:
+                # Use a named track explicitly (e.g. storyboard builder uses "Scene 1", "Scene 2", ...)
+                media_track = next(
+                    (t for t in patched.get("tracks", []) if t.get("name") == explicit_track_name),
+                    None,
+                )
+                if not media_track:
+                    media_track = {
+                        "id": _make_id("track"),
+                        "name": explicit_track_name,
+                        "type": "element",
+                        "props": {},
+                        "elements": [],
+                    }
+                    patched.setdefault("tracks", []).append(media_track)
+            else:
+                def _track_overlaps(track: dict) -> bool:
+                    for element in track.get("elements", []):
+                        if float(element.get("s", 0)) < new_end and float(element.get("e", 0)) > start:
+                            return True
+                    return False
 
-            all_insert_tracks = [
-                track for track in patched.get("tracks", [])
-                if track.get("name", "").startswith("Media Inserts")
-            ]
-            media_track = next((track for track in all_insert_tracks if not _track_overlaps(track)), None)
+                all_insert_tracks = [
+                    track for track in patched.get("tracks", [])
+                    if track.get("name", "").startswith("Media Inserts")
+                ]
+                media_track = next((track for track in all_insert_tracks if not _track_overlaps(track)), None)
 
-            if not media_track:
-                highest_n = 0
-                for track in all_insert_tracks:
-                    name = track.get("name", "")
-                    if name == "Media Inserts":
-                        highest_n = max(highest_n, 1)
-                    elif name.startswith("Media Inserts "):
-                        part = name[len("Media Inserts "):]
-                        if part.isdigit():
-                            highest_n = max(highest_n, int(part))
-                n = highest_n + 1
-                media_track = {
-                    "id": _make_id("track"),
-                    "name": f"Media Inserts {n}",
-                    "type": "element",
-                    "props": {},
-                    "elements": [],
-                }
-                patched.setdefault("tracks", []).append(media_track)
+                if not media_track:
+                    highest_n = 0
+                    for track in all_insert_tracks:
+                        name = track.get("name", "")
+                        if name == "Media Inserts":
+                            highest_n = max(highest_n, 1)
+                        elif name.startswith("Media Inserts "):
+                            part = name[len("Media Inserts "):]
+                            if part.isdigit():
+                                highest_n = max(highest_n, int(part))
+                    n = highest_n + 1
+                    media_track = {
+                        "id": _make_id("track"),
+                        "name": f"Media Inserts {n}",
+                        "type": "element",
+                        "props": {},
+                        "elements": [],
+                    }
+                    patched.setdefault("tracks", []).append(media_track)
 
             media_track["elements"].append({
                 "id": _make_id(media_kind[:3]),
