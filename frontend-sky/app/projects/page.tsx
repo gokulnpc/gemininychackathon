@@ -13,6 +13,7 @@ import {
   Pencil,
   Play,
   Search,
+  Share2,
   Trash2,
   Video,
   X,
@@ -32,6 +33,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
+import { ShareDialog } from "@/components/shared/ShareDialog";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -132,6 +134,7 @@ function ProjectCard({
   onDelete,
   onArchive,
   onUnarchive,
+  onShare,
 }: {
   project: Project;
   index: number;
@@ -139,6 +142,7 @@ function ProjectCard({
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
+  onShare: (id: string) => void;
 }) {
   const router = useRouter();
   const { idToken } = useAuth();
@@ -179,7 +183,12 @@ function ProjectCard({
                 <Video className="w-8 h-8 text-white/20" />
                 <p className="text-xs text-white/40">Script ready</p>
               </>
-            ) : !isCompleted ? (
+            ) : project.status === "editing" || project.status === "draft" ? (
+              <>
+                <Pencil className="w-8 h-8 text-white/20" />
+                <p className="text-xs text-white/30">Editing in progress</p>
+              </>
+            ) : project.status === "failed" ? (
               <AlertCircle className="w-8 h-8 text-red-400/50" />
             ) : null}
           </div>
@@ -216,6 +225,12 @@ function ProjectCard({
                 className="cursor-pointer"
               >
                 <Pencil className="w-4 h-4 mr-2" /> Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onShare(project.project_id)}
+                className="cursor-pointer"
+              >
+                <Share2 className="w-4 h-4 mr-2" /> Share
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => alert("Duplicate coming soon")}
@@ -290,6 +305,7 @@ function ProjectsContent() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shareProjectId, setShareProjectId] = useState<string | null>(null);
   const [archived, setArchived] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -539,12 +555,19 @@ function ProjectsContent() {
                   onDelete={handleDelete}
                   onArchive={handleArchive}
                   onUnarchive={handleUnarchive}
+                  onShare={(id) => setShareProjectId(id)}
                 />
               ))}
             </motion.div>
           )}
         </main>
       </div>
+
+      <ShareDialog
+        open={!!shareProjectId}
+        onOpenChange={(open) => { if (!open) setShareProjectId(null); }}
+        projectId={shareProjectId ?? ""}
+      />
     </div>
   );
 }

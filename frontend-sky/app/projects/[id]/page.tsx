@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCw,
   Settings,
+  Share2,
   ThumbsUp,
   Video,
 } from "lucide-react";
@@ -22,10 +23,13 @@ import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
+import { ShareDialog } from "@/components/shared/ShareDialog";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type ProjectStatus =
+  | "draft"
+  | "editing"
   | "queued"
   | "generating_script"
   | "script_ready"
@@ -95,6 +99,14 @@ function timeAgo(iso?: string): string {
 
 function StatusPill({ status }: { status: ProjectStatus }) {
   const config: Record<ProjectStatus, { label: string; className: string }> = {
+    draft: {
+      label: "Draft",
+      className: "bg-zinc-500/20 text-zinc-300 border-zinc-500/30",
+    },
+    editing: {
+      label: "Editing",
+      className: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+    },
     queued: {
       label: "Queued",
       className: "bg-blue-500/20 text-blue-300 border-blue-500/30",
@@ -435,6 +447,7 @@ export default function ProjectDetailPage() {
   
   const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [shareExportId, setShareExportId] = useState<string | null>(null);
   
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -738,6 +751,15 @@ export default function ProjectDetailPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
+                                onClick={() => setShareExportId(entry.export_id)}
+                                className="h-10 px-4 rounded-xl border-white/10 bg-white/5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+                              >
+                                <Share2 className="w-4 h-4 mr-2 text-white/50" />
+                                Share
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
                                 disabled={!entry.project_json_snapshot || restoringExportId === entry.export_id}
                                 onClick={async () => {
                                   if (!entry.project_json_snapshot) return;
@@ -767,6 +789,13 @@ export default function ProjectDetailPage() {
                     </div>
                   </div>
                 )}
+
+                <ShareDialog
+                  open={!!shareExportId}
+                  onOpenChange={(open) => { if (!open) setShareExportId(null); }}
+                  projectId={projectId}
+                  exportId={shareExportId ?? undefined}
+                />
 
                 {project.status === "failed" && (
                   <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">

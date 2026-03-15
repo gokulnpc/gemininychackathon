@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  CheckCircle2,
   Download,
   Filter,
   Grid3X3,
@@ -16,18 +15,12 @@ import {
   Search,
   Share2,
   Trash2,
-  XCircle,
+  X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { UserMenu } from "@/components/shared/UserMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -109,6 +102,7 @@ function thumbnails(projectId: string, platform: string, token: string | null) {
 }
 
 import { StatusPill } from "@/components/shared/StatusPill";
+import { ShareDialog } from "@/components/shared/ShareDialog";
 
 // ── Page ────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
@@ -123,62 +117,7 @@ export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selected, setSelected] = useState<Project | null>(null);
 
-  // Publish flow
-  type PlatformKey = "youtube" | "instagram" | "tiktok";
-  type PublishResult = {
-    platform: string;
-    status: string;
-    post_url?: string;
-    error?: string;
-  };
-  const [publishing, setPublishing] = useState(false);
-  const [publishPlatforms, setPublishPlatforms] = useState<
-    Record<PlatformKey, boolean>
-  >({
-    youtube: false,
-    instagram: true,
-    tiktok: true,
-  });
-  const [publishLoading, setPublishLoading] = useState(false);
-  const [publishResults, setPublishResults] = useState<PublishResult[] | null>(
-    null,
-  );
-
-  function togglePlatform(p: PlatformKey) {
-    setPublishPlatforms((prev) => ({ ...prev, [p]: !prev[p] }));
-  }
-
-  async function handlePublish(projectId: string) {
-    const platforms = (Object.keys(publishPlatforms) as PlatformKey[]).filter(
-      (p) => publishPlatforms[p],
-    );
-    if (!platforms.length) return;
-    setPublishLoading(true);
-    setPublishResults(null);
-    try {
-      const resp = await apiClient.post(
-        `/api/v1/projects/${projectId}/publish`,
-        { platforms },
-      );
-      setPublishResults(resp.data.posts ?? []);
-    } catch (e) {
-      setPublishResults([
-        { platform: "all", status: "failed", error: String(e) },
-      ]);
-    } finally {
-      setPublishLoading(false);
-    }
-  }
-
-  function openShare() {
-    setPublishing(true);
-    setPublishResults(null);
-  }
-
-  function closeShare() {
-    setPublishing(false);
-    setPublishResults(null);
-  }
+  const [shareProjectId, setShareProjectId] = useState<string | null>(null);
 
   // Fetch projects on mount
   useEffect(() => {
@@ -427,7 +366,7 @@ export default function DashboardPage() {
                                 </DropdownMenuItem>
                               )}
 
-                              <DropdownMenuItem onClick={openShare}>
+                              <DropdownMenuItem onClick={() => setShareProjectId(project.project_id)}>
                                 <Share2 className="w-4 h-4 mr-2" /> Share
                               </DropdownMenuItem>
                               <DropdownMenuItem
@@ -529,7 +468,7 @@ export default function DashboardPage() {
                                   <p>View detail</p>
                                 </DropdownMenuItem>
 
-                                <DropdownMenuItem onClick={openShare}>
+                                <DropdownMenuItem onClick={() => setShareProjectId(project.project_id)}>
                                   <Share2 className="w-4 h-4 mr-2" /> Share
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
@@ -554,171 +493,72 @@ export default function DashboardPage() {
         </main>
       </div>
 
-      {/* ── Video dialog ─────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!selected}
-        onOpenChange={() => {
-          setSelected(null);
-          closeShare();
-        }}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{selected ? title(selected) : ""}</DialogTitle>
-          </DialogHeader>
+      {/* ── Video overlay (Instagram-style) ──────────────────────────────── */}
+      {selected && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="relative flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              className="absolute -top-10 right-0 p-2 text-white/60 hover:text-white transition-colors"
+              onClick={() => setSelected(null)}
+            >
+              <X className="w-6 h-6" />
+            </button>
 
-          {selected &&
-            (() => {
-              const platform = (selected.platforms ?? [])[0] ?? "master";
-              const src = streamUrl(selected.project_id, platform, idToken);
-              return (
-                <>
-                  <div className="aspect-9/16 max-h-[60vh] bg-gray-900 rounded-xl overflow-hidden">
-                    <video
-                      key={src}
-                      src={src}
-                      controls
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm text-[#9B9B9B]">
-                        Scenes: {selected.scenes_count}
-                      </p>
-                      <p className="text-sm text-[#9B9B9B]">
-                        Created: {timeAgo(selected.created_at)}
-                      </p>
-                      <p className="text-sm text-[#9B9B9B]">
-                        Platforms: {(selected.platforms ?? []).join(", ")}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 flex-wrap justify-end">
-                      {(selected.platforms ?? []).map((p) => (
-                        <Button key={p} variant="outline" asChild>
-                          <a
-                            href={streamUrl(selected.project_id, p, idToken)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <Download className="w-4 h-4 mr-2" />
-                            {p.replace("_", " ")}
-                          </a>
-                        </Button>
-                      ))}
-                      {!publishing && (
-                        <Button
-                          className="bg-[#5a9ab5] hover:bg-[#7ab0c8]"
-                          onClick={openShare}
-                        >
-                          <Share2 className="w-4 h-4 mr-2" /> Share
-                        </Button>
-                      )}
-                    </div>
-                  </div>
+            {/* 9:16 video */}
+            <div className="relative h-[80vh] max-h-[720px] aspect-[9/16] rounded-2xl overflow-hidden bg-black shadow-2xl">
+              <video
+                key={selected.project_id}
+                src={streamUrl(selected.project_id, (selected.platforms ?? [])[0] ?? "master", idToken)}
+                controls
+                autoPlay
+                className="w-full h-full object-contain"
+              />
+              {/* Title overlay at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-5 pointer-events-none">
+                <p className="text-white font-medium text-sm line-clamp-2">{title(selected)}</p>
+                <p className="text-white/50 text-xs mt-0.5">{timeAgo(selected.created_at)}</p>
+              </div>
+            </div>
 
-                  {/* ── Publish panel ─────────────────────────────────────── */}
-                  {publishing && (
-                    <div className="p-4 bg-gray-50 rounded-xl border border-[#E8E0DC] space-y-4">
-                      <p className="text-sm font-medium text-[#1A1A1A]">
-                        Publish to
-                      </p>
+            {/* Bottom action bar */}
+            <div className="flex items-center justify-between w-full mt-4 px-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white/60 hover:text-white hover:bg-white/10"
+                asChild
+              >
+                <a
+                  href={streamUrl(selected.project_id, (selected.platforms ?? [])[0] ?? "master", idToken)}
+                  download
+                >
+                  <Download className="w-4 h-4 mr-2" /> Download
+                </a>
+              </Button>
+              <Button
+                className="bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white rounded-full px-5"
+                onClick={() => setShareProjectId(selected.project_id)}
+              >
+                <Share2 className="w-4 h-4 mr-2" /> Share
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
-                      {/* Platform toggles */}
-                      <div className="flex gap-3">
-                        {[
-                          { key: "youtube" as PlatformKey, label: "YouTube" },
-                          {
-                            key: "instagram" as PlatformKey,
-                            label: "Instagram",
-                          },
-                          { key: "tiktok" as PlatformKey, label: "TikTok" },
-                        ].map(({ key, label }) => (
-                          <button
-                            key={key}
-                            onClick={() => togglePlatform(key)}
-                            className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
-                              publishPlatforms[key]
-                                ? "bg-[#5a9ab5]/10 border-[#5a9ab5] text-[#5a9ab5]"
-                                : "bg-white border-[#E8E0DC] text-[#9B9B9B] hover:border-[#5a9ab5]/50"
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Per-platform results */}
-                      {publishResults && (
-                        <div className="space-y-1.5">
-                          {publishResults.map((r) => (
-                            <div
-                              key={r.platform}
-                              className="flex items-center gap-2 text-sm"
-                            >
-                              {r.status === "success" ? (
-                                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                              ) : (
-                                <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                              )}
-                              <span className="capitalize font-medium">
-                                {r.platform}
-                              </span>
-                              {r.post_url && (
-                                <a
-                                  href={r.post_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[#5a9ab5] underline text-xs ml-auto"
-                                >
-                                  View post
-                                </a>
-                              )}
-                              {r.error && (
-                                <span
-                                  className="text-red-400 text-xs ml-auto truncate max-w-[140px]"
-                                  title={r.error}
-                                >
-                                  {r.error}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <Button
-                          className="bg-[#5a9ab5] hover:bg-[#7ab0c8] flex-1"
-                          disabled={
-                            publishLoading ||
-                            !Object.values(publishPlatforms).some(Boolean)
-                          }
-                          onClick={() => handlePublish(selected.project_id)}
-                        >
-                          {publishLoading ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          ) : (
-                            <Share2 className="w-4 h-4 mr-2" />
-                          )}
-                          {publishLoading ? "Publishing…" : "Publish"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={closeShare}
-                          disabled={publishLoading}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-        </DialogContent>
-      </Dialog>
+      {/* ── Share dialog ─────────────────────────────────────────────── */}
+      <ShareDialog
+        open={!!shareProjectId}
+        onOpenChange={(open) => { if (!open) setShareProjectId(null); }}
+        projectId={shareProjectId ?? ""}
+      />
     </div>
   );
 }
