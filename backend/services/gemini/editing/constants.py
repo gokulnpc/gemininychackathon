@@ -155,6 +155,7 @@ Reply exactly:
 • Generate an AI image for the selected scene and swap it in directly (just select a clip and say "generate an image for this")
 • Generate clickbait thumbnail options (2 AI images) and apply the chosen one as your project thumbnail
 • Generate a video from scratch: storyboard scenes via the interleaved model, build the timeline, add Lyria music
+• Rename the project title
 Type what you want or pick a quick action below."
 
 SCRATCH CREATION WORKFLOW — When user wants to create a video, story, comic, manga, or manhwa from scratch:

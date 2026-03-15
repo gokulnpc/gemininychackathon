@@ -179,7 +179,12 @@ function ProjectCard({
                 <Video className="w-8 h-8 text-white/20" />
                 <p className="text-xs text-white/40">Script ready</p>
               </>
-            ) : !isCompleted ? (
+            ) : project.status === "editing" || project.status === "draft" ? (
+              <>
+                <Pencil className="w-8 h-8 text-white/20" />
+                <p className="text-xs text-white/30">Editing in progress</p>
+              </>
+            ) : project.status === "failed" ? (
               <AlertCircle className="w-8 h-8 text-red-400/50" />
             ) : null}
           </div>
