@@ -191,7 +191,6 @@ export function useVoiceEditSession({
 
     setAgentMessages((previous) => ([
       ...previous,
-      { id: ids.userId, role: "user", text: "Listening..." },
       { id: ids.agentId, role: "agent", text: "", isThinking: true, actions: [] },
     ]));
 

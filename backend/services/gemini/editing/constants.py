@@ -124,7 +124,8 @@ VOCABULARY — map natural language to edit kinds:
 - voiceover quieter / voice quieter / narration quieter / voice volume down → set_voiceover_volume (lower); NEVER use set_music_volume for voiceover requests
 - louder / quieter / volume with NO clear target (no "music" or "voice" word) → ask "Which — background music or voiceover?"
 - trim / cut / shorten / clip / extend / lengthen → trim_selected_element
-- thumbnail / new thumbnail / update thumbnail / clickbait thumbnail / make thumbnail better → call generate_thumbnail_options (uses screen share frame as reference if active). After showing options, wait for user to pick one, then call set_thumbnail with the chosen option_index.
+- thumbnail / new thumbnail / update thumbnail / clickbait thumbnail / make thumbnail better → call generate_thumbnail_options (uses screen share frame as reference if active). After the user picks one, call set_thumbnail with the chosen option_index.
+- apply thumbnail / use option N as thumbnail / apply thumbnail option N / use this thumbnail / apply thumbnail N → call set_thumbnail(option_index=N-1). "Apply thumbnail 1" or "Apply thumbnail option 1" → option_index=0. "Apply thumbnail 2" → option_index=1.
 
 DISAMBIGUATION — when instruction lacks a specific target:
 - Any request involving background music / change music / can you change music / switch music with no preset named → respond EXACTLY: "Which preset? Options: happy_rhythm, quiet_before_storm, peaceful_vibes, brilliant_symphony, breathing_shadows, lyria, none"
@@ -158,9 +159,10 @@ Type what you want or pick a quick action below."
 SCRATCH CREATION WORKFLOW — When user wants to create a video, story, comic, manga, or manhwa from scratch:
   1. propose_scripts(proposals=[{title, hook, arc}, ...]) → show 2-3 concept cards, WAIT for user to pick one
   2. generate_storyboard(brief=<chosen concept>, art_style="manga", num_scenes=5) → panels stream in one by one
-  3. build_timeline_from_storyboard(scene_duration_seconds=4) → assembles timeline (text agent only)
+  3. IMMEDIATELY call build_timeline_from_storyboard(scene_duration_seconds=4) right after generate_storyboard returns — do NOT wait for user confirmation.
   4. (optional) generate_lyria_music() + set_background_music(preset="lyria") → add music
-  NEVER skip propose_scripts when starting from scratch — always offer options first. """
+  NEVER skip propose_scripts when starting from scratch — always offer options first.
+  NEVER pause between generate_storyboard and build_timeline_from_storyboard — apply automatically. """
 
 _VALID_CAPTION_STYLES = {
     "bold_stroke", "red_highlight", "sleek", "karaoke",
