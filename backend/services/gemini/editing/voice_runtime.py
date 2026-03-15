@@ -222,7 +222,7 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                     properties={
                         "brief": types.Schema(type="string", description="Extra context about the video (optional)."),
                         "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney (default: realism)"),
-                        "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 2)."),
+                        "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 1)."),
                     },
                 ),
             ),
@@ -286,6 +286,16 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                         "num_scenes": types.Schema(type="integer", description="Number of panels (3–6). Default: 4"),
                     },
                     required=["brief"],
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="build_timeline_from_storyboard",
+                description="Assemble the storyboard panels into the video timeline. Call immediately after generate_storyboard — no user confirmation needed.",
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "scene_duration_seconds": types.Schema(type="integer", description="Duration per scene in seconds. Default: 4"),
+                    },
                 ),
             ),
             types.FunctionDeclaration(
@@ -703,15 +713,74 @@ async def _dispatch_voice_tool(
                     })
                     pending_caption_gsb = ""
 
-            project_data["_storyboard_drafts"] = drafts_gsb
+            # Upload each panel to GCS; store only URLs (no base64 in Firestore)
+            import base64 as _b64_gsb, os as _os_gsb
+            from uuid import uuid4 as _uuid4_gsb
+            from services.storage import gcs as _gcs_gsb
+            from services.storage import firestore_db as _fdb_gsb
+
+            draft_urls_gsb: list[dict] = []
+            for i_gsb, draft_gsb in enumerate(drafts_gsb):
+                mime_gsb = draft_gsb.get("mime_type", "image/jpeg")
+                suffix_gsb = ".jpg" if "jpeg" in mime_gsb else ".png"
+                tmp_gsb = f"/tmp/sb_draft_{_uuid4_gsb().hex}{suffix_gsb}"
+                with open(tmp_gsb, "wb") as _f_gsb:
+                    _f_gsb.write(_b64_gsb.b64decode(draft_gsb["image_b64"]))
+                gcs_key_gsb = f"projects/{project_id}/storyboard_draft_{i_gsb}{suffix_gsb}"
+                url_gsb = await _gcs_gsb.upload_file(tmp_gsb, gcs_key_gsb, mime_gsb)
+                with contextlib.suppress(OSError):
+                    _os_gsb.unlink(tmp_gsb)
+                draft_urls_gsb.append({"src": url_gsb, "mime_type": mime_gsb, "description": draft_gsb["description"]})
+
+            project_data["_storyboard_draft_urls"] = draft_urls_gsb
+            project_data.pop("_storyboard_drafts", None)
+            await _fdb_gsb.save_project(project_id, project_data)
+
             return {
                 "status": "ok",
-                "count": len(drafts_gsb),
-                "descriptions": [d_gsb["description"] for d_gsb in drafts_gsb],
+                "count": len(draft_urls_gsb),
+                "descriptions": [d_gsb["description"] for d_gsb in draft_urls_gsb],
             }
         except Exception as _gsb_exc:
             logger.warning("generate_storyboard (voice) failed: %s", _gsb_exc)
             return {"error": str(_gsb_exc)}
+
+    if name == "build_timeline_from_storyboard":
+        duration_tl_v = int(args.get("scene_duration_seconds", 4))
+        draft_urls_tl = project_data.get("_storyboard_draft_urls", [])
+        if not draft_urls_tl:
+            return {"error": "No storyboard found. Call generate_storyboard first."}
+        try:
+            commands_tl_v = [
+                {
+                    "kind": "insert_media_asset",
+                    "args": {
+                        "src": d_tl_v["src"],
+                        "start_seconds": i_tl_v * duration_tl_v,
+                        "duration_seconds": duration_tl_v,
+                        "media_kind": "image",
+                        "name": f"Scene {i_tl_v + 1}",
+                    },
+                }
+                for i_tl_v, d_tl_v in enumerate(draft_urls_tl)
+            ]
+            source_json_v = current_project_json or {}
+            patched_v, applied_v, errors_v = await _project_commands(source_json_v, commands_tl_v, editor_context, uid=uid)
+            if errors_v:
+                return {"error": f"Some commands rejected: {'; '.join(errors_v)}"}
+            if not applied_v:
+                return {"error": "No commands applied."}
+            await _apply_live_edits(
+                project_id=project_id,
+                project_data=project_data,
+                patched_project_json=patched_v,
+                applied_changes=applied_v,
+                editor_context=editor_context,
+            )
+            return {"status": "ok", "scenes_added": len(commands_tl_v), "total_duration_seconds": len(commands_tl_v) * duration_tl_v}
+        except Exception as _tl_v_exc:
+            logger.warning("build_timeline_from_storyboard (voice) failed: %s", _tl_v_exc)
+            return {"error": str(_tl_v_exc)}
 
     if name == "edit_selected_image":
         instruction_ei = args.get("instruction", "")
@@ -796,7 +865,7 @@ async def _dispatch_voice_tool(
         hook = project_data.get("hook", "")
         brief = args.get("brief", "")
         art_style = args.get("art_style", "realism")
-        count = min(3, max(1, int(args.get("count", 2))))
+        count = min(3, max(1, int(args.get("count", 1))))
         reference_b64 = live_state.get("latest_screen_frame_b64")
 
         try:

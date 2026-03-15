@@ -111,7 +111,7 @@ def _get_tool_declarations():
                 properties={
                     "brief": types.Schema(type="string", description="Extra context about the video (optional)."),
                     "art_style": types.Schema(type="string", description="realism | ghibli | comic | polaroid | disney (default: realism)"),
-                    "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 2)."),
+                    "count": types.Schema(type="integer", description="Number of options to generate (1–3, default 1)."),
                 },
             ),
         ),
@@ -490,11 +490,33 @@ async def run_edit_text_agent(
                                 })
                                 pending_caption_sb = ""
 
-                        project_data["_storyboard_drafts"] = drafts_sb
+                        # Upload each panel to GCS; store only URLs (no base64 in Firestore)
+                        import base64 as _b64_sb_p, os as _os_sb_p
+                        from uuid import uuid4 as _uuid4_sb_p
+                        from services.storage import gcs as _gcs_sb_p
+                        from services.storage import firestore_db as _fdb_sb_p
+
+                        draft_urls_sb: list[dict] = []
+                        for i_sb_p, d_sb_p in enumerate(drafts_sb):
+                            mime_sb_p = d_sb_p.get("mime_type", "image/jpeg")
+                            suffix_sb_p = ".jpg" if "jpeg" in mime_sb_p else ".png"
+                            tmp_sb_p = f"/tmp/sb_draft_{_uuid4_sb_p().hex}{suffix_sb_p}"
+                            with open(tmp_sb_p, "wb") as _f_sb_p:
+                                _f_sb_p.write(_b64_sb_p.b64decode(d_sb_p["image_b64"]))
+                            gcs_key_sb_p = f"projects/{project_id}/storyboard_draft_{i_sb_p}{suffix_sb_p}"
+                            url_sb_p = await _gcs_sb_p.upload_file(tmp_sb_p, gcs_key_sb_p, mime_sb_p)
+                            with contextlib.suppress(OSError):
+                                _os_sb_p.unlink(tmp_sb_p)
+                            draft_urls_sb.append({"src": url_sb_p, "mime_type": mime_sb_p, "description": d_sb_p["description"]})
+
+                        project_data["_storyboard_draft_urls"] = draft_urls_sb
+                        project_data.pop("_storyboard_drafts", None)
+                        await _fdb_sb_p.save_project(project_id, project_data)
+
                         storyboard_result = {
                             "status": "ok",
-                            "count": len(drafts_sb),
-                            "descriptions": [d_sb["description"] for d_sb in drafts_sb],
+                            "count": len(draft_urls_sb),
+                            "descriptions": [d_sb["description"] for d_sb in draft_urls_sb],
                         }
                     except Exception as _sb_exc:
                         logger.warning("generate_storyboard failed: %s", _sb_exc)
@@ -512,42 +534,24 @@ async def run_edit_text_agent(
                     yield {"type": "agent_step", "tool": "build_timeline_from_storyboard", "message": "Building timeline..."}
                     timeline_result: dict = {"status": "error", "error": "Timeline build failed"}
                     try:
-                        import base64 as _b64_tl
-                        import os as _os_tl
-                        from uuid import uuid4 as _uuid4_tl
-                        from services.storage import gcs as _gcs_tl
-
-                        drafts_tl = project_data.get("_storyboard_drafts", [])
+                        drafts_tl = project_data.get("_storyboard_draft_urls", [])
                         if not drafts_tl:
                             timeline_result = {"status": "error", "message": "No storyboard found. Call generate_storyboard first."}
                         else:
                             duration_tl = int((fc.args or {}).get("scene_duration_seconds", 4))
-                            commands_tl: list[dict] = []
-
-                            for i_tl, draft_tl in enumerate(drafts_tl):
-                                img_bytes_tl = _b64_tl.b64decode(draft_tl["image_b64"])
-                                mime_tl = draft_tl.get("mime_type", "image/png")
-                                suffix_tl = ".jpg" if "jpeg" in mime_tl else ".png"
-                                tmp_path_tl = f"/tmp/storyboard_{_uuid4_tl().hex}{suffix_tl}"
-                                with open(tmp_path_tl, "wb") as _f_tl:
-                                    _f_tl.write(img_bytes_tl)
-                                gcs_key_tl = f"projects/{project_id}/storyboard/{_uuid4_tl().hex}{suffix_tl}"
-                                src_url_tl = await _gcs_tl.upload_file(tmp_path_tl, gcs_key_tl, mime_tl)
-                                try:
-                                    _os_tl.unlink(tmp_path_tl)
-                                except Exception:
-                                    pass
-
-                                commands_tl.append({
+                            commands_tl: list[dict] = [
+                                {
                                     "kind": "insert_media_asset",
                                     "args": {
-                                        "src": src_url_tl,
+                                        "src": draft_tl["src"],
                                         "start_seconds": i_tl * duration_tl,
                                         "duration_seconds": duration_tl,
                                         "media_kind": "image",
                                         "name": f"Scene {i_tl + 1}",
                                     },
-                                })
+                                }
+                                for i_tl, draft_tl in enumerate(drafts_tl)
+                            ]
 
                             source_json_tl = current_project_json or {}
                             patched_tl, applied_tl, errors_tl = await _project_commands(
