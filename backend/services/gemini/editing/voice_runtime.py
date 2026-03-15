@@ -310,6 +310,22 @@ def _build_voice_config(project_data: dict, transport: VoiceLiveTransport):
                 ),
             ),
             types.FunctionDeclaration(
+                name="set_video_metadata",
+                description=(
+                    "Set the YouTube/social media title, description, and hashtags for this video. "
+                    "Saves them to the project so they are used automatically when publishing."
+                ),
+                parameters=types.Schema(
+                    type="object",
+                    properties={
+                        "title":       types.Schema(type="string", description="YouTube title (max 100 chars)"),
+                        "description": types.Schema(type="string", description="YouTube description (max 5000 chars)"),
+                        "hashtags":    types.Schema(type="array", items=types.Schema(type="string"), description="List of hashtags without #"),
+                    },
+                    required=["title"],
+                ),
+            ),
+            types.FunctionDeclaration(
                 name="propose_scripts",
                 description=(
                     "Present 2-3 short script concept cards to the user so they can pick a story direction. "
@@ -460,12 +476,19 @@ async def _dispatch_voice_tool(
 ) -> dict:
     """Route a Live API function_call to the correct edit tool."""
     if name == "get_project_info":
+        _script = project_data.get("script") or {}
+        _scenes = _script.get("scenes") or []
+        _scene_summaries = [
+            s.get("visual_prompt") or s.get("voiceover_text") or ""
+            for s in _scenes[:5]
+        ]
         return {
             "hook":             project_data.get("hook", ""),
             "caption_style":    project_data.get("caption_style", "beast"),
             "background_music": project_data.get("background_music", "none"),
             "music_volume":     project_data.get("music_volume", 0.15),
             "platforms":        project_data.get("platforms", ["instagram_reels"]),
+            "scene_summaries":  [s for s in _scene_summaries if s],
         }
 
     if name == "get_editor_context":
@@ -770,6 +793,27 @@ async def _dispatch_voice_tool(
         except Exception as _rn_exc:
             logger.warning("rename_project (voice) failed: %s", _rn_exc)
             return {"error": str(_rn_exc)}
+
+    if name == "set_video_metadata":
+        vm_title = str(args.get("title", "")).strip()[:100]
+        vm_desc  = str(args.get("description", "")).strip()[:5000]
+        vm_tags  = [str(t).strip().lstrip("#") for t in (args.get("hashtags") or []) if t][:30]
+        try:
+            from services.storage import firestore_db as _fdb_vm
+            _script_vm = project_data.setdefault("script", {})
+            _sc_vm = _script_vm.setdefault("social_copy", {})
+            _meta_vm = {"title": vm_title, "caption": vm_desc, "hashtags": vm_tags}
+            for _pl in ("youtube", "youtube_shorts", "instagram", "instagram_reels", "tiktok"):
+                _sc_vm[_pl] = _meta_vm
+            if vm_title:
+                project_data["hook"] = vm_title
+            await _fdb_vm.save_project(project_id, project_data)
+            with contextlib.suppress(Exception):
+                await on_event({"type": "project_renamed", "hook": vm_title})
+            return {"status": "ok", "title": vm_title, "hashtags": vm_tags}
+        except Exception as _vm_exc:
+            logger.warning("set_video_metadata (voice) failed: %s", _vm_exc)
+            return {"error": str(_vm_exc)}
 
     if name == "build_timeline_from_storyboard":
         duration_tl_v = int(args.get("scene_duration_seconds", 4))
