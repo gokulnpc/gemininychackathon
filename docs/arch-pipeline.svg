@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1020 240" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 8 6" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1020" height="240" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="510" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">7-Stage Video Generation Pipeline</text>
+  <text x="510" y="38" text-anchor="middle" font-size="9.5" fill="#64748b">voicevid-worker  ·  Cloud Run  ·  4 GB  ·  900s timeout  ·  triggered via Cloud Tasks</text>
+
+  <!-- Input node -->
+  <rect x="14" y="58" width="76" height="130" rx="10" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="52" y="78" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">INPUT</text>
+  <!-- icons -->
+  <text x="52" y="100" text-anchor="middle" font-size="18">🎙</text>
+  <text x="52" y="122" text-anchor="middle" font-size="8.5" fill="#64748b">Voice</text>
+  <text x="52" y="140" text-anchor="middle" font-size="18">📝</text>
+  <text x="52" y="162" text-anchor="middle" font-size="8.5" fill="#64748b">Text / PDF</text>
+  <text x="52" y="176" text-anchor="middle" font-size="8.5" fill="#64748b">Preset</text>
+
+  <!-- Arrow: Input → Stage 2 -->
+  <line x1="90" y1="123" x2="108" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Stage 2: Script -->
+  <rect x="110" y="58" width="118" height="130" rx="10" fill="#EDE9FE" stroke="#8B5CF6" stroke-width="2"/>
+  <rect x="110" y="58" width="118" height="28" rx="10" fill="#7C3AED"/>
+  <rect x="110" y="72" width="118" height="14" fill="#7C3AED"/>
+  <text x="112" y="70" font-size="8" font-weight="700" fill="white">  ② Script</text>
+  <!-- sparkle icon -->
+  <text x="128" y="110" text-anchor="middle" font-size="24" fill="#7C3AED">✦</text>
+  <text x="169" y="100" font-size="9.5" font-weight="600" fill="#4C1D95">Gemini 2.5 Pro</text>
+  <text x="169" y="114" font-size="8.5" fill="#6D28D9">ReAct Agent</text>
+  <text x="169" y="128" font-size="8.5" fill="#6D28D9">14-turn loop</text>
+  <text x="119" y="148" font-size="8" fill="#5B21B6">Hook · Scenes · CTA</text>
+  <text x="119" y="162" font-size="8" fill="#5B21B6">Voiceover text</text>
+  <text x="119" y="176" font-size="8" fill="#5B21B6">Social copy</text>
+
+  <!-- Arrow: Stage 2 → 3 -->
+  <line x1="228" y1="123" x2="246" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Stage 3: TTS -->
+  <rect x="248" y="58" width="118" height="130" rx="10" fill="#ECFDF5" stroke="#10B981" stroke-width="2"/>
+  <rect x="248" y="58" width="118" height="28" rx="10" fill="#059669"/>
+  <rect x="248" y="72" width="118" height="14" fill="#059669"/>
+  <text x="250" y="70" font-size="8" font-weight="700" fill="white">  ③ Voiceover</text>
+  <!-- waveform icon -->
+  <line x1="268" y1="123" x2="268" y2="103" stroke="#059669" stroke-width="2.5"/>
+  <line x1="275" y1="123" x2="275" y2="96" stroke="#059669" stroke-width="2.5"/>
+  <line x1="282" y1="123" x2="282" y2="108" stroke="#059669" stroke-width="2.5"/>
+  <line x1="289" y1="123" x2="289" y2="100" stroke="#059669" stroke-width="2.5"/>
+  <line x1="296" y1="123" x2="296" y2="113" stroke="#059669" stroke-width="2.5"/>
+  <text x="307" y="100" font-size="9.5" font-weight="600" fill="#065F46">Gemini TTS</text>
+  <text x="307" y="114" font-size="8.5" fill="#047857">2.5-flash-tts</text>
+  <text x="307" y="128" font-size="8.5" fill="#047857">PCM16 → WAV</text>
+  <text x="257" y="148" font-size="8" fill="#065F46">Word timestamps</text>
+  <text x="257" y="162" font-size="8" fill="#065F46">24 kHz output</text>
+  <text x="257" y="176" font-size="8" fill="#065F46">Multi-voice support</text>
+
+  <!-- Arrow: Stage 3 → 4 -->
+  <line x1="366" y1="123" x2="384" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Stage 4: Images -->
+  <rect x="386" y="58" width="118" height="130" rx="10" fill="#FFF7ED" stroke="#F59E0B" stroke-width="2"/>
+  <rect x="386" y="58" width="118" height="28" rx="10" fill="#D97706"/>
+  <rect x="386" y="72" width="118" height="14" fill="#D97706"/>
+  <text x="388" y="70" font-size="8" font-weight="700" fill="white">  ④ Images + QA</text>
+  <!-- image icon -->
+  <rect x="400" y="95" width="30" height="24" rx="3" fill="none" stroke="#D97706" stroke-width="2"/>
+  <circle cx="407" cy="102" r="3" fill="#D97706"/>
+  <polyline points="400,115 408,107 416,113 420,108 430,119" fill="none" stroke="#D97706" stroke-width="1.5"/>
+  <text x="436" y="100" font-size="9.5" font-weight="600" fill="#92400E">Gemini Image</text>
+  <text x="436" y="114" font-size="8.5" fill="#B45309">3.1 Flash</text>
+  <text x="436" y="128" font-size="8.5" fill="#B45309">576×1024 px</text>
+  <text x="395" y="148" font-size="8" fill="#92400E">Scene chaining</text>
+  <text x="395" y="162" font-size="8" fill="#92400E">Visual QA (4c)</text>
+  <text x="395" y="176" font-size="8" fill="#92400E">Thumbnail (4b)</text>
+
+  <!-- Arrow: Stage 4 → 5 -->
+  <line x1="504" y1="123" x2="522" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Stage 5: Captions -->
+  <rect x="524" y="58" width="118" height="130" rx="10" fill="#FFF1F2" stroke="#F43F5E" stroke-width="2"/>
+  <rect x="524" y="58" width="118" height="28" rx="10" fill="#E11D48"/>
+  <rect x="524" y="72" width="118" height="14" fill="#E11D48"/>
+  <text x="526" y="70" font-size="8" font-weight="700" fill="white">  ⑤ Captions</text>
+  <!-- caption/CC icon -->
+  <rect x="537" y="97" width="32" height="22" rx="3" fill="none" stroke="#E11D48" stroke-width="2"/>
+  <text x="553" y="113" text-anchor="middle" font-size="11" font-weight="700" fill="#E11D48">CC</text>
+  <text x="573" y="100" font-size="9.5" font-weight="600" fill="#881337">Word-level SRT</text>
+  <text x="573" y="114" font-size="8.5" fill="#9F1239">From TTS timestamps</text>
+  <text x="573" y="128" font-size="8.5" fill="#9F1239">8 style presets</text>
+  <text x="533" y="148" font-size="8" fill="#881337">Beast  ·  Karaoke</text>
+  <text x="533" y="162" font-size="8" fill="#881337">Majestic  ·  Minimal</text>
+  <text x="533" y="176" font-size="8" fill="#881337">+ 4 more styles</text>
+
+  <!-- Arrow: Stage 5 → 6 -->
+  <line x1="642" y1="123" x2="660" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Stage 6: Compose -->
+  <rect x="662" y="58" width="118" height="130" rx="10" fill="#F0F9FF" stroke="#0EA5E9" stroke-width="2"/>
+  <rect x="662" y="58" width="118" height="28" rx="10" fill="#0284C7"/>
+  <rect x="662" y="72" width="118" height="14" fill="#0284C7"/>
+  <text x="664" y="70" font-size="8" font-weight="700" fill="white">  ⑥ Compose</text>
+  <!-- film strip icon -->
+  <rect x="675" y="97" width="28" height="22" rx="2" fill="none" stroke="#0284C7" stroke-width="2"/>
+  <rect x="675" y="97" width="5" height="5" rx="1" fill="#0284C7"/>
+  <rect x="675" y="106" width="5" height="5" rx="1" fill="#0284C7"/>
+  <rect x="675" y="114" width="5" height="5" rx="1" fill="#0284C7"/>
+  <rect x="698" y="97" width="5" height="5" rx="1" fill="#0284C7"/>
+  <rect x="698" y="106" width="5" height="5" rx="1" fill="#0284C7"/>
+  <rect x="698" y="114" width="5" height="5" rx="1" fill="#0284C7"/>
+  <text x="710" y="100" font-size="9.5" font-weight="600" fill="#0C4A6E">FFmpeg</text>
+  <text x="710" y="114" font-size="8.5" fill="#075985">Ken Burns filter</text>
+  <text x="710" y="128" font-size="8.5" fill="#075985">Caption burn</text>
+  <text x="671" y="148" font-size="8" fill="#0C4A6E">Concat scenes</text>
+  <text x="671" y="162" font-size="8" fill="#0C4A6E">Music overlay</text>
+  <text x="671" y="176" font-size="8" fill="#0C4A6E">Audio mix</text>
+
+  <!-- Arrow: Stage 6 → 7 -->
+  <line x1="780" y1="123" x2="798" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Stage 7: Export -->
+  <rect x="800" y="58" width="118" height="130" rx="10" fill="#F0FDF4" stroke="#16A34A" stroke-width="2"/>
+  <rect x="800" y="58" width="118" height="28" rx="10" fill="#15803D"/>
+  <rect x="800" y="72" width="118" height="14" fill="#15803D"/>
+  <text x="802" y="70" font-size="8" font-weight="700" fill="white">  ⑦ Export + GCS</text>
+  <!-- upload/cloud icon -->
+  <ellipse cx="820" cy="103" rx="12" ry="8" fill="none" stroke="#16A34A" stroke-width="1.5"/>
+  <line x1="820" y1="103" x2="820" y2="118" stroke="#16A34A" stroke-width="1.5"/>
+  <polyline points="815,112 820,118 825,112" fill="none" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="840" y="98" font-size="9.5" font-weight="600" fill="#14532D">Platform Export</text>
+  <text x="840" y="112" font-size="8.5" fill="#166534">1080×1920  (9:16)</text>
+  <text x="840" y="126" font-size="8.5" fill="#166534">GCS upload</text>
+  <text x="809" y="148" font-size="8" fill="#14532D">YouTube Shorts</text>
+  <text x="809" y="162" font-size="8" fill="#14532D">Instagram Reels</text>
+  <text x="809" y="176" font-size="8" fill="#14532D">TikTok</text>
+
+  <!-- Arrow: Stage 7 → Output -->
+  <line x1="918" y1="123" x2="936" y2="123" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Output node -->
+  <rect x="938" y="58" width="68" height="130" rx="10" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="972" y="78" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">OUTPUT</text>
+  <text x="972" y="100" text-anchor="middle" font-size="18">🎬</text>
+  <text x="972" y="118" text-anchor="middle" font-size="8" fill="#64748b">MP4 video</text>
+  <text x="972" y="133" text-anchor="middle" font-size="18">📋</text>
+  <text x="972" y="151" text-anchor="middle" font-size="8" fill="#64748b">Twick JSON</text>
+  <text x="972" y="166" text-anchor="middle" font-size="8" fill="#64748b">timeline</text>
+  <text x="972" y="181" text-anchor="middle" font-size="8" fill="#64748b">+ thumbnail</text>
+
+  <!-- Bottom note -->
+  <text x="510" y="212" text-anchor="middle" font-size="9" fill="#94a3b8">Each stage updates Firestore status in real-time  ·  All assets stored in GCS  ·  Twick JSON enables non-destructive editor exports</text>
+  <text x="510" y="227" text-anchor="middle" font-size="9" fill="#94a3b8">Failed images in Stage 4c trigger automatic regeneration  ·  Recompose skips Stages 2–4 and re-enters at Stage 5</text>
+</svg>
