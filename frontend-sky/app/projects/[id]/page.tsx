@@ -431,6 +431,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [thumbOk, setThumbOk] = useState(false);
   
   const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -587,28 +588,39 @@ export default function ProjectDetailPage() {
                         poster={`${API}/api/v1/projects/${projectId}/thumbnail${idToken ? `?token=${idToken}` : ""}`}
                       />
                     ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
-                        {isActive ? (
-                          <>
-                            <Loader2 className="w-10 h-10 text-[#5a9ab5] animate-spin" />
-                            <p className="text-xs text-white/40 text-center leading-relaxed">
-                              {project.current_stage ?? "Processing..."}
-                            </p>
-                          </>
-                        ) : project.status === "script_ready" ? (
-                          <>
-                            <CheckCircle2 className="w-10 h-10 text-yellow-400/60" />
-                            <p className="text-xs text-white/40 text-center">
-                              Script ready — review and approve to generate
-                              video
-                            </p>
-                          </>
-                        ) : project.status === "failed" ? (
-                          <AlertCircle className="w-10 h-10 text-red-400/60" />
-                        ) : (
-                          <Video className="w-10 h-10 text-white/20" />
+                      <>
+                        <img
+                          src={`${API}/api/v1/projects/${projectId}/thumbnail${idToken ? `?token=${idToken}` : ""}`}
+                          alt={project.hook ?? "Video"}
+                          className={cn("absolute inset-0 w-full h-full object-cover", !thumbOk && "hidden")}
+                          onLoad={() => setThumbOk(true)}
+                          onError={() => setThumbOk(false)}
+                        />
+                        {!thumbOk && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
+                            {isActive ? (
+                              <>
+                                <Loader2 className="w-10 h-10 text-[#5a9ab5] animate-spin" />
+                                <p className="text-xs text-white/40 text-center leading-relaxed">
+                                  {project.current_stage ?? "Processing..."}
+                                </p>
+                              </>
+                            ) : project.status === "script_ready" ? (
+                              <>
+                                <CheckCircle2 className="w-10 h-10 text-yellow-400/60" />
+                                <p className="text-xs text-white/40 text-center">
+                                  Script ready — review and approve to generate
+                                  video
+                                </p>
+                              </>
+                            ) : project.status === "failed" ? (
+                              <AlertCircle className="w-10 h-10 text-red-400/60" />
+                            ) : (
+                              <Video className="w-10 h-10 text-white/20" />
+                            )}
+                          </div>
                         )}
-                      </div>
+                      </>
                     )}
 
                     {/* Progress bar */}

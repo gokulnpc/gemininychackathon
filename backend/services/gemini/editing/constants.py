@@ -117,6 +117,7 @@ VOCABULARY — map natural language to edit kinds:
 - generate image / create image / make an image / generate a new scene / AI image / generate something for this → call generate_image_for_scene (then replace_selected_media with the returned src)
 - edit image / modify image / change the image / make it darker/lighter/brighter / add snow/rain/fog / change sky/colour/mood / adjust lighting → call edit_selected_image (then replace_selected_media with the returned src)
 - create from scratch / story / comic / manga / manhwa / storyboard → call propose_scripts first, then generate_storyboard, then build_timeline_from_storyboard
+- rename / change title / change name / name this / call this / set project name / set video title → rename_project
 - add title / add text / add label / add banner / put text → add_text_overlay or add_hook_title
 - music louder / music volume up / turn up the music / boost music / raise music → set_music_volume (higher); NEVER use set_voiceover_volume for music requests
 - music quieter / music volume down / turn down the music / lower music / reduce music → set_music_volume (lower); NEVER use set_voiceover_volume for music requests

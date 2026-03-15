@@ -403,7 +403,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                     }
                     patched.setdefault("tracks", []).append(media_track)
 
-            media_track["elements"].append({
+            _new_elem: dict = {
                 "id": _make_id(media_kind[:3]),
                 "trackId": media_track["id"],
                 "type": media_kind,
@@ -411,7 +411,13 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                 "s": start,
                 "e": new_end,
                 "props": {"src": src},
-            })
+            }
+            if media_kind == "image":
+                _new_elem["frame"] = {"size": [576, 1024], "x": 0.0, "y": 0.0}
+                _new_elem["objectFit"] = "cover"
+                _new_elem["props"]["objectFit"] = "cover"
+                _new_elem["mediaDuration"] = dur
+            media_track["elements"].append(_new_elem)
 
     return patched
 
