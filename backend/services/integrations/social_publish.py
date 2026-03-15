@@ -128,7 +128,16 @@ async def _publish_youtube(
         return result
     except Exception as exc:
         logger.exception("YouTube upload failed")
-        return {"platform": "youtube", "status": "failed", "error": str(exc)}
+        err_str = str(exc)
+        if "accessNotConfigured" in err_str:
+            friendly = "YouTube Data API is not enabled. Enable it in Google Cloud Console and retry."
+        elif "quotaExceeded" in err_str:
+            friendly = "YouTube API quota exceeded. Try again tomorrow."
+        elif "forbidden" in err_str.lower() or "403" in err_str:
+            friendly = "YouTube upload forbidden. Check API credentials and permissions."
+        else:
+            friendly = err_str
+        return {"platform": "youtube", "status": "failed", "error": friendly}
     finally:
         Path(local_path).unlink(missing_ok=True)
 

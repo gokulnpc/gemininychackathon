@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCw,
   Settings,
+  Share2,
   ThumbsUp,
   Video,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
+import { ShareDialog } from "@/components/shared/ShareDialog";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -445,6 +447,7 @@ export default function ProjectDetailPage() {
   
   const [restoringExportId, setRestoringExportId] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -748,6 +751,15 @@ export default function ProjectDetailPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
+                                onClick={() => setShareDialogOpen(true)}
+                                className="h-10 px-4 rounded-xl border-white/10 bg-white/5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+                              >
+                                <Share2 className="w-4 h-4 mr-2 text-white/50" />
+                                Share
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
                                 disabled={!entry.project_json_snapshot || restoringExportId === entry.export_id}
                                 onClick={async () => {
                                   if (!entry.project_json_snapshot) return;
@@ -777,6 +789,12 @@ export default function ProjectDetailPage() {
                     </div>
                   </div>
                 )}
+
+                <ShareDialog
+                  open={shareDialogOpen}
+                  onOpenChange={setShareDialogOpen}
+                  projectId={projectId}
+                />
 
                 {project.status === "failed" && (
                   <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
