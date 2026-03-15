@@ -723,14 +723,16 @@ async def _dispatch_voice_tool(
             from services.gemini.interleaved import _invoke_interleaved_with_image as _gen_ei
             from services.storage import gcs as _gcs_ei
 
-            live_ei = get_live_state() if get_live_state else {}
-            source_b64_ei: str | None = (
-                live_ei.get("latest_screen_frame_b64")
-                or (editor_context or {}).get("screenshot", {}).get("image_b64")
-            )
+            _ec_ei = editor_context or {}
 
-            # Fallback: download element src from project JSON
-            if not source_b64_ei and current_project_json and element_id_ei:
+            # Resolve element_id: use passed arg or fall back to selected element
+            if not element_id_ei:
+                _sel_ei = (_ec_ei.get("selected_element_ids") or [])
+                element_id_ei = _sel_ei[0] if _sel_ei else ""
+
+            # Primary: fetch actual image from element src in project JSON
+            source_b64_ei: str | None = None
+            if current_project_json and element_id_ei:
                 for _track_ei in (current_project_json.get("tracks") or []):
                     for _el_ei in (_track_ei.get("elements") or []):
                         if _el_ei.get("id") == element_id_ei or _el_ei.get("element_id") == element_id_ei:
@@ -741,6 +743,14 @@ async def _dispatch_voice_tool(
                                     _r_ei = await _c_ei.get(_src_ei)
                                     source_b64_ei = _b64_ei.b64encode(_r_ei.content).decode()
                             break
+
+            # Fallback: live screen frame or editor screenshot
+            if not source_b64_ei:
+                live_ei = get_live_state() if get_live_state else {}
+                source_b64_ei = (
+                    live_ei.get("latest_screen_frame_b64")
+                    or _ec_ei.get("screenshot", {}).get("image_b64")
+                )
 
             if not source_b64_ei:
                 return {"error": "Could not get the current image — enable screen share or select the element."}

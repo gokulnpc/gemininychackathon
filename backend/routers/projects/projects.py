@@ -320,7 +320,7 @@ async def save_project_timeline(project_id: UUID, body: dict, current_user: dict
 async def queue_project_export(project_id: UUID, current_user: dict = Depends(get_current_user)):
     """Queue a dedicated editor export render for the saved canonical timeline."""
     doc = await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
-    if doc.get("status") != "completed":
+    if doc.get("status") not in ("completed", "editing", "draft"):
         raise HTTPException(status_code=409, detail="Project must be completed before export can be queued")
     if not isinstance(doc.get("project_json"), dict):
         raise HTTPException(status_code=422, detail="No saved timeline found for export")

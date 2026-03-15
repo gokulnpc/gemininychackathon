@@ -784,11 +784,7 @@ export function AgentPanel({
                           alt={`Panel ${i + 1}`}
                           className="w-full object-cover"
                         />
-                        {block.caption ? (
-                          <p className="border-t border-editor-border bg-editor-surface px-3 py-2 text-[11px] leading-relaxed text-foreground/80">
-                            {block.caption}
-                          </p>
-                        ) : (
+                        {block.type !== "panel" && (
                           <button
                             type="button"
                             onClick={() =>

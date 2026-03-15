@@ -595,12 +595,16 @@ async def run_edit_text_agent(
                         instruction_ei = (fc.args or {}).get("instruction", "")
                         element_id_ei = (fc.args or {}).get("element_id", "")
 
-                        # Primary: screenshot from screen share / editor context
                         _ec_ei = editor_context or {}
-                        source_b64_ei: str | None = (_ec_ei.get("screenshot") or {}).get("image_b64")
 
-                        # Fallback: download the element's src from project JSON
-                        if not source_b64_ei and current_project_json and element_id_ei:
+                        # Resolve element_id: use passed arg or fall back to selected element
+                        if not element_id_ei:
+                            _sel_ei = (_ec_ei.get("selected_element_ids") or [])
+                            element_id_ei = _sel_ei[0] if _sel_ei else ""
+
+                        # Primary: fetch actual image from element src in project JSON
+                        source_b64_ei: str | None = None
+                        if current_project_json and element_id_ei:
                             for _track_ei in (current_project_json.get("tracks") or []):
                                 for _el_ei in (_track_ei.get("elements") or []):
                                     if _el_ei.get("id") == element_id_ei or _el_ei.get("element_id") == element_id_ei:
@@ -608,6 +612,10 @@ async def run_edit_text_agent(
                                         if _src_ei:
                                             source_b64_ei = await _fetch_image_b64_from_url(_src_ei)
                                         break
+
+                        # Fallback: screenshot from screen share / editor context
+                        if not source_b64_ei:
+                            source_b64_ei = (_ec_ei.get("screenshot") or {}).get("image_b64")
 
                         if not source_b64_ei:
                             edit_img_result = {"status": "error", "error": "Could not get the current image — enable screen share or select the element."}
