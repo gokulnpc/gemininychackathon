@@ -27,12 +27,12 @@ services:
     container_name: timeline-render-worker
     restart: unless-stopped
     expose:
-      - "8080"
+      - "4001"
     networks:
       - voicevid
     healthcheck:
       test: ["CMD", "node", "-e",
-             "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+             "fetch('http://127.0.0.1:4001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -57,7 +57,7 @@ services:
       - ./backend/.env          # GEMINI_API_KEY, GCS_BUCKET, GCP creds, etc.
     environment:
       # Internal renderer URL (Docker network — not exposed to host)
-      TIMELINE_RENDER_WORKER_URL: http://timeline-render-worker:8080
+      TIMELINE_RENDER_WORKER_URL: http://timeline-render-worker:4001
       # Leave empty → pipeline runs synchronously in-process (no Cloud Tasks needed)
       WORKER_URL: ""
       # Used to normalize media src in timeline JSON for server-side rendering

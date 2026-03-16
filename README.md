@@ -349,8 +349,8 @@ pnpm dev
 cd timeline-render-worker
 npm install
 node server.mjs
-# Health: http://localhost:8080/health
-# Set TIMELINE_RENDER_WORKER_URL=http://localhost:8080 in backend/.env to enable
+# Health: http://localhost:4001/health
+# Set TIMELINE_RENDER_WORKER_URL=http://localhost:4001 in backend/.env to enable
 ```
 
 ---
