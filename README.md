@@ -272,35 +272,21 @@ GET    /docs                                      Swagger UI
 
 ### Option 1: Docker (Recommended)
 
-The fastest way to run the full stack. Requires **Docker Desktop** and a **Gemini API key**.
+The fastest way to run the full stack. Requires **Docker Desktop** and a **Gemini API key**. No GCP account needed — auth, storage, and DB all use local fallbacks automatically.
 
-**Step 1 — Configure the backend:**
+**Step 1 — Create `backend/.env`:**
 ```bash
 cp backend/.env.example backend/.env
-# Open backend/.env and set:
-#   GEMINI_API_KEY=<your key from https://aistudio.google.com/apikey>
-#   GOOGLE_CLOUD_PROJECT=<your GCP project ID>
-#   GCS_BUCKET=<your GCS bucket name>
 ```
 
-**Step 2 — GCP credentials** (for Cloud Storage + Firestore access):
-
-*Option A — gcloud CLI (recommended):*
-```bash
-gcloud auth application-default login
-# Then uncomment this line in docker-compose.yml under voicevid-api volumes:
-#   - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+Open `backend/.env` and set **one variable**:
+```
+GEMINI_API_KEY=your_key_here   # https://aistudio.google.com/apikey
 ```
 
-*Option B — service account key:*
-```bash
-# Place your downloaded key at ./credentials.json, then uncomment in docker-compose.yml:
-#   - ./credentials.json:/app/credentials.json:ro
-# And add to backend/.env:
-#   GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
-```
+That's it. Everything else is handled by Docker Compose.
 
-**Step 3 — Build and run:**
+**Step 2 — Build and run:**
 ```bash
 docker compose up --build
 ```
@@ -312,7 +298,9 @@ docker compose up --build
 | API docs | http://localhost:8000/docs |
 | Health | http://localhost:8000/health |
 
-The `timeline-render-worker` (headless Chromium renderer) starts automatically and is only accessible internally — no host port needed.
+- No login required — auth is bypassed in Docker mode, you land directly in the app.
+- Generated videos are saved to a Docker volume (`outputs_data`) and served at `http://localhost:8000/outputs/...`, persisted across restarts.
+- The `timeline-render-worker` (headless Chromium renderer) starts automatically and is only accessible internally.
 
 > **Note:** The first build takes ~5–10 minutes (installs Python deps, pnpm deps, builds Next.js, pulls Chromium). Subsequent starts use Docker's layer cache.
 
@@ -327,7 +315,8 @@ The `timeline-render-worker` (headless Chromium renderer) starts automatically a
 cd backend
 pip install -r requirements.txt
 cp .env.example .env
-# Fill in GEMINI_API_KEY, GOOGLE_CLOUD_PROJECT, GCS_BUCKET in .env
+# Required: GEMINI_API_KEY
+# Optional: GOOGLE_CLOUD_PROJECT + GCS_BUCKET (leave blank to use local filesystem fallbacks)
 
 uvicorn main:app --reload --port 8000
 # API docs: http://localhost:8000/docs
@@ -338,7 +327,7 @@ uvicorn main:app --reload --port 8000
 cd frontend-sky
 pnpm install
 cp .env.example .env.local
-# Edit .env.local — defaults already point to localhost:8000
+# Set NEXT_PUBLIC_API_URL=http://localhost:8000 and Firebase config vars
 
 pnpm dev
 # App: http://localhost:3000
@@ -357,15 +346,19 @@ node server.mjs
 
 ### Required Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GEMINI_API_KEY` | **Yes** | Gemini API key from [AI Studio](https://aistudio.google.com/apikey) |
-| `GOOGLE_CLOUD_PROJECT` | **Yes** | GCP project ID |
-| `GCS_BUCKET` | **Yes** | Cloud Storage bucket name |
-| `USE_VERTEX_AI` | No | `true` for Vertex AI, `false` for API key (default: `false`) |
-| `WORKER_URL` | No | Worker Cloud Run URL — leave blank for synchronous local pipeline |
-| `TIMELINE_RENDER_WORKER_URL` | No | Renderer URL — set automatically by Docker Compose |
-| `SENDGRID_API_KEY` | No | Email notifications on video completion |
+**`backend/.env`** — the only file you need to create:
+
+| Variable | Docker | Manual / Cloud Run | Description |
+|----------|--------|--------------------|-------------|
+| `GEMINI_API_KEY` | **Required** | **Required** | API key from [AI Studio](https://aistudio.google.com/apikey) |
+| `GOOGLE_CLOUD_PROJECT` | Not needed | Required for GCS/Firestore | GCP project ID |
+| `GCS_BUCKET` | Not needed | Required for GCS storage | Cloud Storage bucket name |
+| `USE_VERTEX_AI` | No | No | `true` to use Vertex AI instead of API key (default: `false`) |
+| `WORKER_URL` | Not needed | Cloud Run only | Worker service URL — blank = synchronous local pipeline |
+| `TIMELINE_RENDER_WORKER_URL` | Auto-set by Docker | Optional | Renderer URL |
+| `SENDGRID_API_KEY` | No | No | Email notifications on video completion |
+
+In Docker mode, `GOOGLE_CLOUD_PROJECT` and `GCS_BUCKET` are intentionally left empty — the app automatically falls back to local filesystem storage (`/app/outputs`) and in-memory project metadata.
 
 Full variable reference: [`backend/.env.example`](backend/.env.example)
 

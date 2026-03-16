@@ -8,6 +8,8 @@ import {
   useState,
   ReactNode,
 } from "react";
+
+const DISABLE_AUTH = process.env.NEXT_PUBLIC_DISABLE_AUTH === "true";
 import {
   User,
   onAuthStateChanged,
@@ -56,6 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (DISABLE_AUTH) {
+      setUser({ uid: "local-dev", email: "dev@localhost", displayName: "Local Dev" } as any);
+      setIdToken(null);
+      setLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {

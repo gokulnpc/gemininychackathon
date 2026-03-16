@@ -4,6 +4,7 @@ import logging
 from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.infra.firebase_admin import verify_id_token
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,17 @@ async def get_current_user(
     and returns enriched claims: { uid, email, display_name, photo_url, credits }.
 
     Raises 401 if the token is missing or invalid.
+    When DISABLE_AUTH=true, skips verification and returns a fixed local-dev user.
     """
+    if get_settings().disable_auth:
+        return {
+            "uid": "local-dev",
+            "email": "dev@localhost",
+            "display_name": "Local Dev",
+            "photo_url": None,
+            "credits": 9999,
+        }
+
     token_str = None
     if credentials and credentials.credentials:
         token_str = credentials.credentials

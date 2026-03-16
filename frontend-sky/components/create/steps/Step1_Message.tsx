@@ -51,7 +51,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 export function Step1_Message() {
   const { state, dispatch } = useWizard();
   const [activeTab, setActiveTab] = useState<"speech" | "text" | "preset">(
-    state.messageTab
+    state.messageTab,
   );
   const [isRecording, setIsRecording] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
@@ -68,15 +68,19 @@ export function Step1_Message() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  
+
   // My Assets — voice memos dialog
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
-  const [voiceSearch, setVoiceSearch] = useState('');
+  const [voiceSearch, setVoiceSearch] = useState("");
   const [voiceAssets, setVoiceAssets] = useState<AssetItem[]>([]);
-  const [voiceAssetUrls, setVoiceAssetUrls] = useState<Record<string, string>>({});
+  const [voiceAssetUrls, setVoiceAssetUrls] = useState<Record<string, string>>(
+    {},
+  );
   const [voiceAssetsFetched, setVoiceAssetsFetched] = useState(false);
   const [voiceAssetsLoading, setVoiceAssetsLoading] = useState(false);
-  const [voicePreviewingId, setVoicePreviewingId] = useState<string | null>(null);
+  const [voicePreviewingId, setVoicePreviewingId] = useState<string | null>(
+    null,
+  );
   const [voicePlayingId, setVoicePlayingId] = useState<string | null>(null);
   const voiceAssetAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -104,7 +108,7 @@ export function Step1_Message() {
     if (!voiceDialogOpen || voiceAssetsFetched) return;
     setVoiceAssetsLoading(true);
     apiClient
-      .get('/api/v1/assets?category=voice_memos')
+      .get("/api/v1/assets?category=voice_memos")
       .then((r) => {
         const list: AssetItem[] = r.data.assets ?? [];
         setVoiceAssets(list);
@@ -118,19 +122,25 @@ export function Step1_Message() {
             apiClient
               .get(`/api/v1/assets/${a.id}/url?category=voice_memos`)
               .then((r) => [a.id, r.data.url] as [string, string])
-              .catch(() => [a.id, ''] as [string, string])
-          )
+              .catch(() => [a.id, ""] as [string, string]),
+          ),
         ).then((entries) => setVoiceAssetUrls(Object.fromEntries(entries)));
       })
-      .catch(() => { setVoiceAssets([]); setVoiceAssetsFetched(true); })
+      .catch(() => {
+        setVoiceAssets([]);
+        setVoiceAssetsFetched(true);
+      })
       .finally(() => setVoiceAssetsLoading(false));
   }, [voiceDialogOpen, voiceAssetsFetched]);
 
   const filteredVoiceAssets = voiceAssets.filter((a) =>
-    a.filename.toLowerCase().includes(voiceSearch.toLowerCase())
+    a.filename.toLowerCase().includes(voiceSearch.toLowerCase()),
   );
 
-  const handleVoiceAssetPreview = async (e: React.MouseEvent, asset: AssetItem) => {
+  const handleVoiceAssetPreview = async (
+    e: React.MouseEvent,
+    asset: AssetItem,
+  ) => {
     e.stopPropagation();
     if (voicePlayingId === asset.id) {
       voiceAssetAudioRef.current?.pause();
@@ -146,12 +156,15 @@ export function Step1_Message() {
     setVoicePreviewingId(asset.id);
     try {
       const audio = new Audio(url);
-      audio.onended = () => { setVoicePlayingId(null); voiceAssetAudioRef.current = null; };
+      audio.onended = () => {
+        setVoicePlayingId(null);
+        voiceAssetAudioRef.current = null;
+      };
       await audio.play();
       voiceAssetAudioRef.current = audio;
       setVoicePlayingId(asset.id);
     } catch {
-      console.error('Voice asset preview failed');
+      console.error("Voice asset preview failed");
     } finally {
       setVoicePreviewingId(null);
     }
@@ -166,22 +179,22 @@ export function Step1_Message() {
 
     try {
       const blob = await fetch(url).then((r) => r.blob());
-      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? 'mp3';
+      const ext = asset.filename.split(".").pop()?.toLowerCase() ?? "mp3";
       setAudioUrl(URL.createObjectURL(blob));
       setUploadedFileName(asset.filename);
       const reader = new FileReader();
       reader.onloadend = () => {
-        const b64 = (reader.result as string).split(',')[1];
-        dispatch({ type: 'SET_AUDIO_BASE64', payload: b64 });
-        dispatch({ type: 'SET_AUDIO_FORMAT', payload: ext });
+        const b64 = (reader.result as string).split(",")[1];
+        dispatch({ type: "SET_AUDIO_BASE64", payload: b64 });
+        dispatch({ type: "SET_AUDIO_FORMAT", payload: ext });
         setAudioReady(true);
         setVoiceDialogOpen(false);
-        setVoiceSearch('');
+        setVoiceSearch("");
         runTranscribe(b64, ext);
       };
       reader.readAsDataURL(blob);
     } catch {
-      console.error('Failed to load voice asset');
+      console.error("Failed to load voice asset");
     }
   };
 
@@ -191,11 +204,13 @@ export function Step1_Message() {
     setTranscribing(true);
     setTranscript(null);
     try {
-      const data = await apiClient.post("/api/v1/transcribe", {
-        audio_base64: b64,
-        audio_format: format,
-        language: "en",
-      }).then(r => r.data);
+      const data = await apiClient
+        .post("/api/v1/transcribe", {
+          audio_base64: b64,
+          audio_format: format,
+          language: "en",
+        })
+        .then((r) => r.data);
       setTranscript(data.transcript ?? null);
       if (data.transcript) {
         dispatch({ type: "SET_MESSAGE_TEXT", payload: data.transcript });
@@ -244,27 +259,33 @@ export function Step1_Message() {
     if (!isFinite(time)) return "0:00";
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
   // ── Highlight logic ────────────────────────────────────────────────────────
   // Rough estimation of word highlighting based on playback progress.
-  const renderHighlightedText = (text: string | null, currentTime: number, duration: number) => {
+  const renderHighlightedText = (
+    text: string | null,
+    currentTime: number,
+    duration: number,
+  ) => {
     if (!text || duration === 0) return null;
     const words = text.split(" ");
     const wordDuration = duration / words.length;
-    
+
     return words.map((word, index) => {
-      const isHighlighted = currentTime >= index * wordDuration && currentTime < (index + 1) * wordDuration;
+      const isHighlighted =
+        currentTime >= index * wordDuration &&
+        currentTime < (index + 1) * wordDuration;
       const isPast = currentTime > (index + 1) * wordDuration;
-      
+
       return (
         <span
           key={index}
           className={cn(
             "transition-colors duration-200",
             isHighlighted ? "bg-[#9A7A76] rounded px-0.5 text-white" : "",
-            isPast ? "text-white" : "text-white/60"
+            isPast ? "text-white" : "text-white/60",
           )}
         >
           {word}{" "}
@@ -281,7 +302,9 @@ export function Step1_Message() {
       streamRef.current = stream;
 
       // Ensure 16kHz sample rate for Gemini live streaming
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const audioContext = new (
+        window.AudioContext || (window as any).webkitAudioContext
+      )({ sampleRate: 16000 });
       audioContextRef.current = audioContext;
 
       // In parallel, record the file locally for playback using MediaRecorder
@@ -345,12 +368,12 @@ export function Step1_Message() {
         processor.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
           const inputData = e.inputBuffer.getChannelData(0);
-          
+
           // Convert Float32 to Int16 and send as raw binary (same as live-voice protocol)
           const pcmData = new Int16Array(inputData.length);
           for (let i = 0; i < inputData.length; i++) {
-             const s = Math.max(-1, Math.min(1, inputData[i]));
-             pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
           }
           ws.send(pcmData.buffer);
         };
@@ -358,30 +381,31 @@ export function Step1_Message() {
         source.connect(processor);
         processor.connect(audioContext.destination);
       };
-
     } catch (err) {
       console.error(err);
-      alert("Microphone access denied. Please allow microphone access and try again.");
+      alert(
+        "Microphone access denied. Please allow microphone access and try again.",
+      );
     }
   };
 
   const stopRecording = () => {
     setIsRecording(false);
-    
+
     // Stop local MediaRecorder so it saves the audioUrl
     mediaRecorderRef.current?.stop();
-    
+
     // Stop audio tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
-    
+
     // Disconnect live audio WS nodes
     if (processorRef.current && audioContextRef.current) {
       processorRef.current.disconnect();
       audioContextRef.current.close();
     }
-    
+
     // Tell socket we're done sending audio so Gemini can finalize
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "done" }));
@@ -427,8 +451,11 @@ export function Step1_Message() {
     if (!file) return;
     e.target.value = "";
 
-    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-      // PDF → Mistral Document AI OCR
+    if (
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
+    ) {
+      // PDF → Document AI OCR
       setOcrFileName(file.name);
       setOcrFileSize(file.size);
       setOcrLoading(true);
@@ -438,7 +465,9 @@ export function Step1_Message() {
         try {
           setOcrProgress(30);
           const b64 = (reader.result as string).split(",")[1];
-          const data = await apiClient.post("/api/v1/ocr-pdf", { pdf_base64: b64 }).then(r => r.data);
+          const data = await apiClient
+            .post("/api/v1/ocr-pdf", { pdf_base64: b64 })
+            .then((r) => r.data);
           setOcrProgress(80);
           dispatch({ type: "SET_MESSAGE_TEXT", payload: data.text ?? "" });
           setOcrProgress(100);
@@ -493,7 +522,7 @@ export function Step1_Message() {
               "rounded-xl px-5 py-3 text-sm font-medium transition-all duration-200 border",
               activeTab === "speech"
                 ? "bg-[#5a9ab5]! text-white! border-[#5a9ab5] shadow-md data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white! [&_svg]:text-white!"
-                : "bg-white/10! text-white! border-white/20 hover:bg-white/20! hover:border-white/30 data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white!"
+                : "bg-white/10! text-white! border-white/20 hover:bg-white/20! hover:border-white/30 data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white!",
             )}
           >
             <Volume2 className="w-4 h-4 mr-2" />
@@ -505,7 +534,7 @@ export function Step1_Message() {
               "rounded-xl px-5 py-3 text-sm font-medium transition-all duration-200 border",
               activeTab === "text"
                 ? "bg-[#5a9ab5]! text-white! border-[#5a9ab5] shadow-md data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white! [&_svg]:text-white!"
-                : "bg-white/10! text-white! border-white/20 hover:bg-white/20! hover:border-white/30 data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white!"
+                : "bg-white/10! text-white! border-white/20 hover:bg-white/20! hover:border-white/30 data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white!",
             )}
           >
             <Type className="w-4 h-4 mr-2" />
@@ -517,7 +546,7 @@ export function Step1_Message() {
               "rounded-xl px-5 py-3 text-sm font-medium transition-all duration-200 border",
               activeTab === "preset"
                 ? "bg-[#5a9ab5]! text-white! border-[#5a9ab5] shadow-md data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white! [&_svg]:text-white!"
-                : "bg-white/10! text-white! border-white/20 hover:bg-white/20! hover:border-white/30 data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white!"
+                : "bg-white/10! text-white! border-white/20 hover:bg-white/20! hover:border-white/30 data-[state=active]:bg-[#5a9ab5]! data-[state=active]:text-white!",
             )}
           >
             <LayoutGrid className="w-4 h-4 mr-2" />
@@ -593,8 +622,12 @@ export function Step1_Message() {
                         <>
                           <div className="flex-1 mb-8 text-base text-white/80 leading-relaxed font-light">
                             {transcript ? (
-                              <span className="text-white bg-[#9A7A76] rounded px-0.5">{transcript}</span>
-                            ) : "No transcript available."}
+                              <span className="text-white bg-[#9A7A76] rounded px-0.5">
+                                {transcript}
+                              </span>
+                            ) : (
+                              "No transcript available."
+                            )}
                           </div>
 
                           <div className="flex items-center justify-between">
@@ -610,7 +643,8 @@ export function Step1_Message() {
                                 )}
                               </button>
                               <span className="text-sm text-white/50 font-medium">
-                                {formatTime(playbackProgress)} / {formatTime(audioDuration)}
+                                {formatTime(playbackProgress)} /{" "}
+                                {formatTime(audioDuration)}
                               </span>
                             </div>
 
@@ -636,9 +670,9 @@ export function Step1_Message() {
                         </>
                       )}
                     </motion.div>
+                  ) : (
                     // Intentionally replaced by playback wrapper component
                     // (Audio player replaced above)
-                  ) : (
                     <motion.div
                       key="start"
                       initial={{ opacity: 0, scale: 0.9 }}
@@ -674,8 +708,8 @@ export function Step1_Message() {
                 />
 
                 <div className="flex items-center justify-center gap-4">
-                  {!audioReady && (
-                    isRecording ? (
+                  {!audioReady &&
+                    (isRecording ? (
                       <Button
                         variant="outline"
                         className="rounded-full px-6 py-5 bg-white/10 text-white border-white/30 hover:bg-white/20 transition-colors duration-300"
@@ -712,8 +746,7 @@ export function Step1_Message() {
                           My Assets
                         </Button>
                       </>
-                    )
-                  )}
+                    ))}
                 </div>
               </div>
             </div>
@@ -786,7 +819,8 @@ export function Step1_Message() {
                           {ocrFileName}
                         </p>
                         <p className="text-xs text-white/40 mt-0.5">
-                          {ocrFileSize ? formatFileSize(ocrFileSize) : ""}{ocrFileSize ? " - " : ""}
+                          {ocrFileSize ? formatFileSize(ocrFileSize) : ""}
+                          {ocrFileSize ? " - " : ""}
                           {ocrLoading
                             ? `${ocrProgress}% uploaded`
                             : "100% uploaded"}
@@ -842,13 +876,11 @@ export function Step1_Message() {
                         "w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl transition-all duration-200",
                         state.messageText === idea
                           ? "bg-[#1C1C1E] text-white"
-                          : "text-white/50 hover:bg-white/5 hover:text-white/80"
+                          : "text-white/50 hover:bg-white/5 hover:text-white/80",
                       )}
                     >
                       <Sparkles className="w-4 h-4 text-[#5a9ab5] shrink-0" />
-                      <span className="text-sm leading-relaxed">
-                        {idea}
-                      </span>
+                      <span className="text-sm leading-relaxed">{idea}</span>
                     </button>
                   ))}
                 </div>
@@ -879,7 +911,7 @@ export function Step1_Message() {
                     "w-full text-left p-5 rounded-2xl border transition-all duration-200",
                     state.selectedPreset === preset.id
                       ? "border-transparent bg-[#1C1C1E]"
-                      : "border-white/10 bg-transparent hover:border-white/30 hover:bg-white/5"
+                      : "border-white/10 bg-transparent hover:border-white/30 hover:bg-white/5",
                   )}
                 >
                   <h4 className="text-sm font-medium text-white mb-1">
@@ -892,9 +924,15 @@ export function Step1_Message() {
 
             {/* Right Column: Image Preview */}
             <div className="w-1/2 rounded-2xl overflow-hidden relative">
-              {presets.find((p) => p.id === (state.selectedPreset || presets[0].id))?.image && (
+              {presets.find(
+                (p) => p.id === (state.selectedPreset || presets[0].id),
+              )?.image && (
                 <img
-                  src={presets.find((p) => p.id === (state.selectedPreset || presets[0].id))?.image}
+                  src={
+                    presets.find(
+                      (p) => p.id === (state.selectedPreset || presets[0].id),
+                    )?.image
+                  }
                   alt="Preset Preview"
                   className="absolute inset-0 w-full h-full object-cover"
                 />
@@ -902,7 +940,6 @@ export function Step1_Message() {
             </div>
           </motion.div>
         </TabsContent>
-
       </Tabs>
 
       {/* Voice Memos — My Assets Dialog */}
@@ -911,7 +948,7 @@ export function Step1_Message() {
         onOpenChange={(open) => {
           setVoiceDialogOpen(open);
           if (!open) {
-            setVoiceSearch('');
+            setVoiceSearch("");
             voiceAssetAudioRef.current?.pause();
             voiceAssetAudioRef.current = null;
             setVoicePlayingId(null);
@@ -920,7 +957,9 @@ export function Step1_Message() {
       >
         <DialogContent className="max-w-xl bg-[#2B2B2B] border-white/10 text-white">
           <DialogHeader>
-            <DialogTitle className="text-white">Select from My Assets</DialogTitle>
+            <DialogTitle className="text-white">
+              Select from My Assets
+            </DialogTitle>
           </DialogHeader>
 
           <div className="relative">
@@ -943,8 +982,8 @@ export function Step1_Message() {
                 <Mic className="w-10 h-10 text-white/20" />
                 <p className="text-sm text-white/40 text-center">
                   {voiceAssets.length === 0
-                    ? 'No voice memos in My Assets yet.'
-                    : 'No files match your search.'}
+                    ? "No voice memos in My Assets yet."
+                    : "No files match your search."}
                 </p>
               </div>
             ) : (
@@ -961,18 +1000,22 @@ export function Step1_Message() {
                       <Mic className="w-4 h-4 text-[#5a9ab5]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{asset.filename}</p>
+                      <p className="text-sm font-medium text-white truncate">
+                        {asset.filename}
+                      </p>
                       {asset.size_bytes != null && (
-                        <p className="text-xs text-white/40">{formatAssetBytes(asset.size_bytes)}</p>
+                        <p className="text-xs text-white/40">
+                          {formatAssetBytes(asset.size_bytes)}
+                        </p>
                       )}
                     </div>
                     <div
                       onClick={(e) => handleVoiceAssetPreview(e, asset)}
                       className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
+                        "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors",
                         isPlaying
-                          ? 'bg-[#5a9ab5] text-white'
-                          : 'bg-white/10 border border-white/20 hover:bg-white/20 text-white/60'
+                          ? "bg-[#5a9ab5] text-white"
+                          : "bg-white/10 border border-white/20 hover:bg-white/20 text-white/60",
                       )}
                     >
                       {isPreviewing ? (

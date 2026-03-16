@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "StoryLabs"
     debug: bool = False
+    disable_auth: bool = False  # DISABLE_AUTH=true → skip Firebase, return dev user
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

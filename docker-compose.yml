@@ -1,8 +1,8 @@
 # Story Factory — local Docker Compose
 #
 # Prerequisites:
-#   1. Copy backend/.env.example → backend/.env and fill in your GEMINI_API_KEY
-#      and GCP credentials (see comments below for options).
+#   1. Copy backend/.env.example → backend/.env and set GEMINI_API_KEY.
+#      No GCP credentials needed — auth, storage, and DB all use local fallbacks.
 #   2. docker compose up --build
 #
 # Services:
@@ -13,6 +13,9 @@
 networks:
   voicevid:
     driver: bridge
+
+volumes:
+  outputs_data:   # generated videos — persisted across container restarts
 
 services:
 
@@ -63,18 +66,13 @@ services:
       # Used to normalize media src in timeline JSON for server-side rendering
       FRONTEND_PUBLIC_BASE_URL: http://localhost:3000
       API_PUBLIC_BASE_URL: http://localhost:8000
+      # No-GCP local mode — skip Firebase auth, use local filesystem for storage
+      DISABLE_AUTH: "true"
+      GCS_BUCKET: ""             # empty → saves files to /app/outputs, served at /outputs
+      GOOGLE_CLOUD_PROJECT: ""   # empty → Firestore falls back to local JSON storage
     volumes:
       - ./backend/assets:/app/assets:ro   # music presets + art-style references
-      # ── GCP Application Default Credentials ────────────────────────────────
-      # Option A (recommended): mount gcloud CLI ADC if you have gcloud installed.
-      #   Run first: gcloud auth application-default login
-      #   Then uncomment the line below:
-      # - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
-      #
-      # Option B: service account key file
-      #   Set GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json in backend/.env
-      #   and uncomment:
-      # - ./credentials.json:/app/credentials.json:ro
+      - outputs_data:/app/outputs         # persist generated videos across restarts
     tmpfs:
       - /tmp/voicevid_work     # pipeline scratch space — cleared on restart
     networks:
@@ -107,6 +105,7 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost:8000
         # Firebase config — these are public browser-side keys (safe to hardcode).
         # Override via .env at the repo root if you use your own Firebase project.
+        NEXT_PUBLIC_DISABLE_AUTH: "true"
         NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-AIzaSyAPw6KJjyDr8CPZXkeJbaRQsFkcUO-Hd38}
         NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-story-labs-factory.firebaseapp.com}
         NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-story-labs-factory}
