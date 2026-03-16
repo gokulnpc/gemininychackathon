@@ -8,12 +8,16 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  ExternalLink,
   Loader2,
+  Pencil,
+  Plus,
   RefreshCw,
   Settings,
   Share2,
   ThumbsUp,
   Video,
+  XCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -24,6 +28,7 @@ import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import apiClient from "@/lib/apiClient";
 import { ShareDialog } from "@/components/shared/ShareDialog";
+import { useYoutubeAccount } from "@/hooks/use-youtube-account";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -284,73 +289,290 @@ function ScriptReadyPanel({
   );
 }
 
+const PUBLISH_PLATFORMS = [
+  {
+    key: "youtube" as const,
+    label: "YouTube",
+    icon: (
+      <div className="w-8 h-8 bg-[#FF0000] rounded-lg flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="currentColor">
+          <path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.54 3.5 12 3.5 12 3.5s-7.54 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14C4.46 20.5 12 20.5 12 20.5s7.54 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.75 15.02V8.98L15.5 12l-5.75 3.02z" />
+        </svg>
+      </div>
+    ),
+  },
+  {
+    key: "instagram" as const,
+    label: "Instagram",
+    subtitle: "Share as Reel or Post",
+    icon: (
+      <div className="w-8 h-8 bg-gradient-to-tr from-[#FFB900] via-[#FF0040] to-[#9900FF] rounded-lg flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+          <circle cx="12" cy="12" r="4" />
+          <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      </div>
+    ),
+  },
+  {
+    key: "tiktok" as const,
+    label: "TikTok",
+    subtitle: "Share as TikTok video",
+    icon: (
+      <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="currentColor">
+          <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z" />
+        </svg>
+      </div>
+    ),
+  },
+];
+
+type PublishResult = { platform: string; status: string; post_url?: string; error?: string };
+
 function CompletedPanel({
   project,
 }: {
   project: Project;
 }) {
-  const platforms = Object.keys(project.video_urls ?? {});
+  const router = useRouter();
   const { idToken } = useAuth();
+  const { youtubeConnected, youtubeConnecting, connectYouTube } = useYoutubeAccount();
+
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [publishing, setPublishing] = useState(false);
+  const [results, setResults] = useState<PublishResult[] | null>(null);
+
+  // Build list of connected platforms
+  const connectedPlatforms = PUBLISH_PLATFORMS.filter(
+    (p) => p.key === "youtube" && youtubeConnected
+  );
+
+  function togglePlatform(key: string) {
+    setSelectedPlatforms((prev) =>
+      prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key]
+    );
+  }
+
+  async function handlePublish() {
+    if (!selectedPlatforms.length) return;
+    setPublishing(true);
+    setResults(null);
+    try {
+      const resp = await apiClient.post(`/api/v1/projects/${project.project_id}/publish`, {
+        platforms: selectedPlatforms,
+      });
+      setResults((resp.data as { posts?: PublishResult[] }).posts ?? []);
+    } catch (e) {
+      setResults([{ platform: "all", status: "failed", error: e instanceof Error ? e.message : "Publish failed" }]);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  // Download URL — use master or first available platform
+  const downloadPlatform = Object.keys(project.video_urls ?? {}).find((p) => p !== "master") ?? "master";
+  const downloadUrl = `${API}/api/v1/projects/${project.project_id}/stream/${downloadPlatform}${idToken ? `?token=${idToken}` : ""}`;
 
   return (
     <div className="flex flex-col gap-6">
-      {project.hook && (
-        <div className="bg-[#2a2a2a] rounded-xl px-4 py-3 text-sm text-white/80 italic border border-white/10">
-          "{project.hook}"
+      {/* Publish Video section */}
+      <div className="bg-[#2a2a2a] rounded-xl border border-white/10 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-medium text-white">Publish Video</h3>
+            <p className="text-xs text-white/40 mt-0.5">Select platforms to share your video</p>
+          </div>
+          {connectedPlatforms.length > 0 && (
+            <Button
+              onClick={handlePublish}
+              disabled={publishing || selectedPlatforms.length === 0}
+              className="rounded-full px-5 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white text-sm"
+            >
+              {publishing ? (
+                <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Publishing...</>
+              ) : (
+                <>Publish &rarr;</>
+              )}
+            </Button>
+          )}
         </div>
-      )}
 
-      <div className="grid grid-cols-2 gap-3">
-        {typeof project.scenes_count === "number" && (
-          <div className="bg-[#2a2a2a] rounded-xl p-3 border border-white/10">
-            <p className="text-xs text-white/40 mb-1">Scenes</p>
-            <p className="text-lg font-medium text-white">
-              {project.scenes_count}
-            </p>
-          </div>
-        )}
-        {platforms.length > 0 && (
-          <div className="bg-[#2a2a2a] rounded-xl p-3 border border-white/10">
-            <p className="text-xs text-white/40 mb-1">Platforms</p>
-            <p className="text-lg font-medium text-white">{platforms.length}</p>
-          </div>
-        )}
+        <div className="space-y-2">
+          {/* Connected platforms */}
+          {connectedPlatforms.map((platform) => {
+            const isPublished = results?.some(
+              (r) => r.platform === platform.key && (r.status === "published" || r.status === "success")
+            );
+            const selected = selectedPlatforms.includes(platform.key);
+
+            return (
+              <button
+                key={platform.key}
+                onClick={() => {
+                  if (isPublished) return;
+                  togglePlatform(platform.key);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all",
+                  isPublished
+                    ? "border-green-500/30 bg-green-500/10"
+                    : selected
+                    ? "border-[#5a9ab5] bg-[#5a9ab5]/10"
+                    : "border-white/10 bg-[#333333] hover:border-white/20"
+                )}
+              >
+                {platform.icon}
+                <span className="text-sm font-medium text-white">{platform.label}</span>
+                {isPublished ? (
+                  <span className="ml-auto flex items-center gap-1.5 text-xs text-green-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                    Published
+                    {results?.find((r) => r.platform === platform.key)?.post_url && (
+                      <a
+                        href={results.find((r) => r.platform === platform.key)!.post_url!}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[#5a9ab5] hover:underline"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </span>
+                ) : (
+                  <div className={cn(
+                    "ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors",
+                    selected ? "border-[#5a9ab5] bg-[#5a9ab5]" : "border-white/30"
+                  )}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+
+          {/* Publish errors */}
+          {results?.some((r) => r.status !== "published" && r.status !== "success") && (
+            <div className="space-y-1.5 mt-1">
+              {results.filter((r) => r.status !== "published" && r.status !== "success").map((r) => (
+                <div key={r.platform} className="flex items-center gap-2 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span className="capitalize text-white/80">{r.platform}</span>
+                  {r.error && <span className="ml-auto text-red-400 text-xs truncate max-w-[200px]">{r.error}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Connect more account */}
+          <button
+            onClick={() => setConnectDialogOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-white/5 bg-[#333333] hover:border-white/15 hover:bg-[#3a3a3a] transition-all text-white/50 hover:text-white/70"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="text-sm">Connect more account</span>
+          </button>
+        </div>
       </div>
 
-      {project.voiceover_full_script && (
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
-            Voiceover Script
-          </label>
-          <div className="bg-[#2a2a2a] rounded-xl p-4 border border-white/10 text-sm text-white/70 leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar">
-            {project.voiceover_full_script}
+      {/* Connect Account Dialog */}
+      {connectDialogOpen && (
+        <div className="bg-[#2a2a2a] rounded-xl border border-white/10 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-medium text-white">Connect Account</h3>
+              <p className="text-xs text-white/40 mt-0.5">Select platforms to share your video</p>
+            </div>
+            <button onClick={() => setConnectDialogOpen(false)} className="text-white/40 hover:text-white">
+              <XCircle className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {PUBLISH_PLATFORMS.filter((p) => !(p.key === "youtube" && youtubeConnected)).map((platform) => (
+              <button
+                key={platform.key}
+                onClick={() => {
+                  if (platform.key === "youtube") {
+                    connectYouTube();
+                  }
+                }}
+                disabled={platform.key !== "youtube"}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all",
+                  platform.key === "youtube"
+                    ? "border-white/10 bg-[#333333] hover:border-white/20 cursor-pointer"
+                    : "border-white/5 bg-[#333333] opacity-50 cursor-not-allowed"
+                )}
+              >
+                {platform.icon}
+                <div className="text-left">
+                  <span className="text-sm font-medium text-white block">{platform.label}</span>
+                  {"subtitle" in platform && platform.subtitle && (
+                    <span className="text-xs text-white/40">{platform.subtitle}</span>
+                  )}
+                </div>
+                {platform.key === "youtube" ? (
+                  youtubeConnecting ? (
+                    <Loader2 className="ml-auto w-4 h-4 animate-spin text-[#5a9ab5]" />
+                  ) : (
+                    <div className="ml-auto w-5 h-5 rounded-full border-2 border-white/30" />
+                  )
+                ) : (
+                  <div className="ml-auto w-5 h-5 rounded-full border-2 border-white/10" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2 mt-4">
+            <Button
+              variant="outline"
+              className="flex-1 bg-transparent border-white/10 text-white/70 hover:bg-white/10 hover:text-white"
+              onClick={() => setConnectDialogOpen(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       )}
 
-      {platforms.filter((p) => p !== "master").length > 0 && (
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-white/50 uppercase tracking-wider">
+      {/* Action buttons: Download, Edit, Regenerate */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <a
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-white/10 bg-white/5 text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Download className="w-4 h-4" />
             Download
-          </label>
-          {platforms
-            .filter((p) => p !== "master")
-            .map((platform) => (
-              <a
-                key={platform}
-                href={`${API}/api/v1/projects/${project.project_id}/stream/${platform}${idToken ? `?token=${idToken}` : ""}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#2a2a2a] border border-white/10 hover:border-[#5a9ab5]/40 transition-colors group"
-              >
-                <span className="text-sm text-white/70 group-hover:text-white capitalize transition-colors">
-                  {platform.replace(/_/g, " ")}
-                </span>
-                <Download className="w-4 h-4 text-white/40 group-hover:text-[#5a9ab5] transition-colors" />
-              </a>
-            ))}
+          </a>
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/projects/${project.project_id}/edit`)}
+            className="rounded-full px-5 bg-[#5a9ab5] hover:bg-[#7ab0c8] text-white border-0"
+          >
+            <Pencil className="w-4 h-4 mr-2" />
+            Edit
+          </Button>
         </div>
-      )}
+        <div className="flex items-center gap-2 text-white/40 text-sm">
+          <span>Not satisfied?</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full border-white/20 bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+            Regenerate
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

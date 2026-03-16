@@ -14,11 +14,20 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Response interceptor — redirect to login on 401
+// Response interceptor — redirect to login on 401 (with loop guard)
+let redirecting = false;
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401 && typeof window !== "undefined") {
+    if (
+      err.response?.status === 401 &&
+      typeof window !== "undefined" &&
+      !redirecting &&
+      !window.location.pathname.startsWith("/login")
+    ) {
+      redirecting = true;
+      // Clear stale cookie before redirect to break any loop
+      document.cookie = "firebase_token=; path=/; max-age=0";
       window.location.href = "/login";
     }
     return Promise.reject(err);

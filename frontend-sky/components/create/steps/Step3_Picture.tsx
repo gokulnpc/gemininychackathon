@@ -123,13 +123,13 @@ export function Step3_Picture() {
       transition={{ duration: 0.3 }}
       className="space-y-8"
     >
-      <div className="grid grid-cols-2 gap-8 items-stretch">
+      <div className="grid grid-cols-2 gap-8 items-start">
         {/* Left: upload zone */}
         <div className="flex flex-col space-y-4">
           <h3 className="text-sm font-medium text-white">Upload your picture</h3>
 
           <div
-            className="flex-1 w-full border-2 border-dashed border-white/20 rounded-2xl bg-white/5 transition-colors hover:border-white/30 overflow-hidden"
+            className="w-full border-2 border-dashed border-white/20 rounded-2xl bg-white/5 transition-colors hover:border-white/30 overflow-hidden"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -140,11 +140,11 @@ export function Step3_Picture() {
             }}
           >
             {state.uploadedPicture ? (
-              <div className="relative w-full h-full p-2 flex items-center justify-center min-h-[200px]">
+              <div className="relative w-full p-2 flex items-center justify-center min-h-[200px] max-h-[400px]">
                 <img
                   src={state.uploadedPicture}
                   alt="Uploaded"
-                  className="max-h-full max-w-full object-contain rounded-xl"
+                  className="max-h-[380px] max-w-full object-contain rounded-xl"
                 />
                 <button
                   onClick={removePicture}
@@ -191,13 +191,13 @@ export function Step3_Picture() {
         {/* Right: role selector */}
         <div className="flex flex-col space-y-4">
           <h3 className="text-sm font-medium text-white">Choose your role</h3>
-          <div className="flex flex-col justify-between flex-1 gap-3">
+          <div className="flex flex-col gap-3">
             {roles.map((role) => (
               <button
                 key={role.id}
                 onClick={() => dispatch({ type: "SET_PICTURE_ROLE", payload: role.id })}
                 className={cn(
-                  "w-full h-full flex-1 flex items-center px-5 py-4 rounded-xl border transition-all duration-200",
+                  "w-full flex items-center px-5 py-4 rounded-xl border transition-all duration-200",
                   state.pictureRole === role.id
                     ? "border-[#5a9ab5] bg-[#5a9ab5]/20 text-white"
                     : "border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:bg-white/10"

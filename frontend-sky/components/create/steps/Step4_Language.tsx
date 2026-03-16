@@ -6,8 +6,6 @@ import { useWizard } from "@/context/WizardContext";
 import { motion } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
 import apiClient from "@/lib/apiClient";
-import Image from "next/image";
-
 interface VoiceOption {
   id: string;
   name: string;
@@ -126,11 +124,9 @@ export function Step4_Language() {
                 <div className="flex items-center gap-4">
                   {/* Voice avatar image */}
                   <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-white/10">
-                    <Image
-                      src={`/voice/Voice_${voice.name || voice.id}.png`}
+                    <img
+                      src={`/voice/Voice_${voice.name}.png`}
                       alt={voice.name || voice.id}
-                      width={40}
-                      height={40}
                       className="w-full h-full object-cover"
                     />
                   </div>
