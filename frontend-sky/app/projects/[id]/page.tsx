@@ -45,6 +45,7 @@ interface Project {
   progress_pct?: number;
   queued_at?: string;
   created_at?: string;
+  title?: string;
   hook?: string;
   scenes_count?: number;
   voiceover_full_script?: string;
@@ -574,19 +575,14 @@ export default function ProjectDetailPage() {
               {/* Top meta row */}
               <div className="flex items-center gap-3 mb-2">
                 <StatusPill status={project.status} />
-                <span className="text-xs text-white/30 font-mono">
-                  {project.project_id}
-                </span>
                 <span className="text-xs text-white/30">
                   {timeAgo(project.queued_at ?? project.created_at)}
                 </span>
               </div>
 
-              {project.hook && (
-                <h1 className="text-2xl font-medium text-white mb-8 leading-snug">
-                  "{project.hook}"
-                </h1>
-              )}
+              <h1 className="text-2xl font-medium text-white mb-8 leading-snug">
+                {project.title ?? project.hook ?? "Untitled Project"}
+              </h1>
 
               {/* Two-column layout */}
               <div className="flex gap-8 items-start">

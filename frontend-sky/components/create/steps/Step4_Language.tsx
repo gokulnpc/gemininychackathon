@@ -6,6 +6,7 @@ import { useWizard } from "@/context/WizardContext";
 import { motion } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
 import apiClient from "@/lib/apiClient";
+import Image from "next/image";
 
 interface VoiceOption {
   id: string;
@@ -14,19 +15,6 @@ interface VoiceOption {
   tags: string[];
   default: boolean;
 }
-
-// Initials avatar colors per voice (cycles if more voices added)
-const AVATAR_COLORS = [
-  "bg-violet-500",
-  "bg-sky-500",
-  "bg-emerald-500",
-  "bg-rose-500",
-  "bg-amber-500",
-  "bg-indigo-500",
-  "bg-teal-500",
-  "bg-fuchsia-500",
-  "bg-orange-500",
-];
 
 export function Step4_Language() {
   const { state, dispatch } = useWizard();
@@ -136,14 +124,15 @@ export function Step4_Language() {
                 )}
               >
                 <div className="flex items-center gap-4">
-                  {/* Initials avatar */}
-                  <div
-                    className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0",
-                      AVATAR_COLORS[index % AVATAR_COLORS.length],
-                    )}
-                  >
-                    {(voice.name || voice.id).slice(0, 2).toUpperCase()}
+                  {/* Voice avatar image */}
+                  <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-white/10">
+                    <Image
+                      src={`/voice/Voice_${voice.name || voice.id}.png`}
+                      alt={voice.name || voice.id}
+                      width={40}
+                      height={40}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <div className="text-left">
                     <div className="flex items-center gap-2">
