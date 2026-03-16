@@ -48,6 +48,16 @@ export function Step5_Music() {
   const [playingAssetId, setPlayingAssetId] = useState<string | null>(null);
   const assetAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Stop all audio when component unmounts (e.g. navigating to next step)
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      assetAudioRef.current?.pause();
+      assetAudioRef.current = null;
+    };
+  }, []);
+
   // Fetch music assets on first dialog open
   useEffect(() => {
     if (!assetDialogOpen || assetsFetched) return;

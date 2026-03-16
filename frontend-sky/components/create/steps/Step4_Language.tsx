@@ -9,6 +9,7 @@ import apiClient from "@/lib/apiClient";
 
 interface VoiceOption {
   id: string;
+  name: string;
   description: string;
   tags: string[];
   default: boolean;
@@ -142,11 +143,11 @@ export function Step4_Language() {
                       AVATAR_COLORS[index % AVATAR_COLORS.length],
                     )}
                   >
-                    {voice.id.slice(0, 2).toUpperCase()}
+                    {(voice.name || voice.id).slice(0, 2).toUpperCase()}
                   </div>
                   <div className="text-left">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white">{voice.id}</span>
+                      <span className="text-sm font-medium text-white">{voice.name || voice.id}</span>
                       {(voice.tags ?? []).filter(t => t === "female" || t === "male").map((tag) => (
                         <span
                           key={tag}

@@ -42,7 +42,7 @@
     "@radix-ui/react-tooltip": "1.2.8",
     "@twick/browser-render": "^0.15.23",
     "@twick/live-player": "^0.15.23",
-    "@twick/studio": "^0.15.23",
+    "@twick/studio": "^0.15.1",
     "@twick/timeline": "^0.15.23",
     "@vercel/analytics": "1.6.1",
     "axios": "^1.13.6",
@@ -67,6 +67,15 @@
     "tailwind-merge": "^3.3.1",
     "vaul": "^1.1.2",
     "zod": "^3.24.1"
+  },
+  "overrides": {
+    "tar": "^7.5.11",
+    "yauzl": "^3.2.1",
+    "@tootallnate/once": "^3.0.1",
+    "http-proxy-agent": "^7.0.0",
+    "fabric": "^7.2.0",
+    "esbuild": "^0.25.0",
+    "vite": "^6.2.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",
