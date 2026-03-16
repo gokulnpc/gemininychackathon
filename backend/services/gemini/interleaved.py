@@ -135,6 +135,11 @@ def _invoke_interleaved(prompt: str) -> list[dict]:
     )
 
     blocks: list[dict] = []
+    if not response.candidates or not response.candidates[0].content:
+        raise RuntimeError(
+            "Image generation returned no content — the topic may be blocked by safety filters. "
+            "Try rephrasing the brief (e.g. avoid trademarked character names)."
+        )
     for part in response.candidates[0].content.parts:
         text = getattr(part, "text", None)
         blob = getattr(part, "inline_data", None)
@@ -171,6 +176,11 @@ def _invoke_interleaved_with_image(prompt: str, reference_image_b64: str | None 
     )
 
     blocks: list[dict] = []
+    if not response.candidates or not response.candidates[0].content:
+        raise RuntimeError(
+            "Image generation returned no content — the topic may be blocked by safety filters. "
+            "Try rephrasing the brief (e.g. avoid trademarked character names)."
+        )
     for part in response.candidates[0].content.parts:
         text = getattr(part, "text", None)
         blob = getattr(part, "inline_data", None)
