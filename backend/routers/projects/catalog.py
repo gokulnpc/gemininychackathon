@@ -181,6 +181,19 @@ _VOICE_TAGS: dict[str, list[str]] = {
     "Laomedeia": ["female", "bright", "cheerful", "energetic"],
 }
 
+# Friendly display names for Gemini TTS voices
+_VOICE_DISPLAY_NAMES: dict[str, str] = {
+    "Aoede":     "Ava",
+    "Charon":    "James",
+    "Fenrir":    "Marcus",
+    "Kore":      "Emily",
+    "Orus":      "Daniel",
+    "Autonoe":   "Sophia",
+    "Zephyr":    "Lily",
+    "Puck":      "Oliver",
+    "Laomedeia": "Chloe",
+}
+
 
 @router.get("/voices")
 async def list_voices():
@@ -191,7 +204,8 @@ async def list_voices():
     """
     from services.gemini.tts import VOICE_CATALOGUE, DEFAULT_VOICE
     return [
-        {"id": name, "description": desc, "default": name == DEFAULT_VOICE,
+        {"id": name, "name": _VOICE_DISPLAY_NAMES.get(name, name),
+         "description": desc, "default": name == DEFAULT_VOICE,
          "tags": _VOICE_TAGS.get(name, [])}
         for name, desc in VOICE_CATALOGUE.items()
     ]
@@ -210,7 +224,8 @@ async def preview_voice(voice_id: str):
     if voice_id not in VOICE_CATALOGUE:
         raise HTTPException(status_code=404, detail="Voice not found")
 
-    preview_text = "Hi there, I am Scout. Welcome to Story Lab!"
+    display_name = _VOICE_DISPLAY_NAMES.get(voice_id, voice_id)
+    preview_text = f"Hi there, I'm {display_name}. Welcome to Story Lab!"
 
     try:
         wav_path = await generate_voiceover(preview_text, voice_name=voice_id)
