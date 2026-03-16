@@ -482,13 +482,17 @@ async def _dispatch_voice_tool(
             s.get("visual_prompt") or s.get("voiceover_text") or ""
             for s in _scenes[:5]
         ]
+        _social_copy = (_script.get("social_copy") or {}).get("youtube") or {}
         return {
-            "hook":             project_data.get("hook", ""),
-            "caption_style":    project_data.get("caption_style", "beast"),
-            "background_music": project_data.get("background_music", "none"),
-            "music_volume":     project_data.get("music_volume", 0.15),
-            "platforms":        project_data.get("platforms", ["instagram_reels"]),
-            "scene_summaries":  [s for s in _scene_summaries if s],
+            "hook":                 project_data.get("hook", ""),
+            "caption_style":        project_data.get("caption_style", "beast"),
+            "background_music":     project_data.get("background_music", "none"),
+            "music_volume":         project_data.get("music_volume", 0.15),
+            "platforms":            project_data.get("platforms", ["instagram_reels"]),
+            "scene_summaries":      [s for s in _scene_summaries if s],
+            "youtube_title":        _social_copy.get("title", ""),
+            "youtube_description":  _social_copy.get("caption", ""),
+            "youtube_hashtags":     _social_copy.get("hashtags", []),
         }
 
     if name == "get_editor_context":
