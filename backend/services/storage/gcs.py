@@ -20,7 +20,7 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 # Local outputs directory (relative to this file's parent = backend/)
-_OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
+_OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "outputs")
 
 
 @functools.lru_cache(maxsize=None)
