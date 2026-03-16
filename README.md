@@ -270,73 +270,104 @@ GET    /docs                                      Swagger UI
 
 ## Spin-Up Instructions
 
-### Prerequisites
-- Python 3.12+, Node.js 20+, `pnpm`, `ffmpeg` installed locally
-- Gemini API key (get one at [aistudio.google.com](https://aistudio.google.com))
-- Firebase project (for Auth) and GCP project (for GCS, Firestore)
+### Option 1: Docker (Recommended)
 
-### Backend
+The fastest way to run the full stack. Requires **Docker Desktop** and a **Gemini API key**.
 
+**Step 1 — Configure the backend:**
+```bash
+cp backend/.env.example backend/.env
+# Open backend/.env and set:
+#   GEMINI_API_KEY=<your key from https://aistudio.google.com/apikey>
+#   GOOGLE_CLOUD_PROJECT=<your GCP project ID>
+#   GCS_BUCKET=<your GCS bucket name>
+```
+
+**Step 2 — GCP credentials** (for Cloud Storage + Firestore access):
+
+*Option A — gcloud CLI (recommended):*
+```bash
+gcloud auth application-default login
+# Then uncomment this line in docker-compose.yml under voicevid-api volumes:
+#   - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+```
+
+*Option B — service account key:*
+```bash
+# Place your downloaded key at ./credentials.json, then uncomment in docker-compose.yml:
+#   - ./credentials.json:/app/credentials.json:ro
+# And add to backend/.env:
+#   GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+```
+
+**Step 3 — Build and run:**
+```bash
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| API | http://localhost:8000 |
+| API docs | http://localhost:8000/docs |
+| Health | http://localhost:8000/health |
+
+The `timeline-render-worker` (headless Chromium renderer) starts automatically and is only accessible internally — no host port needed.
+
+> **Note:** The first build takes ~5–10 minutes (installs Python deps, pnpm deps, builds Next.js, pulls Chromium). Subsequent starts use Docker's layer cache.
+
+---
+
+### Option 2: Manual Local Setup
+
+**Prerequisites:** Python 3.12+, Node.js 20+, `pnpm`, `ffmpeg`
+
+**Backend:**
 ```bash
 cd backend
 pip install -r requirements.txt
-
-# Copy and fill in environment variables
 cp .env.example .env
-# Edit .env — minimum required:
-#   GEMINI_API_KEY=...
-#   GOOGLE_CLOUD_PROJECT=your-project-id
-#   GCS_BUCKET=your-bucket
-#   FIREBASE_PROJECT_ID=your-project-id
-#   USE_VERTEX_AI=false
-#   WORKER_URL=   # leave blank for local sync pipeline
+# Fill in GEMINI_API_KEY, GOOGLE_CLOUD_PROJECT, GCS_BUCKET in .env
 
 uvicorn main:app --reload --port 8000
 # API docs: http://localhost:8000/docs
-# Health:   http://localhost:8000/health
 ```
 
-### Frontend
-
+**Frontend:**
 ```bash
 cd frontend-sky
 pnpm install
-
-# Copy and fill in environment variables
-cp .env.local.example .env.local
-# Edit .env.local:
-#   NEXT_PUBLIC_API_URL=http://localhost:8000
-#   NEXT_PUBLIC_FIREBASE_API_KEY=...
-#   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
-#   NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+cp .env.example .env.local
+# Edit .env.local — defaults already point to localhost:8000
 
 pnpm dev
 # App: http://localhost:3000
 ```
 
-### Timeline Render Worker (optional — for editor exports)
-
+**Timeline Render Worker (optional — for editor exports):**
 ```bash
 cd timeline-render-worker
 npm install
 node server.mjs
-# Render endpoint: http://localhost:4001/render
-# Health check:    http://localhost:4001/health
+# Health: http://localhost:8080/health
+# Set TIMELINE_RENDER_WORKER_URL=http://localhost:8080 in backend/.env to enable
 ```
+
+---
 
 ### Required Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GEMINI_API_KEY` | Yes | Gemini API key from AI Studio |
-| `GOOGLE_CLOUD_PROJECT` | Yes | GCP project ID |
-| `GCS_BUCKET` | Yes | Cloud Storage bucket name |
-| `FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
-| `USE_VERTEX_AI` | No | `true` for Vertex AI, `false` for API key (default: false) |
-| `WORKER_URL` | No | Internal URL of voicevid-worker (blank = sync local pipeline) |
+| `GEMINI_API_KEY` | **Yes** | Gemini API key from [AI Studio](https://aistudio.google.com/apikey) |
+| `GOOGLE_CLOUD_PROJECT` | **Yes** | GCP project ID |
+| `GCS_BUCKET` | **Yes** | Cloud Storage bucket name |
+| `USE_VERTEX_AI` | No | `true` for Vertex AI, `false` for API key (default: `false`) |
+| `WORKER_URL` | No | Worker Cloud Run URL — leave blank for synchronous local pipeline |
+| `TIMELINE_RENDER_WORKER_URL` | No | Renderer URL — set automatically by Docker Compose |
 | `SENDGRID_API_KEY` | No | Email notifications on video completion |
-| `REDDIT_CLIENT_ID` | No | Reddit API — preset script trending hooks |
-| `REDDIT_CLIENT_SECRET` | No | Reddit API secret |
+
+Full variable reference: [`backend/.env.example`](backend/.env.example)
 
 ---
 

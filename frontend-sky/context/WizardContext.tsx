@@ -28,15 +28,15 @@ const initialState: WizardState = {
   selectedVoice: null,
 
   // Step 4: Music
-  selectedMusic: null,
+  selectedMusic: "lyria",
   customMusicAssetId: null,
   customMusicFilename: null,
 
   // Step 4: Art Style
-  selectedArtStyle: null,
+  selectedArtStyle: "cinematic",
 
   // Step 5: Caption
-  selectedCaption: null,
+  selectedCaption: "red-highlight",
 
   // Step 6: Effects
   effects: {
@@ -47,7 +47,7 @@ const initialState: WizardState = {
 
   // Step 7: Video Details
   seriesName: "",
-  videoDuration: "",
+  videoDuration: "60",
   publishTime: "",
 
   // Preset flow

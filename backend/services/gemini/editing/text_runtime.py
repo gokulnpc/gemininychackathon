@@ -204,13 +204,13 @@ def _get_tool_declarations():
         ),
         types.FunctionDeclaration(
             name="generate_storyboard",
-            description="Generate a visual storyboard from a brief using the interleaved AI model. Produces 3–6 scene images that appear in the chat. Images are cached for building the timeline.",
+            description="Generate a visual storyboard from a brief using the interleaved AI model. Produces at least 5 scene images (default 5, max 8) that appear in the chat. Images are cached for building the timeline.",
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
                     "brief": types.Schema(type=types.Type.STRING, description="What the video is about"),
                     "art_style": types.Schema(type=types.Type.STRING, description="Art style: cinematic, realism, ghibli, etc. Default: cinematic"),
-                    "num_scenes": types.Schema(type=types.Type.INTEGER, description="Number of scenes to generate (3–6). Default: 4"),
+                    "num_scenes": types.Schema(type=types.Type.INTEGER, description="Number of scenes to generate (minimum 5, default 5, max 8)"),
                 },
                 required=["brief"],
             ),
@@ -552,11 +552,14 @@ async def run_edit_text_agent(
 
                         brief_sb = fc.args.get("brief", "") if fc.args else ""
                         art_style_sb = fc.args.get("art_style", "cinematic") if fc.args else "cinematic"
-                        num_scenes_sb = min(max(int((fc.args or {}).get("num_scenes", 4)), 3), 6)
+                        num_scenes_sb = min(max(int((fc.args or {}).get("num_scenes", 5)), 5), 8)
 
                         prompt_sb = (
-                            f"Create a {num_scenes_sb}-panel manga story for: {brief_sb}. "
-                            f"Art style: {art_style_sb}."
+                            f"Create EXACTLY {num_scenes_sb} panels for this manga story: {brief_sb}. "
+                            f"Art style: {art_style_sb}. "
+                            f"You MUST generate {num_scenes_sb} panel images. "
+                            f"CRITICAL: Every single panel image MUST be 9:16 vertical portrait aspect ratio (576×1024). "
+                            f"Never generate landscape or square images."
                         )
                         blocks_sb, _ = await _gen_sb(prompt_sb, mode="manga", art_style=art_style_sb)
 

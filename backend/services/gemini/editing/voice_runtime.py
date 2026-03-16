@@ -482,13 +482,17 @@ async def _dispatch_voice_tool(
             s.get("visual_prompt") or s.get("voiceover_text") or ""
             for s in _scenes[:5]
         ]
+        _social_copy = (_script.get("social_copy") or {}).get("youtube") or {}
         return {
-            "hook":             project_data.get("hook", ""),
-            "caption_style":    project_data.get("caption_style", "beast"),
-            "background_music": project_data.get("background_music", "none"),
-            "music_volume":     project_data.get("music_volume", 0.15),
-            "platforms":        project_data.get("platforms", ["instagram_reels"]),
-            "scene_summaries":  [s for s in _scene_summaries if s],
+            "hook":                 project_data.get("hook", ""),
+            "caption_style":        project_data.get("caption_style", "beast"),
+            "background_music":     project_data.get("background_music", "none"),
+            "music_volume":         project_data.get("music_volume", 0.15),
+            "platforms":            project_data.get("platforms", ["instagram_reels"]),
+            "scene_summaries":      [s for s in _scene_summaries if s],
+            "youtube_title":        _social_copy.get("title", ""),
+            "youtube_description":  _social_copy.get("caption", ""),
+            "youtube_hashtags":     _social_copy.get("hashtags", []),
         }
 
     if name == "get_editor_context":
@@ -872,35 +876,36 @@ async def _dispatch_voice_tool(
 
             _ec_ei = editor_context or {}
 
-            # Resolve element_id: use passed arg or fall back to selected element
+            # Resolve element_id: only use explicitly selected element (no fallbacks)
             if not element_id_ei:
                 _sel_ei = (_ec_ei.get("selected_element_ids") or [])
                 element_id_ei = _sel_ei[0] if _sel_ei else ""
 
-            # Primary: fetch actual image from element src in project JSON
+            if not element_id_ei:
+                return {
+                    "status": "error",
+                    "error": "No image selected. Please click a scene on the timeline first, then try again.",
+                }
+
+            # Fetch image from selected element src only — no screen share fallback
             source_b64_ei: str | None = None
             if current_project_json and element_id_ei:
                 for _track_ei in (current_project_json.get("tracks") or []):
                     for _el_ei in (_track_ei.get("elements") or []):
-                        if _el_ei.get("id") == element_id_ei or _el_ei.get("element_id") == element_id_ei:
+                        if _el_ei.get("id") == element_id_ei:
                             _src_ei = (_el_ei.get("props") or {}).get("src") or _el_ei.get("src")
-                            if _src_ei:
+                            if _src_ei and not _src_ei.startswith("data:"):
                                 import httpx as _httpx_ei
                                 async with _httpx_ei.AsyncClient(timeout=10) as _c_ei:
                                     _r_ei = await _c_ei.get(_src_ei)
                                     source_b64_ei = _b64_ei.b64encode(_r_ei.content).decode()
                             break
 
-            # Fallback: live screen frame or editor screenshot
             if not source_b64_ei:
-                live_ei = get_live_state() if get_live_state else {}
-                source_b64_ei = (
-                    live_ei.get("latest_screen_frame_b64")
-                    or _ec_ei.get("screenshot", {}).get("image_b64")
-                )
-
-            if not source_b64_ei:
-                return {"error": "Could not get the current image — enable screen share or select the element."}
+                return {
+                    "status": "error",
+                    "error": "Could not load the selected image — make sure a scene with an image is selected.",
+                }
 
             edit_prompt_ei = (
                 f"Edit this image as instructed: {instruction_ei}. "
@@ -910,7 +915,7 @@ async def _dispatch_voice_tool(
             blocks_ei = await asyncio.to_thread(_gen_ei, edit_prompt_ei, source_b64_ei)
             image_blocks_ei = [b for b in blocks_ei if b.get("type") == "image"]
             if not image_blocks_ei:
-                return {"error": "Model returned no edited image — try rephrasing the instruction."}
+                return {"status": "error", "error": "Model returned no edited image — try rephrasing the instruction."}
 
             chosen_ei = image_blocks_ei[0]
             img_bytes_ei = _b64_ei.b64decode(chosen_ei["content"])
@@ -925,6 +930,27 @@ async def _dispatch_voice_tool(
                 _os_ei.unlink(tmp_ei)
             with contextlib.suppress(Exception):
                 await on_event({"type": "creative_block", "block": {"type": "image", "content": chosen_ei["content"], "mime_type": mime_ei}})
+
+            # Auto-replace selected element — no confirmation card needed
+            try:
+                _ar_patched, _ar_applied, _ar_errors = await _project_commands(
+                    current_project_json or {},
+                    [{"kind": "replace_selected_media", "args": {"src": src_url_ei}}],
+                    editor_context,
+                    uid=uid,
+                )
+                if _ar_applied and not _ar_errors:
+                    await _apply_live_edits(
+                        project_id=project_id,
+                        project_data=project_data,
+                        patched_project_json=_ar_patched,
+                        applied_changes=_ar_applied,
+                        editor_context=editor_context,
+                    )
+                    return {"status": "ok", "src": src_url_ei, "replaced": True}
+            except Exception as _ar_exc:
+                logger.warning("edit_selected_image auto-replace failed: %s", _ar_exc)
+
             return {"status": "ok", "src": src_url_ei}
         except Exception as exc:
             logger.warning("edit_selected_image failed: %s", exc)
@@ -1056,6 +1082,7 @@ async def run_edit_voice_agent(
     client = get_client(force_api_key=transport == "gemini_api")
     draft_commands: list[dict] = []
     session_restarted = False
+    _client_closed: list[bool] = [False]  # set when client sends "done"
 
     while True:
         live_config = _build_voice_config(project_data, transport)
@@ -1163,6 +1190,7 @@ async def run_edit_voice_agent(
                             )
 
                         if event["kind"] == "done":
+                            _client_closed[0] = True
                             return
 
                 async def _stall_monitor() -> None:
@@ -1414,8 +1442,17 @@ async def run_edit_voice_agent(
                 if stall_task is not None and stall_task in done:
                     raise RuntimeError("Voice session ended unexpectedly during stall monitoring.")
 
-            logger.info("Scout edit voice session ended: project=%s", project_id)
-            return
+            if _client_closed[0]:
+                logger.info("Scout edit voice session ended (client closed): project=%s", project_id)
+                return
+            logger.warning(
+                "Scout edit voice session: Gemini closed unexpectedly, restarting: project=%s",
+                project_id,
+            )
+            with contextlib.suppress(Exception):
+                await on_event({"type": "session_recovering"})
+            session_restarted = True
+            # No return — falls through to outer while True → new Gemini Live session
 
         except _VoiceSessionRestartRequired as exc:
             logger.warning(

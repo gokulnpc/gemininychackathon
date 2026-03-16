@@ -211,6 +211,27 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
         if not found:
             raise ValueError(f"delete_element_by_id: element {target_id!r} not found")
 
+    if "replace_element_by_id" in changes:
+        rep = changes["replace_element_by_id"]
+        target_id = str(rep.get("element_id", "")).strip()
+        new_src = str(rep.get("src", "")).strip()
+        if not target_id:
+            raise ValueError("replace_element_by_id: element_id is required")
+        if not new_src:
+            raise ValueError("replace_element_by_id: src is required")
+        found = False
+        for track in patched.get("tracks", []):
+            for el in track.get("elements", []):
+                if el.get("id") == target_id:
+                    el.setdefault("props", {})["src"] = new_src
+                    el["src"] = new_src
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            raise ValueError(f"replace_element_by_id: element {target_id!r} not found")
+
     if "apply_effect" in changes:
         cmd = changes["apply_effect"]
         effect_key = str(cmd.get("effect_key", ""))
@@ -317,7 +338,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                 "fontSize": 56,
                 "fontFamily": "Inter",
                 "fontWeight": 700,
-                "color": "#FFFFFF",
+                "fill": ov.get("color", "#FFFFFF"),
                 "textAlign": "center",
                 "stroke": "#000000",
                 "strokeWidth": 3,
@@ -487,7 +508,7 @@ def _patch_project_json(project_json: dict, changes: dict, editor_context: dict 
                     "fontSize": 72,
                     "fontFamily": "Inter",
                     "fontWeight": 800,
-                    "color": "#FFFFFF",
+                    "fill": "#FFFFFF",
                     "textAlign": "center",
                     "stroke": "#000000",
                     "strokeWidth": 3,
@@ -522,6 +543,7 @@ async def _project_commands(
         "add_hook_title": None,
         "move_element_by_id": "move_element_by_id",
         "delete_element_by_id": "delete_element_by_id",
+        "replace_element_by_id": "replace_element_by_id",
         "apply_effect": "apply_effect",
         "add_color_slide": "add_color_slide",
     }
@@ -633,6 +655,9 @@ async def _project_commands(
 
         elif kind == "delete_element_by_id":
             changes["delete_element_by_id"] = args
+
+        elif kind == "replace_element_by_id":
+            changes["replace_element_by_id"] = args
 
         elif kind == "apply_effect":
             changes["apply_effect"] = args
