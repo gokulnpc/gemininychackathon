@@ -9,7 +9,7 @@ export function ProgressStepper() {
   const totalSteps = 10; // Show all 10 steps in stepper
 
   const isStepActuallyCompleted = (stepNum: number) => {
-    if (stepNum === 1) return !!state.messageText || !!state.audioBase64 || !!state.selectedPreset;
+    if (stepNum === 1) return !!state.messageText || !!state.audioBase64 || !!state.selectedPreset || stepNum < state.currentStep;
     if (stepNum === 2) return !!state.selectedPlotOption || stepNum < state.currentStep;
     // Optional steps 3–9: completed once the user has moved past them
     if (stepNum >= 3 && stepNum <= 9) return stepNum < state.currentStep;

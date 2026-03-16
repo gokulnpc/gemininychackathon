@@ -44,27 +44,27 @@ export function UserMenu() {
           <span className="text-sm font-medium text-white whitespace-nowrap">{displayName}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <div className="px-3 py-3 bg-[#5a9ab5]/5 rounded-lg mx-2 mt-2 mb-2">
+      <DropdownMenuContent align="end" className="w-64 bg-[#1E1E1E] border-white/10">
+        <div className="px-3 py-3 bg-white/5 rounded-lg mx-2 mt-2 mb-2">
           <div className="flex items-center gap-2 mb-1">
             <Coins className="w-4 h-4 text-[#5a9ab5]" />
-            <span className="text-sm font-medium text-[#1A1A1A]">Credits</span>
+            <span className="text-sm font-medium text-white">Credits</span>
           </div>
-          <p className="text-2xl font-semibold text-[#1A1A1A]">{credits.toLocaleString()}</p>
+          <p className="text-2xl font-semibold text-white">{credits.toLocaleString()}</p>
           <p className="text-xs text-[#9B9B9B] mt-0.5">~{Math.floor(credits / 100)} videos remaining</p>
         </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push("/dashboard")} className="cursor-pointer">
+        <DropdownMenuSeparator className="bg-white/10" />
+        <DropdownMenuItem onClick={() => router.push("/dashboard")} className="cursor-pointer text-white hover:bg-white/10! focus:bg-white/10! focus:text-white!">
           <LayoutDashboard className="w-4 h-4 mr-2" />Dashboard
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => router.push("/billing")} className="cursor-pointer">
+        <DropdownMenuItem onClick={() => router.push("/billing")} className="cursor-pointer text-white hover:bg-white/10! focus:bg-white/10! focus:text-white!">
           <User className="w-4 h-4 mr-2" />Profile
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+        <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer text-white hover:bg-white/10! focus:bg-white/10! focus:text-white!">
           <Settings className="w-4 h-4 mr-2" />Settings
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-600">
+        <DropdownMenuSeparator className="bg-white/10" />
+        <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-400 hover:bg-white/10! focus:bg-white/10! focus:text-red-400!">
           <LogOut className="w-4 h-4 mr-2" />Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

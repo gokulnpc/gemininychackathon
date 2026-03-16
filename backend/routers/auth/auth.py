@@ -97,12 +97,12 @@ def _fetch_youtube_channel_info(credentials) -> dict | None:
 async def auth_status(current_user: dict = Depends(get_current_user)):
     """Return which platforms are configured and ready to publish."""
     youtube_ok = False
-    credentials_json = await youtube_auth_store.get_youtube_credentials_json(current_user["uid"])
-    if credentials_json:
-        try:
+    try:
+        credentials_json = await youtube_auth_store.get_youtube_credentials_json(current_user["uid"])
+        if credentials_json:
             youtube_ok = _youtube_credentials_valid(credentials_json)
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     settings = get_settings()
     return {
