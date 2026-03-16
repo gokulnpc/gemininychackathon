@@ -145,8 +145,8 @@ class GenerateScriptRequest(BaseModel):
     target_platforms: list[Platform]   = Field(default=[Platform.instagram_reels])
     style:            VideoStyle       = Field(default=VideoStyle.modern_energetic)
     video_duration:   int              = Field(default=30, description="Target seconds: 15, 30, or 60")
-    caption_style:    CaptionStyleEnum = Field(default=CaptionStyleEnum.bold_stroke)
-    art_style:        ArtStyle         = Field(default=ArtStyle.realism)
+    caption_style:    CaptionStyleEnum = Field(default=CaptionStyleEnum.red_highlight)
+    art_style:        ArtStyle         = Field(default=ArtStyle.cinematic)
     background_music: MusicPreset      = Field(default=MusicPreset.none)
     voice_id:         str              = Field(default="Aoede")
     video_format:     VideoFormat      = Field(default=VideoFormat.storytelling)
@@ -200,7 +200,7 @@ class QueueScriptRequest(BaseModel):
     voice_id:              str               = Field(default="Aoede")
     art_style_override:    Optional[str]     = Field(default=None)
     music_preset_override: Optional[str]     = Field(default=None)
-    caption_style:         str               = Field(default="bold_stroke")
+    caption_style:         str               = Field(default="red_highlight")
     video_duration:        int               = Field(default=30)
 
     # Optional personalization
@@ -269,7 +269,7 @@ class GenerateVideoRequest(BaseModel):
     """
     script: ScriptGenerationResponse = Field(..., description="The confirmed script from /generate-script")
     target_platforms: list[Platform] = Field(default=[Platform.instagram_reels])
-    caption_style: CaptionStyleEnum  = Field(default=CaptionStyleEnum.bold_stroke)
+    caption_style: CaptionStyleEnum  = Field(default=CaptionStyleEnum.red_highlight)
     video_duration: int              = Field(default=30)
 
     # Series config (voice, music, art style) — load from saved series or supply directly
@@ -375,8 +375,8 @@ class SeriesConfig(BaseModel):
     voice_id: str = "Aoede"
     background_music: MusicPreset = MusicPreset.none
     music_volume: float = Field(default=0.15, ge=0.0, le=1.0)
-    art_style: ArtStyle = ArtStyle.realism
-    caption_style: CaptionStyleEnum = CaptionStyleEnum.bold_stroke
+    art_style: ArtStyle = ArtStyle.cinematic
+    caption_style: CaptionStyleEnum = CaptionStyleEnum.red_highlight
     video_duration: VideoDurationRange = VideoDurationRange.medium
 
 

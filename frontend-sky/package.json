@@ -42,7 +42,7 @@
     "@radix-ui/react-tooltip": "1.2.8",
     "@twick/browser-render": "^0.15.23",
     "@twick/live-player": "^0.15.23",
-    "@twick/studio": "^0.15.1",
+    "@twick/studio": "^0.15.23",
     "@twick/timeline": "^0.15.23",
     "@vercel/analytics": "1.6.1",
     "axios": "^1.13.6",
