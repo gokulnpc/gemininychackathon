@@ -132,13 +132,12 @@ async def stream_project_video(project_id: UUID, platform: str, current_user: di
     """Redirect to the public GCS video URL (ownership enforced)."""
     from fastapi.responses import RedirectResponse
     await firestore_db.get_project_for_user(str(project_id), current_user["uid"])
-    settings = get_settings()
     gcs_key = (
         f"projects/{project_id}/master/composed.mp4"
         if platform == "master"
         else f"projects/{project_id}/{platform}/final.mp4"
     )
-    public_url = f"https://storage.googleapis.com/{settings.gcs_bucket}/{gcs_key}"
+    public_url = await gcs.generate_presigned_url(gcs_key)
     return RedirectResponse(url=public_url, status_code=302)
 
 
