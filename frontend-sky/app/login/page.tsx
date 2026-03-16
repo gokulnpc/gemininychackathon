@@ -9,29 +9,30 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, signInWithGoogle } = useAuth();
+  const { user, signInWithGoogle, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) {
-      router.push("/welcome");
+    if (!authLoading && user) {
+      router.replace("/welcome");
     }
-  }, [user, router]);
+  }, [user, authLoading, router]);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError(null);
     try {
       await signInWithGoogle();
-      router.push("/welcome");
+      // redirect handled by useEffect once onAuthStateChanged confirms the user
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign in failed. Please try again.";
       setError(message);
-    } finally {
       setLoading(false);
     }
   };
+
+  if (authLoading) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#0a0a0a]">
