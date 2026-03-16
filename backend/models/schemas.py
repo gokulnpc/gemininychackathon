@@ -191,6 +191,7 @@ class QueueScriptRequest(BaseModel):
     topic_hint:    Optional[str]      = Field(default=None)
 
     # Plot + character context
+    title:               Optional[str] = Field(default=None, description="User-facing project title (e.g. plot option title)")
     plot_summary:        Optional[str] = Field(default=None)
     user_character_role: Optional[str] = Field(default=None)
 

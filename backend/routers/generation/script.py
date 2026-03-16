@@ -550,6 +550,8 @@ async def queue_script(project_id: UUID, request: QueueScriptRequest, current_us
         "audio_gcs_key": audio_gcs_key,
         "video_urls": {},
     }
+    if request.title:
+        doc["title"] = request.title
     try:
         await firestore_db.save_project(pid, doc)
     except Exception as e:

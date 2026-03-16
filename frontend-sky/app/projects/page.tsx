@@ -55,6 +55,7 @@ interface Project {
   progress_pct?: number;
   queued_at?: string;
   created_at?: string;
+  title?: string;
   hook?: string;
   scenes_count?: number;
   voiceover_full_script?: string;
@@ -278,7 +279,7 @@ function ProjectCard({
       {/* Below-card info */}
       <div className="mt-2 px-1">
         <p className="text-sm text-white font-medium truncate">
-          {project.hook ?? project.project_id.slice(0, 20) + "..."}
+          {project.title ?? project.hook ?? "Untitled Project"}
         </p>
         <p className="text-xs text-white/40 mt-0.5">
           {timeAgo(project.queued_at ?? project.created_at)}
@@ -377,6 +378,7 @@ function ProjectsContent() {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return (
+        p.title?.toLowerCase().includes(q) ||
         p.hook?.toLowerCase().includes(q) ||
         p.project_id.toLowerCase().includes(q) ||
         p.current_stage?.toLowerCase().includes(q)

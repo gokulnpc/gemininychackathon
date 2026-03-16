@@ -59,6 +59,7 @@ export function FooterNav() {
     }
 
     if (state.selectedPlotOption) {
+      body.title = state.selectedPlotOption.title;
       body.plot_summary = state.selectedPlotOption.summary;
     }
     if (state.uploadedPicture) {
