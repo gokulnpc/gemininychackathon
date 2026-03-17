@@ -1,20 +1,35 @@
-# Story Factory — Gemini Live Agent Challenge Submission
+# Story Labs — Gemini Live Agent Challenge Submission
 
 **Turn any idea into a publish-ready short-form video — guided by a live AI that sees, hears, and edits alongside you.**
 
-Story Factory is a multimodal AI video creation and editing platform powered by the Gemini Live API. Describe an idea by voice and Scout (the live AI agent) creates a full video from scratch — proposing scripts, generating storyboards, building an editable timeline — or run the 7-stage automated pipeline and have Scout refine it in real-time. Scout sees your screen, applies 25+ targeted edits, and responds naturally to interruptions.
+Story Labs is a multimodal AI video creation and editing platform powered by the Gemini Live API. Describe an idea by voice and Scout (the live AI agent) creates a full video from scratch — proposing scripts, generating storyboards, building an editable timeline — or run the 7-stage automated pipeline and have Scout refine it in real-time. Scout sees your screen, applies 25+ targeted edits, and responds naturally to interruptions.
 
-**Demo:** [▶ Watch Demo](https://your-demo-video-url-here) · **Live API:** https://voicevid-api-arkk5ohwka-uc.a.run.app · **API Docs:** https://voicevid-api-arkk5ohwka-uc.a.run.app/docs
+**Demo:** [▶ Watch Demo](https://www.youtube.com/watch?v=3jSrGvsOwlk) · **Live App:** https://gemininychackathon.vercel.app · **Live API:** https://voicevid-api-arkk5ohwka-uc.a.run.app · **API Docs:** https://voicevid-api-arkk5ohwka-uc.a.run.app/docs
+
+---
+
+## Contents
+
+- [Hackathon Tracks](#hackathon-tracks)
+- [What We Built](#what-we-built)
+- [Gemini Models](#gemini-models)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Google Cloud Deployment](#google-cloud-deployment)
+- [Technologies Used](#technologies-used)
+- [API Endpoints](#api-endpoints)
+- [Key Learnings](#key-learnings)
 
 ---
 
 ## Hackathon Tracks
 
-| Track | How Story Factory covers it | Mandatory Tech |
-|-------|------------------------------|----------------|
-| **Live Agents (Primary)** | Scout — a Gemini Live voice agent that creates videos from scratch and edits them through natural conversation, handles interruptions, and maintains session state across tool calls | Gemini Live API · Google GenAI SDK · Cloud Run |
-| **Creative Storyteller** | Creative Director uses `gemini-2.0-flash-preview-image-generation` to stream interleaved text + image in one API call — 5 modes: storybook, marketing, educational, social content, manga panels | Gemini interleaved/mixed output · Google Cloud |
-| **UI Navigator** | Screen Sharing Agent — Scout captures the user's screen at 1 FPS, streams frames into the Live session, and references the visual editor state when making or explaining edits | Gemini multimodal (screenshots) · Google Cloud |
+| Track                     | How Story Labs covers it                                                                                                                                                                         | Mandatory Tech                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| **Live Agents (Primary)** | Scout — a Gemini Live voice agent that creates videos from scratch and edits them through natural conversation, handles interruptions, and maintains session state across tool calls             | Gemini Live API · Google GenAI SDK · Cloud Run |
+| **Creative Storyteller**  | Creative Director uses `gemini-2.0-flash-preview-image-generation` to stream interleaved text + image in one API call — 5 modes: storybook, marketing, educational, social content, manga panels | Gemini interleaved/mixed output · Google Cloud |
+| **UI Navigator**          | Screen Sharing Agent — Scout captures the user's screen at 1 FPS, streams frames into the Live session, and references the visual editor state when making or explaining edits                   | Gemini multimodal (screenshots) · Google Cloud |
 
 ---
 
@@ -22,25 +37,56 @@ Story Factory is a multimodal AI video creation and editing platform powered by 
 
 A real-time AI-assisted short-form video creator and editor with three layers:
 
-1. **Create** — describe your idea by voice to Scout (scratch workflow: propose scripts → storyboard → build timeline), or use the wizard with a 7-stage automated pipeline (TTS, images, animation, captions, music, export)
-2. **Edit** — talk to Scout in the editor; Scout sees your screen and applies 25+ targeted edits without re-rendering from scratch
-3. **Publish** — direct upload to YouTube Shorts, Instagram Reels, or TikTok
+- **Create** — describe your idea by voice to Scout (scratch workflow: propose scripts → storyboard → build timeline), or use the guided wizard with a 7-stage automated pipeline (TTS, images, animation, captions, music, export)
+- **Edit** — talk to Scout in the editor; Scout sees your screen and applies 25+ targeted edits without re-rendering from scratch
+- **Publish** — direct upload to YouTube Shorts; formatted captions + hashtags for Instagram and TikTok
+
+---
+
+## Gemini Models
+
+Six Gemini models, each with a single focused responsibility:
+
+| Model                                       | Purpose                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `gemini-2.5-pro`                            | Script ReAct agent — up to 14 reasoning turns, self-evaluated quality score ≥ 70    |
+| `gemini-2.5-flash-tts`                      | Voiceover — raw PCM16 audio + word-level timestamps                                 |
+| `gemini-image-3.1-flash`                    | Scene images — 576×1024px per scene, image-to-image chaining for visual consistency |
+| `gemini-2.5-flash`                          | Visual QA (scores 0–10, regenerates if < 5) · PDF OCR · caption formatting          |
+| `gemini-2.0-flash-live`                     | Scout agent — bidirectional audio stream + 1 FPS screen frame injection             |
+| `gemini-2.0-flash-preview-image-generation` | Creative Director — interleaved text + image in a single API stream                 |
 
 ---
 
 ## Architecture
 
-### System Overview
-![System Architecture](docs/arch-system.svg)
+Five diagrams covering the full system — from user input to GCP infrastructure.
+
+### User Input & Wizard Flow
+
+![User Input](docs/gg_user_input.png)
+
+### Script Generation
+
+![Script Generation](docs/gg_script_generation.png)
 
 ### Video Generation Pipeline
-![Pipeline](docs/arch-pipeline.svg)
+
+![Video Generation](docs/gg_video_generation.png)
+
+### Scout — Editing Agent
+
+![Editing Agent](docs/gg_editing_agent.png)
+
+### GCP Services
+
+![GCP Services](docs/gg_services.png)
 
 ---
 
-## Features & Functionality
+## Features
 
-### 1. Scout — Live Voice Agent *(Live Agents track)*
+### 1. Scout — Live Voice Agent _(Live Agents track)_
 
 Scout is a Gemini Live-powered conversational agent with two modes:
 
@@ -48,6 +94,7 @@ Scout is a Gemini Live-powered conversational agent with two modes:
 - **Edit mode** (`WS /api/v1/projects/{id}/edit-voice`) — Scout edits an existing project; sees the screen and applies 25+ tools across music, captions, text overlays, images, effects, and timing
 
 Shared capabilities:
+
 - Continuous WebSocket audio (16 kHz PCM16 in, 24 kHz out) with **natural interruption** support via browser-side VAD
 - **25+ edit tools** including `set_background_music`, `generate_lyria_music`, `update_caption_style`, `add_hook_title`, `add_text_overlay`, `apply_effect` (14 visual effects), `edit_selected_image`, `generate_image_for_scene`, `trim_element`, `move_element`, `delete_element`
 - Stateful session context — Scout tracks the current project, selected elements, and timeline position across turns
@@ -57,7 +104,7 @@ Shared capabilities:
 
 ---
 
-### 2. Screen Sharing Agent *(UI Navigator track)*
+### 2. Screen Sharing Agent _(UI Navigator track)_
 
 When the user clicks "Share Screen", Scout gains visual awareness:
 
@@ -74,11 +121,11 @@ When the user clicks "Share Screen", Scout gains visual awareness:
 
 A **Gemini 2.5 Pro ReAct agent** runs a multi-turn reasoning loop (up to 14 turns) from any input:
 
-| Input mode | What happens |
-|------------|--------------|
+| Input mode | What happens                                                       |
+| ---------- | ------------------------------------------------------------------ |
 | **Speech** | Mic audio → Gemini transcribes + detects tone → feeds script agent |
-| **Text** | Free-form text or PDF (OCR via Gemini) → script agent |
-| **Preset** | Niche topic → Reddit trending hooks injected → script agent |
+| **Text**   | Free-form text or PDF (OCR via Gemini) → script agent              |
+| **Preset** | Niche topic → Reddit trending hooks injected → script agent        |
 
 Internal tools: `search_trending_hooks`, `analyze_brand_voice`, `optimize_for_platform`, `validate_script_quality`. Output: scenes, voiceover text, CTA, and social copy for TikTok / Instagram / YouTube.
 
@@ -99,28 +146,28 @@ Stage 7    Export                      Platform resize + local/GCS upload
          + Timeline                    Twick-compatible JSON timeline
 ```
 
-| Stage | Technology |
-|-------|-----------|
-| **Voiceover** | Gemini 2.5 Flash Preview TTS — raw PCM16 → WAV |
+| Stage            | Technology                                                                 |
+| ---------------- | -------------------------------------------------------------------------- |
+| **Voiceover**    | Gemini 2.5 Flash Preview TTS — raw PCM16 → WAV                             |
 | **Scene Images** | Gemini Image 3.1 Flash — character consistency via image-to-image chaining |
-| **Animation** | FFmpeg `zoompan` Ken Burns filter (dolly, crane, zoom variants) |
-| **Captions** | Word-level SRT, 8 style presets (Beast, Karaoke, Majestic, etc.) |
-| **Composition** | FFmpeg: concat → mix audio → burn captions → mix music |
-| **Export** | YouTube Shorts, Instagram Reels, TikTok (1080×1920, platform bitrates) |
+| **Animation**    | FFmpeg `zoompan` Ken Burns filter (dolly, crane, zoom variants)            |
+| **Captions**     | Word-level SRT, 8 style presets (Beast, Karaoke, Majestic, etc.)           |
+| **Composition**  | FFmpeg: concat → mix audio → burn captions → mix music                     |
+| **Export**       | YouTube Shorts, Instagram Reels, TikTok (1080×1920, platform bitrates)     |
 
 ---
 
-### 5. Creative Director — Interleaved Multimodal *(Creative Storyteller track)*
+### 5. Creative Director — Interleaved Multimodal _(Creative Storyteller track)_
 
 Uses `gemini-2.0-flash-preview-image-generation` with `response_modalities=["TEXT", "IMAGE"]` to stream a single interleaved output — alternating text narration and generated images in one coherent flow:
 
-| Mode | Output |
-|------|--------|
-| `storybook` | Illustrated story chapters — narration interleaved with scene images |
-| `marketing` | Brand copy + visuals + social package in one stream |
-| `educational` | Narration woven with inline diagrams and explanatory imagery |
-| `social_content` | Caption + generated image + hashtags as a single cohesive output |
-| `manga` | Manga-style comic panels with dialogue and action sequences |
+| Mode             | Output                                                               |
+| ---------------- | -------------------------------------------------------------------- |
+| `storybook`      | Illustrated story chapters — narration interleaved with scene images |
+| `marketing`      | Brand copy + visuals + social package in one stream                  |
+| `educational`    | Narration woven with inline diagrams and explanatory imagery         |
+| `social_content` | Caption + generated image + hashtags as a single cohesive output     |
+| `manga`          | Manga-style comic panels with dialogue and action sequences          |
 
 **Key file:** [`backend/services/gemini/interleaved.py`](backend/services/gemini/interleaved.py)
 
@@ -152,33 +199,36 @@ Direct YouTube upload via OAuth2. Instagram / TikTok manual download with format
 
 ---
 
-## Spin-Up Instructions
+## Quick Start
 
 ### Option 1: Docker (Recommended for judges)
 
 Requires **Docker Desktop** and a **Gemini API key**. No GCP account needed — auth, storage, and DB all use local fallbacks automatically.
 
 **Step 1 — Create `backend/.env`:**
+
 ```bash
 cp backend/.env.example backend/.env
 ```
 
 Open `backend/.env` and set **one variable**:
+
 ```
 GEMINI_API_KEY=your_key_here   # https://aistudio.google.com/apikey
 ```
 
 **Step 2 — Build and run:**
+
 ```bash
 docker compose up --build
 ```
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| API | http://localhost:8000 |
-| API docs | http://localhost:8000/docs |
-| Health | http://localhost:8000/health |
+| Service  | URL                          |
+| -------- | ---------------------------- |
+| Frontend | http://localhost:3000        |
+| API      | http://localhost:8000        |
+| API docs | http://localhost:8000/docs   |
+| Health   | http://localhost:8000/health |
 
 - No login required — auth is bypassed in Docker mode, you land directly in the app.
 - Generated videos are saved to a Docker volume (`outputs_data`) and served at `http://localhost:8000/outputs/...`, persisted across restarts.
@@ -193,6 +243,7 @@ docker compose up --build
 **Prerequisites:** Python 3.12+, Node.js 20+, `pnpm`, `ffmpeg`
 
 **Backend:**
+
 ```bash
 cd backend
 pip install -r requirements.txt
@@ -205,6 +256,7 @@ uvicorn main:app --reload --port 8000
 ```
 
 **Frontend:**
+
 ```bash
 cd frontend-sky
 pnpm install
@@ -216,6 +268,7 @@ pnpm dev
 ```
 
 **Timeline Render Worker (optional — for editor exports):**
+
 ```bash
 cd timeline-render-worker
 npm install
@@ -230,15 +283,15 @@ node server.mjs
 
 **`backend/.env`** — the only file you need to create:
 
-| Variable | Docker | Manual / Cloud Run | Description |
-|----------|--------|--------------------|-------------|
-| `GEMINI_API_KEY` | **Required** | **Required** | API key from [AI Studio](https://aistudio.google.com/apikey) |
-| `GOOGLE_CLOUD_PROJECT` | Not needed | Required for GCS/Firestore | GCP project ID |
-| `GCS_BUCKET` | Not needed | Required for GCS storage | Cloud Storage bucket name |
-| `USE_VERTEX_AI` | No | No | `true` to use Vertex AI instead of API key (default: `false`) |
-| `WORKER_URL` | Not needed | Cloud Run only | Worker service URL — blank = synchronous local pipeline |
-| `TIMELINE_RENDER_WORKER_URL` | Auto-set by Docker | Optional | Renderer URL |
-| `SENDGRID_API_KEY` | No | No | Email notifications on video completion |
+| Variable                     | Docker             | Manual / Cloud Run         | Description                                                   |
+| ---------------------------- | ------------------ | -------------------------- | ------------------------------------------------------------- |
+| `GEMINI_API_KEY`             | **Required**       | **Required**               | API key from [AI Studio](https://aistudio.google.com/apikey)  |
+| `GOOGLE_CLOUD_PROJECT`       | Not needed         | Required for GCS/Firestore | GCP project ID                                                |
+| `GCS_BUCKET`                 | Not needed         | Required for GCS storage   | Cloud Storage bucket name                                     |
+| `USE_VERTEX_AI`              | No                 | No                         | `true` to use Vertex AI instead of API key (default: `false`) |
+| `WORKER_URL`                 | Not needed         | Cloud Run only             | Worker service URL — blank = synchronous local pipeline       |
+| `TIMELINE_RENDER_WORKER_URL` | Auto-set by Docker | Optional                   | Renderer URL                                                  |
+| `SENDGRID_API_KEY`           | No                 | No                         | Email notifications on video completion                       |
 
 In Docker mode, `GOOGLE_CLOUD_PROJECT` and `GCS_BUCKET` are intentionally left empty — the app falls back to local filesystem storage and in-memory project metadata automatically.
 
@@ -251,11 +304,13 @@ Full variable reference: [`backend/.env.example`](backend/.env.example)
 ### Proof of Cloud Deployment
 
 Live health check (no auth required):
+
 ```
 https://voicevid-api-arkk5ohwka-uc.a.run.app/health
 ```
 
 Verify the running services via gcloud:
+
 ```bash
 gcloud run services describe voicevid-api --region=us-central1 --project=voicevid
 gcloud run services describe voicevid-worker --region=us-central1 --project=voicevid
@@ -269,23 +324,26 @@ Deployment is fully automated via [`deploy.sh`](deploy.sh) + [`backend/cloudbuil
 
 The backend runs as two Cloud Run services in `us-central1`:
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| `voicevid-api` | https://voicevid-api-arkk5ohwka-uc.a.run.app | Public API + WebSocket endpoints |
-| `voicevid-worker` | Internal (Cloud Tasks only) | Video pipeline worker (4 GB, 900s timeout) |
+| Service           | URL                                          | Purpose                                    |
+| ----------------- | -------------------------------------------- | ------------------------------------------ |
+| `voicevid-api`    | https://voicevid-api-arkk5ohwka-uc.a.run.app | Public API + WebSocket endpoints           |
+| `voicevid-worker` | Internal (Cloud Tasks only)                  | Video pipeline worker (4 GB, 900s timeout) |
 
 **Deploy:**
+
 ```bash
 ./deploy.sh   # Cloud Build → Artifact Registry → Cloud Run (both services)
 ```
 
 **View logs:**
+
 ```bash
 gcloud run services logs read voicevid-api --region=us-central1 --project=voicevid
 gcloud run services logs read voicevid-worker --region=us-central1 --project=voicevid
 ```
 
 **GCP services in use:**
+
 - Cloud Run (voicevid-api + voicevid-worker)
 - Cloud Build + Artifact Registry (Docker CI/CD)
 - Cloud Tasks (`video-generation` queue, us-central1, max 2 retries)
@@ -299,37 +357,41 @@ gcloud run services logs read voicevid-worker --region=us-central1 --project=voi
 ## Technologies Used
 
 ### Backend
-| Technology | Role |
-|-----------|------|
-| **Python 3.12 + FastAPI** | API server, WebSocket + SSE endpoints |
+
+| Technology                            | Role                                                                 |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| **Python 3.12 + FastAPI**             | API server, WebSocket + SSE endpoints                                |
 | **Google GenAI SDK (`google-genai`)** | All Gemini calls — script, images, TTS, OCR, transcription, Live API |
-| **Vertex AI** | Production inference for stable Gemini models |
-| **FFmpeg** | Ken Burns animation, caption burn, audio mix, platform export |
-| **Cloud Run** | Serverless container hosting (API + Worker) |
-| **Cloud Tasks** | Async job queue for long-running video pipeline |
-| **Cloud Firestore** | Project metadata storage |
-| **Cloud Storage** | Video, audio, image, and asset storage |
-| **Firebase Admin SDK** | User authentication verification |
-| **Secret Manager** | API key and OAuth credential management |
+| **Vertex AI**                         | Production inference for stable Gemini models                        |
+| **FFmpeg**                            | Ken Burns animation, caption burn, audio mix, platform export        |
+| **Cloud Run**                         | Serverless container hosting (API + Worker)                          |
+| **Cloud Tasks**                       | Async job queue for long-running video pipeline                      |
+| **Cloud Firestore**                   | Project metadata storage                                             |
+| **Cloud Storage**                     | Video, audio, image, and asset storage                               |
+| **Firebase Admin SDK**                | User authentication verification                                     |
+| **Secret Manager**                    | API key and OAuth credential management                              |
 
 ### Timeline Render Worker
-| Technology | Role |
-|-----------|------|
-| **Node.js + Puppeteer** | Headless Chromium for Twick renderer |
-| **@twick/core + @twick/renderer** | Timeline-to-video rendering |
-| **@twick/ffmpeg** | FFmpeg integration in Node context |
+
+| Technology                        | Role                                 |
+| --------------------------------- | ------------------------------------ |
+| **Node.js + Puppeteer**           | Headless Chromium for Twick renderer |
+| **@twick/core + @twick/renderer** | Timeline-to-video rendering          |
+| **@twick/ffmpeg**                 | FFmpeg integration in Node context   |
 
 ### Frontend
-| Technology | Role |
-|-----------|------|
-| **Next.js 15 (App Router)** | React 19 framework |
-| **Tailwind CSS v4 + Framer Motion** | Styling and animations |
-| **Radix UI** | Accessible component primitives |
-| **Web Audio API** | Raw PCM16 mic capture + VAD for live sessions |
-| **MediaDevices API** | Screen capture (`getDisplayMedia`) |
-| **Firebase Auth** | User authentication |
+
+| Technology                          | Role                                          |
+| ----------------------------------- | --------------------------------------------- |
+| **Next.js 15 (App Router)**         | React 19 framework                            |
+| **Tailwind CSS v4 + Framer Motion** | Styling and animations                        |
+| **Radix UI**                        | Accessible component primitives               |
+| **Web Audio API**                   | Raw PCM16 mic capture + VAD for live sessions |
+| **MediaDevices API**                | Screen capture (`getDisplayMedia`)            |
+| **Firebase Auth**                   | User authentication                           |
 
 ### External Data Sources
+
 - **Reddit API** — trending hooks and post content for preset-based scripts
 - **YouTube Data API v3** — OAuth upload and channel management
 - **Lyria (Google)** — AI music generation for background tracks
@@ -372,7 +434,7 @@ GET    /docs                                      Swagger UI
 
 ---
 
-## Findings & Learnings
+## Key Learnings
 
 **Gemini Model Routing (API Key vs Vertex AI)**
 The `google-genai` SDK silently switches to Vertex AI when `GOOGLE_CLOUD_PROJECT` is set — even when an explicit `api_key` is provided. Fix: always pass `vertexai=False` explicitly for API-key-based clients. Critical for preview models (image generation, TTS preview) that are only available via API key.
@@ -397,3 +459,5 @@ Browser-side VAD (RMS threshold on captured PCM16 audio) lets the user cut Scout
 
 **Twick + Puppeteer for Timeline Export**
 Rendering a Twick JSON timeline to MP4 server-side requires a real browser (Twick uses React + WebGL). Puppeteer in headless mode spins up a Chromium instance running the Twick visualizer, captures frames, and pipes them to FFmpeg — giving exact visual fidelity between the in-browser editor and the final export.
+
+---
